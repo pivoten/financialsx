@@ -1,5 +1,4 @@
-# ===== macOS =====
-# Finder metadata, resource forks, and system trash
+# ===== macOS (consider moving these to a global ~/.gitignore_global) =====
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -9,11 +8,32 @@
 .fseventsd/
 .VolumeIcon.icns
 
-# ===== VSCode =====
+# ===== VSCode (workspace settings are ignored by default) =====
 .vscode/
-# If you DO want to commit selected VSCode settings (e.g., workspace settings or extensions), uncomment:
+# To commit specific VSCode workspace settings, uncomment:
 # !.vscode/settings.json
 # !.vscode/extensions.json
+
+# ===== Local / tool-specific =====
+.claude/
+# optional scratch folder (ignore if it's ephemeral)
+# (desktop contains project code; do not ignore wholesale)
+
+# Wails build output
+desktop/build/
+
+# ===== Node / frontend =====
+node_modules/
+frontend/dist/
+desktop/frontend/dist/
+
+# Common debug/log outputs from JS tooling (optional)
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== Build artifacts =====
+build/bin/
 
 # ===== Go =====
 # Executables and test binaries
@@ -24,19 +44,29 @@
 *.test
 *.out
 
-# Coverage/profiling output
+# Coverage / profiling output
 coverage.out
 *.coverprofile
 
-# Build output directories (if you emit builds here)
+# Go build output dirs (if you emit builds here)
 bin/
 pkg/
 
-# Vendor directory: uncomment if you do NOT want to commit vendored deps
+# Vendored deps (uncomment if you are NOT committing vendor/)
 # vendor/
+
+# ===== Environment / secrets (optional, be intentional) =====
+.env
+.env.local
+.env.*.local
 
 # ===== Misc common temp/editor files =====
 *~
 *.swp
 *.tmp
 *.backup
+
+# ===== Other =====
+# If you intend to ignore this docs folder:
+docs/go-dbase-main/
+/datafiles/

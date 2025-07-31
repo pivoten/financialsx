@@ -6,6 +6,14 @@ export function GetCompanies() {
   return window['go']['main']['App']['GetCompanies']();
 }
 
+export function GetDBFFiles(arg1) {
+  return window['go']['main']['App']['GetDBFFiles'](arg1);
+}
+
+export function GetDBFTableData(arg1, arg2) {
+  return window['go']['main']['App']['GetDBFTableData'](arg1, arg2);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -20,6 +28,14 @@ export function Logout(arg1) {
 
 export function Register(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Register'](arg1, arg2, arg3, arg4);
+}
+
+export function SearchDBFTable(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SearchDBFTable'](arg1, arg2, arg3);
+}
+
+export function UpdateDBFRecord(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateDBFRecord'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ValidateSession(arg1, arg2) {

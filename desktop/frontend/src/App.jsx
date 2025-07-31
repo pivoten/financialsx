@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { RevenueChart } from './components/charts/RevenueChart'
 import { ProductionChart } from './components/charts/ProductionChart'
 import { TransactionsTable } from './components/tables/TransactionsTable'
+import { DBFExplorer } from './components/DBFExplorer'
 import { 
   Home, 
   Database, 
@@ -18,7 +19,8 @@ import {
   DollarSign,
   TrendingUp,
   Users,
-  Activity
+  Activity,
+  Table
 } from 'lucide-react'
 import './globals.css'
 
@@ -269,6 +271,14 @@ function AdvancedDashboard({ currentUser, onLogout }) {
           <SidebarNavGroup title="Management">
             <SidebarNavItem 
               href="#" 
+              active={activeView === 'dbf-explorer'}
+              onClick={() => setActiveView('dbf-explorer')}
+            >
+              <Table className="w-4 h-4" />
+              DBF Explorer
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
               active={activeView === 'db-maintenance'}
               onClick={() => setActiveView('db-maintenance')}
             >
@@ -308,6 +318,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dashboard' && 'Dashboard'}
                 {activeView === 'transactions' && 'Transactions'}
                 {activeView === 'analytics' && 'Analytics'}
+                {activeView === 'dbf-explorer' && 'DBF Explorer'}
                 {activeView === 'db-maintenance' && 'Database Maintenance'}
                 {activeView === 'state-reporting' && 'State Reporting'}
               </h2>
@@ -315,6 +326,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dashboard' && 'Overview of your financial data'}
                 {activeView === 'transactions' && 'View and manage all transactions'}
                 {activeView === 'analytics' && 'Detailed charts and reports'}
+                {activeView === 'dbf-explorer' && 'Browse and edit DBF tables like a spreadsheet'}
                 {activeView === 'db-maintenance' && 'Database management tools'}
                 {activeView === 'state-reporting' && 'West Virginia reporting'}
               </p>
@@ -433,6 +445,12 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </Card>
                 </TabsContent>
               </Tabs>
+            </div>
+          )}
+
+          {activeView === 'dbf-explorer' && (
+            <div className="space-y-6">
+              <DBFExplorer />
             </div>
           )}
 

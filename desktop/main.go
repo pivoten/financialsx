@@ -147,6 +147,40 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 	return user, nil
 }
 
+// GetDBFFiles returns list of DBF files for a company
+func (a *App) GetDBFFiles(companyName string) ([]string, error) {
+	files, err := company.GetDBFFiles(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DBF files: %w", err)
+	}
+	return files, nil
+}
+
+// GetDBFTableData returns the structure and data of a DBF file
+func (a *App) GetDBFTableData(companyName, fileName string) (map[string]interface{}, error) {
+	fmt.Printf("GetDBFTableData called: company=%s, file=%s\n", companyName, fileName)
+	
+	// Call the real DBF reading function without search
+	return company.ReadDBFFile(companyName, fileName, "")
+}
+
+// SearchDBFTable searches a DBF file and returns matching records
+func (a *App) SearchDBFTable(companyName, fileName, searchTerm string) (map[string]interface{}, error) {
+	fmt.Printf("SearchDBFTable called: company=%s, file=%s, search=%s\n", companyName, fileName, searchTerm)
+	
+	// Call the DBF reading function with search term
+	return company.ReadDBFFile(companyName, fileName, searchTerm)
+}
+
+// UpdateDBFRecord updates a specific record in a DBF file
+func (a *App) UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex int, value string) error {
+	err := company.UpdateDBFRecord(companyName, fileName, rowIndex, colIndex, value)
+	if err != nil {
+		return fmt.Errorf("failed to update DBF record: %w", err)
+	}
+	return nil
+}
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()

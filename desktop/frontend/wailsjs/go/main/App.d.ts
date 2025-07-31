@@ -17,6 +17,8 @@ export function Logout(arg1:string):Promise<void>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
+export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
 export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;
 
 export function ValidateSession(arg1:string,arg2:string):Promise<auth.User>;

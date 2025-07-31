@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Valentin-Kaiser/go-dbase/dbase"
 )
 
 // getDatafilesPath returns the path to the datafiles directory
@@ -177,4 +179,192 @@ func CreateCompanyDirectory(name string) error {
 	}
 
 	return nil
+}
+
+// GetDBFFiles returns a list of DBF files in the company directory
+func GetDBFFiles(companyName string) ([]string, error) {
+	datafilesPath, err := getDatafilesPath()
+	if err != nil {
+		return nil, err
+	}
+	
+	companyPath := filepath.Join(datafilesPath, companyName)
+	
+	// Check if company directory exists
+	if _, err := os.Stat(companyPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("company directory does not exist: %s", companyName)
+	}
+	
+	// Find all DBF files (case insensitive)
+	var dbfFiles []string
+	
+	err = filepath.Walk(companyPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		if !info.IsDir() && strings.ToLower(filepath.Ext(path)) == ".dbf" {
+			// Return just the filename, not the full path
+			filename := info.Name()
+			dbfFiles = append(dbfFiles, filename)
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan directory: %w", err)
+	}
+	
+	return dbfFiles, nil
+}
+
+// ReadDBFFile reads a DBF file and returns its structure and data
+// If searchTerm is provided, it searches across all records and returns only matching ones
+func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface{}, error) {
+	// Use defer/recover to prevent crashes
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("PANIC RECOVERED in ReadDBFFile %s/%s: %v\n", companyName, fileName, r)
+		}
+	}()
+	
+	fmt.Printf("ReadDBFFile: %s/%s - reading actual DBF data\n", companyName, fileName)
+	
+	datafilesPath, err := getDatafilesPath()
+	if err != nil {
+		return nil, err
+	}
+	
+	filePath := filepath.Join(datafilesPath, companyName, fileName)
+	fmt.Printf("Full file path: %s\n", filePath)
+	
+	// Check if file exists
+	if _, err := os.Stat(filePath); err != nil {
+		return nil, fmt.Errorf("DBF file does not exist: %s", fileName)
+	}
+	
+	// Open the DBF file using the correct API
+	fmt.Printf("Attempting to open DBF file...\n")
+	table, err := dbase.OpenTable(&dbase.Config{
+		Filename:   filePath,
+		TrimSpaces: true,
+	})
+	if err != nil {
+		fmt.Printf("ERROR opening DBF file: %v\n", err)
+		return nil, fmt.Errorf("failed to open DBF file: %w", err)
+	}
+	defer table.Close()
+	fmt.Printf("DBF file opened successfully\n")
+	
+	// Get column names
+	var columns []string
+	for _, column := range table.Columns() {
+		columns = append(columns, column.Name())
+	}
+	fmt.Printf("Found %d columns: %v\n", len(columns), columns)
+	
+	// Get total record count from header
+	totalRecords := table.Header().RecordsCount()
+	fmt.Printf("Total records in file: %d\n", totalRecords)
+	
+	// Read all records and count stats
+	var rows [][]interface{}
+	var deletedCount uint32 = 0
+	var activeCount uint32 = 0
+	var searchMatches uint32 = 0
+	isSearching := searchTerm != ""
+	searchLower := strings.ToLower(searchTerm)
+	
+	fmt.Printf("Starting to read records... (searching: %v)\n", isSearching)
+	
+	for !table.EOF() {
+		row, err := table.Next()
+		if err != nil {
+			fmt.Printf("Error reading row: %v\n", err)
+			break // End of file or error
+		}
+		
+		// Count deleted vs active rows
+		if row.Deleted {
+			deletedCount++
+			if deletedCount <= 10 {
+				fmt.Printf("Skipping deleted row at position %d\n", row.Position)
+			}
+			continue
+		}
+		
+		activeCount++
+		
+		// Convert row to interface slice
+		rowData := make([]interface{}, len(columns))
+		matchFound := false
+		
+		for i, column := range table.Columns() {
+			field := row.FieldByName(column.Name())
+			if field != nil {
+				rowData[i] = field.GetValue()
+				
+				// Check if this field matches the search term
+				if isSearching && !matchFound && field.GetValue() != nil {
+					fieldStr := strings.ToLower(fmt.Sprintf("%v", field.GetValue()))
+					if strings.Contains(fieldStr, searchLower) {
+						matchFound = true
+						searchMatches++
+					}
+				}
+			} else {
+				rowData[i] = ""
+			}
+		}
+		
+		// Only add row if we're not searching or if it matches
+		if !isSearching || matchFound {
+			rows = append(rows, rowData)
+			
+			// Limit results
+			if len(rows) >= 1000 {
+				fmt.Printf("Reached 1000 row limit, stopping\n")
+				break
+			}
+		}
+		
+		// Log progress every 1000 rows when searching (since we're checking all)
+		if isSearching && activeCount%1000 == 0 {
+			fmt.Printf("Searched %d active rows, found %d matches so far...\n", activeCount, searchMatches)
+		} else if !isSearching && len(rows)%100 == 0 {
+			fmt.Printf("Read %d rows so far...\n", len(rows))
+		}
+	}
+	
+	if isSearching {
+		fmt.Printf("Search complete. Searched %d active rows, found %d matches\n", activeCount, searchMatches)
+	} else {
+		fmt.Printf("Finished reading. Active rows: %d, Deleted rows: %d\n", activeCount, deletedCount)
+	}
+	
+	fmt.Printf("Successfully read DBF file %s: %d columns, %d rows returned\n", fileName, len(columns), len(rows))
+	
+	return map[string]interface{}{
+		"columns": columns,
+		"rows":    rows,
+		"stats": map[string]interface{}{
+			"totalRecords":   totalRecords,
+			"activeRecords":  activeCount,
+			"deletedRecords": deletedCount,
+			"loadedRecords":  len(rows),
+			"hasMoreRecords": activeCount > uint32(len(rows)),
+			"searchTerm":     searchTerm,
+			"searchMatches":  searchMatches,
+		},
+	}, nil
+}
+
+// UpdateDBFRecord updates a specific cell in a DBF file
+// Note: This is a simplified implementation that shows the update concept
+// For production use, you'd need more robust DBF editing capabilities
+func UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex int, value string) error {
+	// For now, return an informative error since DBF editing is complex
+	return fmt.Errorf("DBF editing is not yet fully implemented - this would update row %d, column %d with value '%s' in file %s for company %s", 
+		rowIndex, colIndex, value, fileName, companyName)
 }

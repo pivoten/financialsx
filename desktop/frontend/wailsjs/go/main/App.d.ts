@@ -5,6 +5,10 @@ import {auth} from '../models';
 
 export function GetCompanies():Promise<Array<company.Company>>;
 
+export function GetDBFFiles(arg1:string):Promise<Array<string>>;
+
+export function GetDBFTableData(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
@@ -12,5 +16,7 @@ export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string
 export function Logout(arg1:string):Promise<void>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
+
+export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;
 
 export function ValidateSession(arg1:string,arg2:string):Promise<auth.User>;

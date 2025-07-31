@@ -1,0 +1,42 @@
+# ===== macOS =====
+# Finder metadata, resource forks, and system trash
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd/
+.VolumeIcon.icns
+
+# ===== VSCode =====
+.vscode/
+# If you DO want to commit selected VSCode settings (e.g., workspace settings or extensions), uncomment:
+# !.vscode/settings.json
+# !.vscode/extensions.json
+
+# ===== Go =====
+# Executables and test binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage/profiling output
+coverage.out
+*.coverprofile
+
+# Build output directories (if you emit builds here)
+bin/
+pkg/
+
+# Vendor directory: uncomment if you do NOT want to commit vendored deps
+# vendor/
+
+# ===== Misc common temp/editor files =====
+*~
+*.swp
+*.tmp
+*.backup

@@ -150,8 +150,17 @@ func ValidateCompanyName(name string) error {
 
 // CreateCompanyDirectory creates a new company directory structure
 func CreateCompanyDirectory(name string) error {
-	if err := ValidateCompanyName(name); err != nil {
-		return err
+	// Only validate for empty name and invalid characters, not existence
+	if name == "" {
+		return fmt.Errorf("company name cannot be empty")
+	}
+
+	// Check for invalid characters
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	for _, char := range invalidChars {
+		if strings.Contains(name, char) {
+			return fmt.Errorf("company name contains invalid character: %s", char)
+		}
 	}
 
 	datafilesPath, err := getDatafilesPath()
@@ -162,7 +171,7 @@ func CreateCompanyDirectory(name string) error {
 	companyPath := filepath.Join(datafilesPath, name)
 	sqlPath := filepath.Join(companyPath, "sql")
 
-	// Create directories
+	// Create directories (os.MkdirAll doesn't fail if directory already exists)
 	if err := os.MkdirAll(sqlPath, 0755); err != nil {
 		return fmt.Errorf("failed to create company directories: %w", err)
 	}

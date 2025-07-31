@@ -58,7 +58,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
 		a.db = db
-		a.auth = auth.New(db)
+		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
 
 	user, session, err := a.auth.Login(username, password)
@@ -76,12 +76,9 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 
 // Register handles user registration
 func (a *App) Register(username, password, email, companyName string) (map[string]interface{}, error) {
-	// Create company directory if it doesn't exist
+	// Create company directory structure (including sql folder) if it doesn't exist
 	if err := company.CreateCompanyDirectory(companyName); err != nil {
-		// If company already exists, that's okay for registration
-		if err.Error() != fmt.Sprintf("company '%s' already exists", companyName) {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to create company directory: %w", err)
 	}
 
 	// Initialize database for the company
@@ -95,10 +92,10 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
 		a.db = db
-		a.auth = auth.New(db)
+		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
 
-	user, err := a.auth.Register(username, password, email, companyName)
+	user, err := a.auth.Register(username, password, email) // Remove companyName parameter
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +122,23 @@ func (a *App) Logout(token string) error {
 	return nil
 }
 
-// ValidateSession checks if a session is valid
-func (a *App) ValidateSession(token string) (*auth.User, error) {
-	if a.auth == nil {
-		return nil, fmt.Errorf("not connected to any company database")
+// ValidateSession checks if a session is valid for a specific company
+func (a *App) ValidateSession(token string, companyName string) (*auth.User, error) {
+	// Initialize database connection for the specific company
+	if a.db == nil || a.currentUser == nil || a.currentUser.CompanyName != companyName {
+		if a.db != nil {
+			a.db.Close()
+		}
+		
+		db, err := database.New(companyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to company database: %w", err)
+		}
+		a.db = db
+		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
 	
-	user, err := a.auth.ValidateSession(token)
+	user, err := a.auth.ValidateSession(token) // Remove companyName parameter
 	if err != nil {
 		return nil, err
 	}

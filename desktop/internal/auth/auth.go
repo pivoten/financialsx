@@ -20,42 +20,47 @@ var (
 )
 
 type Auth struct {
-	db *database.DB
+	db          *database.DB
+	companyName string
 }
 
 type User struct {
 	ID          int       `json:"id"`
 	Username    string    `json:"username"`
 	Email       string    `json:"email,omitempty"`
-	CompanyName string    `json:"company_name"`
+	CompanyName string    `json:"company_name"` // Derived from which database they're in
 	CreatedAt   time.Time `json:"created_at"`
 	LastLogin   *time.Time `json:"last_login,omitempty"`
 }
 
 type Session struct {
-	Token     string    `json:"token"`
-	UserID    int       `json:"user_id"`
-	ExpiresAt time.Time `json:"expires_at"`
+	Token       string    `json:"token"`
+	UserID      int       `json:"user_id"`
+	CompanyName string    `json:"company_name"` // Derived from which database the session is in
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
-func New(db *database.DB) *Auth {
-	return &Auth{db: db}
+func New(db *database.DB, companyName string) *Auth {
+	return &Auth{
+		db:          db,
+		companyName: companyName,
+	}
 }
 
-func (a *Auth) Register(username, password, email, companyName string) (*User, error) {
+func (a *Auth) Register(username, password, email string) (*User, error) {
 	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Insert user
+	// Insert user (no company_name field)
 	query := `
-		INSERT INTO users (username, password_hash, email, company_name)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO users (username, password_hash, email)
+		VALUES (?, ?, ?)
 	`
 	
-	result, err := a.db.GetConn().Exec(query, username, string(hashedPassword), email, companyName)
+	result, err := a.db.GetConn().Exec(query, username, string(hashedPassword), email)
 	if err != nil {
 		if err.Error() == "UNIQUE constraint failed: users.username" {
 			return nil, ErrUserExists
@@ -72,24 +77,24 @@ func (a *Auth) Register(username, password, email, companyName string) (*User, e
 		ID:          int(id),
 		Username:    username,
 		Email:       email,
-		CompanyName: companyName,
+		CompanyName: a.companyName, // Derived from which database this Auth instance is connected to
 		CreatedAt:   time.Now(),
 	}, nil
 }
 
 func (a *Auth) Login(username, password string) (*User, *Session, error) {
-	// Get user
+	// Get user (no company_name in database)
 	var user User
 	var passwordHash string
 	
 	query := `
-		SELECT id, username, password_hash, email, company_name, created_at, last_login
+		SELECT id, username, password_hash, email, created_at, last_login
 		FROM users WHERE username = ?
 	`
 	
 	err := a.db.GetConn().QueryRow(query, username).Scan(
 		&user.ID, &user.Username, &passwordHash, &user.Email, 
-		&user.CompanyName, &user.CreatedAt, &user.LastLogin,
+		&user.CreatedAt, &user.LastLogin,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -97,6 +102,9 @@ func (a *Auth) Login(username, password string) (*User, *Session, error) {
 		}
 		return nil, nil, fmt.Errorf("failed to get user: %w", err)
 	}
+
+	// Set company name from Auth instance (derived from database location)
+	user.CompanyName = a.companyName
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
@@ -121,19 +129,19 @@ func (a *Auth) Login(username, password string) (*User, *Session, error) {
 }
 
 func (a *Auth) ValidateSession(token string) (*User, error) {
-	// Get session and user
+	// Get session and user from this database (company isolation is implicit)
 	var user User
 	var expiresAt time.Time
 	
 	query := `
-		SELECT u.id, u.username, u.email, u.company_name, u.created_at, u.last_login, s.expires_at
+		SELECT u.id, u.username, u.email, u.created_at, u.last_login, s.expires_at
 		FROM sessions s
 		JOIN users u ON s.user_id = u.id
 		WHERE s.token = ?
 	`
 	
 	err := a.db.GetConn().QueryRow(query, token).Scan(
-		&user.ID, &user.Username, &user.Email, &user.CompanyName,
+		&user.ID, &user.Username, &user.Email,
 		&user.CreatedAt, &user.LastLogin, &expiresAt,
 	)
 	if err != nil {
@@ -142,6 +150,9 @@ func (a *Auth) ValidateSession(token string) (*User, error) {
 		}
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
+
+	// Set company name from Auth instance (derived from database location)
+	user.CompanyName = a.companyName
 
 	// Check if expired
 	if time.Now().After(expiresAt) {
@@ -171,7 +182,7 @@ func (a *Auth) createSession(userID int) (*Session, error) {
 	// Set expiration (24 hours)
 	expiresAt := time.Now().Add(24 * time.Hour)
 	
-	// Insert session
+	// Insert session (no company_name field)
 	_, err := a.db.GetConn().Exec(
 		"INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
 		userID, token, expiresAt,
@@ -181,8 +192,9 @@ func (a *Auth) createSession(userID int) (*Session, error) {
 	}
 
 	return &Session{
-		Token:     token,
-		UserID:    userID,
-		ExpiresAt: expiresAt,
+		Token:       token,
+		UserID:      userID,
+		CompanyName: a.companyName, // Derived from Auth instance
+		ExpiresAt:   expiresAt,
 	}, nil
 }

@@ -57,15 +57,17 @@ export class Auth {
 
     async checkSession() {
         const token = localStorage.getItem('session_token');
+        const companyName = localStorage.getItem('company_name');
         console.log('Session token:', token ? 'present' : 'not found');
+        console.log('Company name:', companyName);
         
-        if (!token) {
+        if (!token || !companyName) {
             return false;
         }
 
         try {
             console.log('Validating session...');
-            this.currentUser = await ValidateSession(token);
+            this.currentUser = await ValidateSession(token, companyName);
             console.log('Session valid, user:', this.currentUser);
             return true;
         } catch (err) {

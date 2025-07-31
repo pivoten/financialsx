@@ -69,4 +69,6 @@ pkg/
 # ===== Other =====
 # If you intend to ignore this docs folder:
 docs/go-dbase-main/
+docs/legacy_wvoperator/
+docs/mineraldesk/
 /datafiles/

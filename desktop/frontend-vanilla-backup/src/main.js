@@ -1,6 +1,7 @@
 import './style.css';
 import './app.css';
 import './auth.css';
+import './dashboard.css';
 
 import logo from './assets/images/pivoten.logo.png';
 import { auth } from './auth';
@@ -10,6 +11,7 @@ import { LoginForm, RegisterForm, Dashboard } from './components';
 class App {
     constructor() {
         this.appElement = document.querySelector('#app');
+        this.currentPage = 'home';
         this.init().catch(console.error);
     }
 
@@ -146,13 +148,69 @@ class App {
             return;
         }
         
-        this.appElement.innerHTML = Dashboard(auth.currentUser);
+        this.appElement.innerHTML = Dashboard(auth.currentUser, this.currentPage);
         
         // Setup logout handler
         document.getElementById('logout-btn').addEventListener('click', async () => {
             await auth.logout();
             this.showLogin();
         });
+        
+        // Setup navigation handlers
+        this.setupNavigation();
+    }
+    
+    setupNavigation() {
+        // Handle navigation clicks
+        document.querySelectorAll('.nav-link[data-page]').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const page = link.getAttribute('data-page');
+                this.navigateToPage(page);
+            });
+        });
+        
+        // Handle submenu toggles
+        document.querySelectorAll('.has-submenu > .nav-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const submenu = link.parentElement.querySelector('.submenu');
+                if (submenu) {
+                    submenu.classList.toggle('expanded');
+                }
+            });
+        });
+    }
+    
+    navigateToPage(page) {
+        this.currentPage = page;
+        
+        // Update content area
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = this.getPageContent(page, auth.currentUser);
+        }
+        
+        // Update navigation active states
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Set active state for current page
+        const activeLink = document.querySelector(`[data-page="${page}"]`);
+        if (activeLink) {
+            activeLink.closest('.nav-item').classList.add('active');
+            
+            // Expand parent submenu if needed
+            const submenu = activeLink.closest('.submenu');
+            if (submenu) {
+                submenu.classList.add('expanded');
+            }
+        }
+    }
+    
+    getPageContent(page, user) {
+        // Simple routing - just refresh the dashboard with the new page
+        this.showDashboard();
     }
 }
 
@@ -183,4 +241,9 @@ style.textContent = `
 document.head.appendChild(style);
 
 // Initialize app
-new App();
+const app = new App();
+
+// Global navigation function for use in components
+window.navigateToPage = function(page) {
+    app.navigateToPage(page);
+};

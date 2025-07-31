@@ -78,7 +78,6 @@ func (db *DB) initSchema() error {
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		email TEXT,
-		company_name TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_login DATETIME
 	);

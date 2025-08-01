@@ -4,11 +4,14 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/pivoten/financialsx/desktop/internal/auth"
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
 	"github.com/pivoten/financialsx/desktop/internal/database"
+	"github.com/pivoten/financialsx/desktop/internal/processes"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -329,6 +332,190 @@ func (a *App) TestAPIKey(service, key string) (bool, error) {
 	default:
 		return false, fmt.Errorf("unknown service: %s", service)
 	}
+}
+
+// Process Management Functions
+
+// RunClosingProcess executes the month-end closing process
+func (a *App) RunClosingProcess(periodEnd, closingDate, description string, forceClose bool) (map[string]interface{}, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("database.maintain") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	closingDateTime, err := time.Parse("2006-01-02", closingDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid closing date: %w", err)
+	}
+
+	config := &processes.ClosingConfig{
+		PeriodEnd:   periodEndDate,
+		ClosingDate: closingDateTime,
+		Description: description,
+		UserId:      a.currentUser.ID,
+		ForceClose:  forceClose,
+	}
+
+	result, err := closingProcess.RunClosing(config)
+	if err != nil {
+		return nil, fmt.Errorf("closing process failed: %w", err)
+	}
+
+	// Convert result to map for JSON serialization
+	return map[string]interface{}{
+		"closing_id":        result.ClosingID,
+		"status":           result.Status,
+		"records_processed": result.RecordsProcessed,
+		"tables_updated":   result.TablesUpdated,
+		"warnings":         result.Warnings,
+		"errors":           result.Errors,
+		"duration":         result.Duration.String(),
+		"start_time":       result.StartTime,
+		"end_time":         result.EndTime,
+	}, nil
+}
+
+// GetClosingStatus returns the status of a period
+func (a *App) GetClosingStatus(periodEnd string) (string, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("database.read") {
+		return "", fmt.Errorf("insufficient permissions")
+	}
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return "", fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
+
+	return closingProcess.GetClosingStatus(periodEndDate)
+}
+
+// ReopenPeriod reopens a closed period
+func (a *App) ReopenPeriod(periodEnd, reason string) error {
+	// Check permissions - only root/admin can reopen
+	if a.currentUser == nil || !a.currentUser.IsAdmin() {
+		return fmt.Errorf("insufficient permissions")
+	}
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
+
+	return closingProcess.ReopenPeriod(periodEndDate, a.currentUser.ID, reason)
+}
+
+// Net Distribution Functions
+
+// RunNetDistribution executes the net distribution process
+func (a *App) RunNetDistribution(periodStart, periodEnd string, processType string, recalculateAll bool) (map[string]interface{}, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("database.maintain") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
+
+	periodStartDate, err := time.Parse("2006-01-02", periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period start date: %w", err)
+	}
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	config := &processes.NetDistributionConfig{
+		PeriodStart:    periodStartDate,
+		PeriodEnd:      periodEndDate,
+		ProcessType:    processType,
+		RecalculateAll: recalculateAll,
+		UserId:         a.currentUser.ID,
+	}
+
+	result, err := netDistProcess.RunDistribution(config)
+	if err != nil {
+		return nil, fmt.Errorf("net distribution process failed: %w", err)
+	}
+
+	// Convert result to map for JSON serialization
+	return map[string]interface{}{
+		"process_id":       result.ProcessID,
+		"status":          result.Status,
+		"wells_processed": result.WellsProcessed,
+		"owners_processed": result.OwnersProcessed,
+		"records_created":  result.RecordsCreated,
+		"total_revenue":    result.TotalRevenue,
+		"total_expenses":   result.TotalExpenses,
+		"net_distributed":  result.NetDistributed,
+		"warnings":        result.Warnings,
+		"errors":          result.Errors,
+		"duration":        result.Duration.String(),
+		"start_time":      result.StartTime,
+		"end_time":        result.EndTime,
+	}, nil
+}
+
+// GetNetDistributionStatus returns the status of net distribution for a period
+func (a *App) GetNetDistributionStatus(periodStart, periodEnd string) (map[string]interface{}, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+
+	periodStartDate, err := time.Parse("2006-01-02", periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period start date: %w", err)
+	}
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
+
+	return netDistProcess.GetDistributionStatus(periodStartDate, periodEndDate)
+}
+
+// ExportNetDistribution exports distribution results to DBF format
+func (a *App) ExportNetDistribution(periodStart, periodEnd, outputPath string) error {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("database.read") {
+		return fmt.Errorf("insufficient permissions")
+	}
+
+	periodStartDate, err := time.Parse("2006-01-02", periodStart)
+	if err != nil {
+		return fmt.Errorf("invalid period start date: %w", err)
+	}
+
+	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+	if err != nil {
+		return fmt.Errorf("invalid period end date: %w", err)
+	}
+
+	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
+	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
+
+	return netDistProcess.ExportDistributionToDBF(periodStartDate, periodEndDate, outputPath)
 }
 
 func main() {

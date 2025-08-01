@@ -5,11 +5,15 @@ import {company} from '../models';
 
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;
 
+export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function GetAPIKey(arg1:string):Promise<string>;
 
 export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
+
+export function GetClosingStatus(arg1:string):Promise<string>;
 
 export function GetCompanies():Promise<Array<company.Company>>;
 
@@ -23,6 +27,8 @@ export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:nu
 
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
+export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
@@ -30,6 +36,12 @@ export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string
 export function Logout(arg1:string):Promise<void>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
+
+export function ReopenPeriod(arg1:string,arg2:string):Promise<void>;
+
+export function RunClosingProcess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
+
+export function RunNetDistribution(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
 
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 

@@ -6,6 +6,10 @@ export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportNetDistribution(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportNetDistribution'](arg1, arg2, arg3);
+}
+
 export function GetAPIKey(arg1) {
   return window['go']['main']['App']['GetAPIKey'](arg1);
 }
@@ -16,6 +20,10 @@ export function GetAllRoles() {
 
 export function GetAllUsers() {
   return window['go']['main']['App']['GetAllUsers']();
+}
+
+export function GetClosingStatus(arg1) {
+  return window['go']['main']['App']['GetClosingStatus'](arg1);
 }
 
 export function GetCompanies() {
@@ -42,6 +50,10 @@ export function GetDashboardData(arg1) {
   return window['go']['main']['App']['GetDashboardData'](arg1);
 }
 
+export function GetNetDistributionStatus(arg1, arg2) {
+  return window['go']['main']['App']['GetNetDistributionStatus'](arg1, arg2);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -56,6 +68,18 @@ export function Logout(arg1) {
 
 export function Register(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Register'](arg1, arg2, arg3, arg4);
+}
+
+export function ReopenPeriod(arg1, arg2) {
+  return window['go']['main']['App']['ReopenPeriod'](arg1, arg2);
+}
+
+export function RunClosingProcess(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RunClosingProcess'](arg1, arg2, arg3, arg4);
+}
+
+export function RunNetDistribution(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RunNetDistribution'](arg1, arg2, arg3, arg4);
 }
 
 export function SearchDBFTable(arg1, arg2, arg3) {

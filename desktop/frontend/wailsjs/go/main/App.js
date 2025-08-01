@@ -14,6 +14,10 @@ export function GetDBFTableData(arg1, arg2) {
   return window['go']['main']['App']['GetDBFTableData'](arg1, arg2);
 }
 
+export function GetDashboardData(arg1) {
+  return window['go']['main']['App']['GetDashboardData'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }

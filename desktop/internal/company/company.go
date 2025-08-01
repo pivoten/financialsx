@@ -368,3 +368,122 @@ func UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex int, value
 	return fmt.Errorf("DBF editing is not yet fully implemented - this would update row %d, column %d with value '%s' in file %s for company %s", 
 		rowIndex, colIndex, value, fileName, companyName)
 }
+
+// GetDashboardData analyzes DBF files and returns dashboard statistics
+func GetDashboardData(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("Getting dashboard data for company: %s\n", companyName)
+	
+	dashboard := map[string]interface{}{
+		"company": companyName,
+		"widgets": map[string]interface{}{},
+	}
+	
+	// Get basic file statistics
+	if fileStats, err := getFileStatistics(companyName); err == nil {
+		dashboard["fileStats"] = fileStats
+	}
+	
+	// Try to get financial data from INCOME and EXPENSE files
+	if financials, err := getFinancialSummary(companyName); err == nil {
+		dashboard["financials"] = financials
+	}
+	
+	// Try to get well data
+	if wells, err := getWellSummary(companyName); err == nil {
+		dashboard["wells"] = wells
+	}
+	
+	// Try to get check activity
+	if checks, err := getCheckActivity(companyName); err == nil {
+		dashboard["checks"] = checks
+	}
+	
+	return dashboard, nil
+}
+
+// Helper function to get basic file statistics
+func getFileStatistics(companyName string) (map[string]interface{}, error) {
+	dbfFiles, err := GetDBFFiles(companyName)
+	if err != nil {
+		return nil, err
+	}
+	
+	stats := map[string]interface{}{
+		"totalFiles": len(dbfFiles),
+		"files":      dbfFiles,
+	}
+	
+	return stats, nil
+}
+
+// Helper function to analyze financial data
+func getFinancialSummary(companyName string) (map[string]interface{}, error) {
+	financials := map[string]interface{}{
+		"totalIncome":  0.0,
+		"totalExpense": 0.0,
+		"netIncome":    0.0,
+		"hasData":      false,
+	}
+	
+	// Try to read INCOME.DBF
+	if incomeData, err := ReadDBFFile(companyName, "INCOME.DBF", ""); err == nil {
+		if stats, ok := incomeData["stats"].(map[string]interface{}); ok {
+			if activeRecords, ok := stats["activeRecords"].(uint32); ok && activeRecords > 0 {
+				financials["incomeRecords"] = activeRecords
+				financials["hasIncomeData"] = true
+				financials["hasData"] = true
+			}
+		}
+	}
+	
+	// Try to read EXPENSE.DBF
+	if expenseData, err := ReadDBFFile(companyName, "EXPENSE.DBF", ""); err == nil {
+		if stats, ok := expenseData["stats"].(map[string]interface{}); ok {
+			if activeRecords, ok := stats["activeRecords"].(uint32); ok && activeRecords > 0 {
+				financials["expenseRecords"] = activeRecords
+				financials["hasExpenseData"] = true
+				financials["hasData"] = true
+			}
+		}
+	}
+	
+	return financials, nil
+}
+
+// Helper function to get well information
+func getWellSummary(companyName string) (map[string]interface{}, error) {
+	wells := map[string]interface{}{
+		"totalWells": 0,
+		"hasData":    false,
+	}
+	
+	if wellData, err := ReadDBFFile(companyName, "WELLS.DBF", ""); err == nil {
+		if stats, ok := wellData["stats"].(map[string]interface{}); ok {
+			if activeRecords, ok := stats["activeRecords"].(uint32); ok {
+				wells["totalWells"] = activeRecords
+				wells["hasData"] = activeRecords > 0
+			}
+		}
+	}
+	
+	return wells, nil
+}
+
+// Helper function to get check activity
+func getCheckActivity(companyName string) (map[string]interface{}, error) {
+	checks := map[string]interface{}{
+		"totalChecks": 0,
+		"hasData":     false,
+	}
+	
+	if checkData, err := ReadDBFFile(companyName, "CHECKS.DBF", ""); err == nil {
+		if stats, ok := checkData["stats"].(map[string]interface{}); ok {
+			if activeRecords, ok := stats["activeRecords"].(uint32); ok {
+				checks["totalChecks"] = activeRecords
+				checks["hasData"] = activeRecords > 0
+			}
+		}
+	}
+	
+	return checks, nil
+}

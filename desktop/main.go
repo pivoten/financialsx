@@ -181,6 +181,13 @@ func (a *App) UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex i
 	return nil
 }
 
+// GetDashboardData returns aggregated data for the dashboard
+func (a *App) GetDashboardData(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("GetDashboardData called for company: %s\n", companyName)
+	
+	return company.GetDashboardData(companyName)
+}
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()

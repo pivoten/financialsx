@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Login, Register, GetCompanies, ValidateSession } from '../wailsjs/go/main/App'
+import { Login, Register, GetCompanies, ValidateSession, GetDashboardData } from '../wailsjs/go/main/App'
 import { Button } from './components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -225,13 +225,103 @@ function App() {
 // Advanced Dashboard Component with Sidebar and Multiple Views
 function AdvancedDashboard({ currentUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard')
+  const [dashboardData, setDashboardData] = useState(null)
+  const [loadingDashboard, setLoadingDashboard] = useState(true)
 
-  const stats = [
-    { title: 'Monthly Revenue', value: '$67,000', change: '+12.5%', icon: DollarSign, trend: 'up' },
-    { title: 'Active Wells', value: '24', change: '+2', icon: Activity, trend: 'up' },
-    { title: 'Oil Production', value: '1,240 bbl', change: '+8.2%', icon: TrendingUp, trend: 'up' },
-    { title: 'Gas Production', value: '890 mcf', change: '-2.1%', icon: BarChart3, trend: 'down' },
-  ]
+  // Load dashboard data on component mount
+  useEffect(() => {
+    loadDashboardData()
+  }, [currentUser])
+
+  const loadDashboardData = async () => {
+    if (!currentUser?.company_name) return
+    
+    setLoadingDashboard(true)
+    try {
+      console.log('Loading dashboard data for:', currentUser.company_name)
+      const data = await GetDashboardData(currentUser.company_name)
+      console.log('Dashboard data loaded:', data)
+      setDashboardData(data)
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error)
+    } finally {
+      setLoadingDashboard(false)
+    }
+  }
+
+  // Generate stats from real data
+  const generateStats = () => {
+    if (!dashboardData) {
+      return [
+        { title: 'Loading...', value: '-', change: '-', icon: DollarSign, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: Activity, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: TrendingUp, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: BarChart3, trend: 'up' },
+      ]
+    }
+
+    const stats = []
+    
+    // DBF Files stat
+    if (dashboardData.fileStats) {
+      stats.push({
+        title: 'DBF Files',
+        value: dashboardData.fileStats.totalFiles.toString(),
+        change: 'files available',
+        icon: FileText,
+        trend: 'up'
+      })
+    }
+
+    // Wells stat
+    if (dashboardData.wells && dashboardData.wells.hasData) {
+      stats.push({
+        title: 'Active Wells',
+        value: dashboardData.wells.totalWells.toString(),
+        change: 'wells in database',
+        icon: Activity,
+        trend: 'up'
+      })
+    }
+
+    // Checks stat
+    if (dashboardData.checks && dashboardData.checks.hasData) {
+      stats.push({
+        title: 'Check Records',
+        value: dashboardData.checks.totalChecks.toLocaleString(),
+        change: 'payment records',
+        icon: DollarSign,
+        trend: 'up'
+      })
+    }
+
+    // Financial records stat
+    if (dashboardData.financials && dashboardData.financials.hasData) {
+      const totalRecords = (dashboardData.financials.incomeRecords || 0) + (dashboardData.financials.expenseRecords || 0)
+      stats.push({
+        title: 'Financial Records',
+        value: totalRecords.toLocaleString(),
+        change: 'income + expense records',
+        icon: TrendingUp,
+        trend: 'up'
+      })
+    }
+
+    // Fill remaining slots if needed
+    while (stats.length < 4) {
+      stats.push({
+        title: 'Data Available',
+        value: 'Ready',
+        change: 'system operational',
+        icon: BarChart3,
+        trend: 'up'
+      })
+    }
+
+    return stats.slice(0, 4)
+  }
+
+  const stats = generateStats()
 
   return (
     <div className="flex h-screen bg-background">
@@ -346,6 +436,12 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         <main className="flex-1 overflow-auto p-6">
           {activeView === 'dashboard' && (
             <div className="space-y-6">
+              {loadingDashboard && (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">Loading dashboard data...</p>
+                </div>
+              )}
+              
               {/* Stats Grid */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {stats.map((stat, index) => (
@@ -362,13 +458,72 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                         <p className={`text-xs ${
                           stat.trend === 'up' ? 'text-green-600' : 'text-red-600'
                         }`}>
-                          {stat.change} from last month
+                          {stat.change}
                         </p>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
+
+              {/* Real Data Summary */}
+              {dashboardData && !loadingDashboard && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Data Summary for {currentUser?.company_name}</CardTitle>
+                    <CardDescription>Overview of available data in your DBF files</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <h4 className="font-semibold mb-2">Available Files</h4>
+                        <div className="space-y-1 text-sm">
+                          {dashboardData.fileStats?.files?.slice(0, 8).map(file => (
+                            <div key={file} className="flex items-center gap-2">
+                              <FileText className="w-3 h-3 text-muted-foreground" />
+                              {file}
+                            </div>
+                          ))}
+                          {dashboardData.fileStats?.files?.length > 8 && (
+                            <div className="text-muted-foreground text-xs">
+                              ...and {dashboardData.fileStats.files.length - 8} more files
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-2">Data Status</h4>
+                        <div className="space-y-2 text-sm">
+                          {dashboardData.wells?.hasData && (
+                            <div className="flex items-center gap-2 text-green-600">
+                              <Activity className="w-3 h-3" />
+                              Wells data available ({dashboardData.wells.totalWells} records)
+                            </div>
+                          )}
+                          {dashboardData.checks?.hasData && (
+                            <div className="flex items-center gap-2 text-green-600">
+                              <DollarSign className="w-3 h-3" />
+                              Check data available ({dashboardData.checks.totalChecks.toLocaleString()} records)
+                            </div>
+                          )}
+                          {dashboardData.financials?.hasIncomeData && (
+                            <div className="flex items-center gap-2 text-green-600">
+                              <TrendingUp className="w-3 h-3" />
+                              Income data available ({dashboardData.financials.incomeRecords} records)
+                            </div>
+                          )}
+                          {dashboardData.financials?.hasExpenseData && (
+                            <div className="flex items-center gap-2 text-green-600">
+                              <BarChart3 className="w-3 h-3" />
+                              Expense data available ({dashboardData.financials.expenseRecords} records)
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Charts */}
               <div className="grid gap-4 md:grid-cols-2">

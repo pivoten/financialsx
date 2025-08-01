@@ -23,7 +23,15 @@ import {
   TrendingUp,
   Users,
   Activity,
-  Table
+  Table,
+  Calculator,
+  FileSearch,
+  Archive,
+  Download,
+  Upload,
+  Copy,
+  Calendar,
+  Wrench
 } from 'lucide-react'
 import './globals.css'
 
@@ -390,6 +398,68 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               <FileText className="w-4 h-4" />
               State Reporting
             </SidebarNavItem>
+          </SidebarNavGroup>
+          
+          <SidebarNavGroup title="Utilities">
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'calculator'}
+              onClick={() => setActiveView('calculator')}
+            >
+              <Calculator className="w-4 h-4" />
+              Calculator
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'data-import'}
+              onClick={() => setActiveView('data-import')}
+            >
+              <Upload className="w-4 h-4" />
+              Data Import
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'data-export'}
+              onClick={() => setActiveView('data-export')}
+            >
+              <Download className="w-4 h-4" />
+              Data Export
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'backup'}
+              onClick={() => setActiveView('backup')}
+            >
+              <Archive className="w-4 h-4" />
+              Backup & Restore
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'audit-log'}
+              onClick={() => setActiveView('audit-log')}
+            >
+              <FileSearch className="w-4 h-4" />
+              Audit Log
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'scheduler'}
+              onClick={() => setActiveView('scheduler')}
+            >
+              <Calendar className="w-4 h-4" />
+              Task Scheduler
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'data-tools'}
+              onClick={() => setActiveView('data-tools')}
+            >
+              <Wrench className="w-4 h-4" />
+              Data Tools
+            </SidebarNavItem>
+          </SidebarNavGroup>
+          
+          <SidebarNavGroup title="System">
             <SidebarNavItem 
               href="#" 
               active={activeView === 'settings'}
@@ -419,6 +489,13 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dbf-explorer' && 'DBF Explorer'}
                 {activeView === 'db-maintenance' && 'Database Maintenance'}
                 {activeView === 'state-reporting' && 'State Reporting'}
+                {activeView === 'calculator' && 'Calculator'}
+                {activeView === 'data-import' && 'Data Import'}
+                {activeView === 'data-export' && 'Data Export'}
+                {activeView === 'backup' && 'Backup & Restore'}
+                {activeView === 'audit-log' && 'Audit Log'}
+                {activeView === 'scheduler' && 'Task Scheduler'}
+                {activeView === 'data-tools' && 'Data Tools'}
                 {activeView === 'settings' && 'Settings'}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -428,6 +505,13 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dbf-explorer' && 'Browse and edit DBF tables like a spreadsheet'}
                 {activeView === 'db-maintenance' && 'Database management tools'}
                 {activeView === 'state-reporting' && 'West Virginia reporting'}
+                {activeView === 'calculator' && 'Financial calculations and tools'}
+                {activeView === 'data-import' && 'Import data from external sources'}
+                {activeView === 'data-export' && 'Export data to various formats'}
+                {activeView === 'backup' && 'Backup and restore system data'}
+                {activeView === 'audit-log' && 'System activity and change tracking'}
+                {activeView === 'scheduler' && 'Schedule automated tasks and reports'}
+                {activeView === 'data-tools' && 'Data validation and transformation utilities'}
                 {activeView === 'settings' && 'System configuration and user management'}
               </p>
             </div>
@@ -730,6 +814,269 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </Card>
                 </TabsContent>
               </Tabs>
+            </div>
+          )}
+
+          {/* Utilities Views */}
+          {activeView === 'calculator' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Financial Calculator</CardTitle>
+                  <CardDescription>Perform various financial calculations</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Interest Calculator</div>
+                        <div className="text-sm text-muted-foreground">Calculate simple and compound interest</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Royalty Calculator</div>
+                        <div className="text-sm text-muted-foreground">Calculate oil & gas royalties</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Tax Calculator</div>
+                        <div className="text-sm text-muted-foreground">Estimate taxes and deductions</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Unit Converter</div>
+                        <div className="text-sm text-muted-foreground">Convert between measurement units</div>
+                      </div>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'data-import' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Import Wizard</CardTitle>
+                  <CardDescription>Import data from various sources into your system</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
+                      <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Drag and drop files here, or click to browse
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Supported formats: CSV, Excel, JSON, DBF
+                      </p>
+                      <Button className="mt-4">Select Files</Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'data-export' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Export Manager</CardTitle>
+                  <CardDescription>Export your data in various formats</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4">
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <h4 className="font-semibold">Export All Financial Data</h4>
+                        <p className="text-sm text-muted-foreground">Complete export of all financial records</p>
+                      </div>
+                      <Button>Export</Button>
+                    </div>
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <h4 className="font-semibold">Export Well Production Data</h4>
+                        <p className="text-sm text-muted-foreground">Oil and gas production records</p>
+                      </div>
+                      <Button>Export</Button>
+                    </div>
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <h4 className="font-semibold">Export Tax Reports</h4>
+                        <p className="text-sm text-muted-foreground">Tax-ready financial summaries</p>
+                      </div>
+                      <Button>Export</Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'backup' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Backup & Restore</CardTitle>
+                  <CardDescription>Manage system backups and restore points</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold">Last Backup</h4>
+                          <p className="text-sm text-muted-foreground">July 30, 2024 at 2:30 PM</p>
+                        </div>
+                        <Badge variant="outline" className="text-green-600">Successful</Badge>
+                      </div>
+                    </div>
+                    <div className="grid gap-3">
+                      <Button className="w-full">
+                        <Archive className="w-4 h-4 mr-2" />
+                        Create New Backup
+                      </Button>
+                      <Button variant="outline" className="w-full">
+                        Schedule Automatic Backups
+                      </Button>
+                      <Button variant="outline" className="w-full">
+                        Restore from Backup
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'audit-log' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>System Audit Log</CardTitle>
+                  <CardDescription>Track all system activities and changes</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex gap-4">
+                      <Input placeholder="Search audit logs..." className="flex-1" />
+                      <Button variant="outline">Filter</Button>
+                      <Button variant="outline">Export</Button>
+                    </div>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Timestamp</TableHead>
+                            <TableHead>User</TableHead>
+                            <TableHead>Action</TableHead>
+                            <TableHead>Resource</TableHead>
+                            <TableHead>Details</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                              Audit log entries would appear here
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'scheduler' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Task Scheduler</CardTitle>
+                  <CardDescription>Schedule automated tasks and reports</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex justify-end">
+                      <Button>
+                        <Calendar className="w-4 h-4 mr-2" />
+                        New Scheduled Task
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="p-4 border rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-semibold">Daily Database Backup</h4>
+                            <p className="text-sm text-muted-foreground">Runs every day at 2:00 AM</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge variant="outline" className="text-green-600">Active</Badge>
+                            <Button size="sm" variant="outline">Edit</Button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-4 border rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-semibold">Monthly Production Report</h4>
+                            <p className="text-sm text-muted-foreground">Runs on the 1st of each month</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge variant="outline" className="text-green-600">Active</Badge>
+                            <Button size="sm" variant="outline">Edit</Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeView === 'data-tools' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Tools</CardTitle>
+                  <CardDescription>Utilities for data validation and transformation</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Data Validator</div>
+                        <div className="text-sm text-muted-foreground">Check data integrity and consistency</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Duplicate Finder</div>
+                        <div className="text-sm text-muted-foreground">Find and merge duplicate records</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Data Cleaner</div>
+                        <div className="text-sm text-muted-foreground">Clean and standardize data formats</div>
+                      </div>
+                    </Button>
+                    <Button variant="outline" className="h-auto p-4">
+                      <div className="text-left">
+                        <div className="font-semibold">Batch Operations</div>
+                        <div className="text-sm text-muted-foreground">Perform bulk updates on records</div>
+                      </div>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </main>

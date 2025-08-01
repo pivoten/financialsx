@@ -9,6 +9,7 @@ import { RevenueChart } from './components/charts/RevenueChart'
 import { ProductionChart } from './components/charts/ProductionChart'
 import { TransactionsTable } from './components/tables/TransactionsTable'
 import { DBFExplorer } from './components/DBFExplorer'
+import { UserManagement } from './components/UserManagement'
 import { ThemeProvider } from './components/theme-provider'
 import { ThemeSwitcher } from './components/theme-switcher'
 import { 
@@ -389,7 +390,11 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               <FileText className="w-4 h-4" />
               State Reporting
             </SidebarNavItem>
-            <SidebarNavItem href="#">
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'settings'}
+              onClick={() => setActiveView('settings')}
+            >
               <Settings className="w-4 h-4" />
               Settings
             </SidebarNavItem>
@@ -414,6 +419,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dbf-explorer' && 'DBF Explorer'}
                 {activeView === 'db-maintenance' && 'Database Maintenance'}
                 {activeView === 'state-reporting' && 'State Reporting'}
+                {activeView === 'settings' && 'Settings'}
               </h2>
               <p className="text-sm text-muted-foreground">
                 {activeView === 'dashboard' && 'Overview of your financial data'}
@@ -422,6 +428,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 {activeView === 'dbf-explorer' && 'Browse and edit DBF tables like a spreadsheet'}
                 {activeView === 'db-maintenance' && 'Database management tools'}
                 {activeView === 'state-reporting' && 'West Virginia reporting'}
+                {activeView === 'settings' && 'System configuration and user management'}
               </p>
             </div>
             <div className="flex items-center space-x-4">
@@ -682,6 +689,47 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          )}
+
+          {activeView === 'settings' && (
+            <div className="space-y-6">
+              <Tabs defaultValue="users" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="users">User Management</TabsTrigger>
+                  <TabsTrigger value="system">System Settings</TabsTrigger>
+                  <TabsTrigger value="security">Security</TabsTrigger>
+                </TabsList>
+                <TabsContent value="users" className="space-y-4">
+                  <UserManagement currentUser={currentUser} />
+                </TabsContent>
+                <TabsContent value="system" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>System Configuration</CardTitle>
+                      <CardDescription>Configure system-wide settings</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        System settings configuration would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="security" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Security Settings</CardTitle>
+                      <CardDescription>Manage security policies and configurations</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Security settings would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
         </main>

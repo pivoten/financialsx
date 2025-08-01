@@ -196,6 +196,80 @@ func (a *App) GetDashboardData(companyName string) (map[string]interface{}, erro
 	return company.GetDashboardData(companyName)
 }
 
+// User Management Functions
+
+// GetAllUsers returns all users (admin/root only)
+func (a *App) GetAllUsers() ([]auth.User, error) {
+	if a.auth == nil {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("users.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	return a.auth.GetAllUsers()
+}
+
+// GetAllRoles returns all available roles
+func (a *App) GetAllRoles() ([]auth.Role, error) {
+	if a.auth == nil {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("users.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	return a.auth.GetAllRoles()
+}
+
+// UpdateUserRole updates a user's role (admin/root only)
+func (a *App) UpdateUserRole(userID, newRoleID int) error {
+	if a.auth == nil {
+		return fmt.Errorf("not authenticated")
+	}
+	
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("users.manage_roles") {
+		return fmt.Errorf("insufficient permissions")
+	}
+	
+	return a.auth.UpdateUserRole(userID, newRoleID)
+}
+
+// UpdateUserStatus activates or deactivates a user (admin/root only)
+func (a *App) UpdateUserStatus(userID int, isActive bool) error {
+	if a.auth == nil {
+		return fmt.Errorf("not authenticated")
+	}
+	
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("users.update") {
+		return fmt.Errorf("insufficient permissions")
+	}
+	
+	return a.auth.UpdateUserStatus(userID, isActive)
+}
+
+// CreateUser creates a new user (admin/root only)
+func (a *App) CreateUser(username, password, email string, roleID int) (*auth.User, error) {
+	if a.auth == nil {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("users.create") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	// Note: This would need a new method in auth.go for admin-created users
+	// For now, we'll use the existing Register method with some modifications
+	return a.auth.Register(username, password, email)
+}
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()

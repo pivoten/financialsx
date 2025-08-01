@@ -1,14 +1,39 @@
 export namespace auth {
 	
+	export class Role {
+	    id: number;
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    is_system_role: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Role(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.is_system_role = source["is_system_role"];
+	    }
+	}
 	export class User {
 	    id: number;
 	    username: string;
 	    email?: string;
 	    company_name: string;
+	    role_id: number;
+	    role_name: string;
+	    is_active: boolean;
+	    is_root: boolean;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
 	    last_login?: any;
+	    permissions?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new User(source);
@@ -20,8 +45,13 @@ export namespace auth {
 	        this.username = source["username"];
 	        this.email = source["email"];
 	        this.company_name = source["company_name"];
+	        this.role_id = source["role_id"];
+	        this.role_name = source["role_name"];
+	        this.is_active = source["is_active"];
+	        this.is_root = source["is_root"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.last_login = this.convertValues(source["last_login"], null);
+	        this.permissions = source["permissions"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

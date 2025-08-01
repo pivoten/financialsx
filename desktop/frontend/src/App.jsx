@@ -3,6 +3,8 @@ import { Login, Register, GetCompanies, ValidateSession, GetDashboardData } from
 import { Button } from './components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card'
 import { Input } from './components/ui/input'
+import { Badge } from './components/ui/badge'
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './components/ui/table'
 import { Sidebar, SidebarHeader, SidebarContent, SidebarNav, SidebarNavItem, SidebarNavGroup } from './components/ui/sidebar'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { RevenueChart } from './components/charts/RevenueChart'
@@ -10,6 +12,7 @@ import { ProductionChart } from './components/charts/ProductionChart'
 import { TransactionsTable } from './components/tables/TransactionsTable'
 import { DBFExplorer } from './components/DBFExplorer'
 import { UserManagement } from './components/UserManagement'
+import { StateReportsSection } from './components/StateReportsSection'
 import { ThemeProvider } from './components/theme-provider'
 import { ThemeSwitcher } from './components/theme-switcher'
 import { 
@@ -23,7 +26,6 @@ import {
   TrendingUp,
   Users,
   Activity,
-  Table,
   Calculator,
   FileSearch,
   Archive,
@@ -842,24 +844,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   <TabsTrigger value="audit">Audit Trail</TabsTrigger>
                 </TabsList>
                 <TabsContent value="state" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>West Virginia State Reporting</CardTitle>
-                      <CardDescription>Generate and submit required state reports</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <Button className="h-auto p-4 flex flex-col items-start">
-                          <div className="font-semibold">Monthly Production Report</div>
-                          <div className="text-sm text-muted-foreground">Due: August 15, 2024</div>
-                        </Button>
-                        <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                          <div className="font-semibold">Annual Tax Filing</div>
-                          <div className="text-sm text-muted-foreground">Due: March 31, 2025</div>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <StateReportsSection currentUser={currentUser} />
                 </TabsContent>
                 <TabsContent value="financial" className="space-y-4">
                   <Card>

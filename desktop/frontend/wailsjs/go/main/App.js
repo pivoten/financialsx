@@ -6,6 +6,10 @@ export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
 }
 
+export function GetAPIKey(arg1) {
+  return window['go']['main']['App']['GetAPIKey'](arg1);
+}
+
 export function GetAllRoles() {
   return window['go']['main']['App']['GetAllRoles']();
 }
@@ -16,6 +20,10 @@ export function GetAllUsers() {
 
 export function GetCompanies() {
   return window['go']['main']['App']['GetCompanies']();
+}
+
+export function GetConfig() {
+  return window['go']['main']['App']['GetConfig']();
 }
 
 export function GetDBFFiles(arg1) {
@@ -52,6 +60,14 @@ export function Register(arg1, arg2, arg3, arg4) {
 
 export function SearchDBFTable(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchDBFTable'](arg1, arg2, arg3);
+}
+
+export function SetAPIKey(arg1, arg2) {
+  return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function TestAPIKey(arg1, arg2) {
+  return window['go']['main']['App']['TestAPIKey'](arg1, arg2);
 }
 
 export function UpdateDBFRecord(arg1, arg2, arg3, arg4, arg5) {

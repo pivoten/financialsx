@@ -1,0 +1,66 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go build command, -i
+/build/
+
+# Go mod cache
+/go/pkg/mod/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Configuration files that may contain secrets
+config.json
+*.md5
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Wails build directory
+app/build/
+frontend/dist/
+frontend/node_modules/
+
+# Database files (if any test databases)
+*.db
+*.sqlite
+*.sqlite3
+
+# API keys and secrets (just to be extra safe)
+*key*
+*secret*
+*token*
+!**/template*
+!**/example*

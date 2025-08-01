@@ -346,7 +346,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
           <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarNavGroup title="Main">
+          <SidebarNav>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'dashboard'}
@@ -357,109 +357,44 @@ function AdvancedDashboard({ currentUser, onLogout }) {
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
-              active={activeView === 'transactions'}
-              onClick={() => setActiveView('transactions')}
+              active={activeView === 'operations'}
+              onClick={() => setActiveView('operations')}
+            >
+              <Activity className="w-4 h-4" />
+              Operations
+            </SidebarNavItem>
+            <SidebarNavItem 
+              href="#" 
+              active={activeView === 'financials'}
+              onClick={() => setActiveView('financials')}
             >
               <DollarSign className="w-4 h-4" />
-              Transactions
+              Financials
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
-              active={activeView === 'analytics'}
-              onClick={() => setActiveView('analytics')}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Analytics
-            </SidebarNavItem>
-          </SidebarNavGroup>
-          
-          <SidebarNavGroup title="Management">
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'dbf-explorer'}
-              onClick={() => setActiveView('dbf-explorer')}
-            >
-              <Table className="w-4 h-4" />
-              DBF Explorer
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'db-maintenance'}
-              onClick={() => setActiveView('db-maintenance')}
+              active={activeView === 'data'}
+              onClick={() => setActiveView('data')}
             >
               <Database className="w-4 h-4" />
-              DB Maintenance
+              Data Management
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
-              active={activeView === 'state-reporting'}
-              onClick={() => setActiveView('state-reporting')}
+              active={activeView === 'reporting'}
+              onClick={() => setActiveView('reporting')}
             >
               <FileText className="w-4 h-4" />
-              State Reporting
-            </SidebarNavItem>
-          </SidebarNavGroup>
-          
-          <SidebarNavGroup title="Utilities">
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'calculator'}
-              onClick={() => setActiveView('calculator')}
-            >
-              <Calculator className="w-4 h-4" />
-              Calculator
+              Reporting
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
-              active={activeView === 'data-import'}
-              onClick={() => setActiveView('data-import')}
-            >
-              <Upload className="w-4 h-4" />
-              Data Import
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'data-export'}
-              onClick={() => setActiveView('data-export')}
-            >
-              <Download className="w-4 h-4" />
-              Data Export
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'backup'}
-              onClick={() => setActiveView('backup')}
-            >
-              <Archive className="w-4 h-4" />
-              Backup & Restore
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'audit-log'}
-              onClick={() => setActiveView('audit-log')}
-            >
-              <FileSearch className="w-4 h-4" />
-              Audit Log
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'scheduler'}
-              onClick={() => setActiveView('scheduler')}
-            >
-              <Calendar className="w-4 h-4" />
-              Task Scheduler
-            </SidebarNavItem>
-            <SidebarNavItem 
-              href="#" 
-              active={activeView === 'data-tools'}
-              onClick={() => setActiveView('data-tools')}
+              active={activeView === 'utilities'}
+              onClick={() => setActiveView('utilities')}
             >
               <Wrench className="w-4 h-4" />
-              Data Tools
+              Utilities
             </SidebarNavItem>
-          </SidebarNavGroup>
-          
-          <SidebarNavGroup title="System">
             <SidebarNavItem 
               href="#" 
               active={activeView === 'settings'}
@@ -468,11 +403,17 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               <Settings className="w-4 h-4" />
               Settings
             </SidebarNavItem>
-            <SidebarNavItem href="#" onClick={onLogout}>
-              <LogOut className="w-4 h-4" />
+          </SidebarNav>
+          <div className="mt-auto p-4 border-t">
+            <Button 
+              variant="ghost" 
+              className="w-full justify-start" 
+              onClick={onLogout}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
               Logout
-            </SidebarNavItem>
-          </SidebarNavGroup>
+            </Button>
+          </div>
         </SidebarContent>
       </Sidebar>
 
@@ -484,39 +425,24 @@ function AdvancedDashboard({ currentUser, onLogout }) {
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">
                 {activeView === 'dashboard' && 'Dashboard'}
-                {activeView === 'transactions' && 'Transactions'}
-                {activeView === 'analytics' && 'Analytics'}
-                {activeView === 'dbf-explorer' && 'DBF Explorer'}
-                {activeView === 'db-maintenance' && 'Database Maintenance'}
-                {activeView === 'state-reporting' && 'State Reporting'}
-                {activeView === 'calculator' && 'Calculator'}
-                {activeView === 'data-import' && 'Data Import'}
-                {activeView === 'data-export' && 'Data Export'}
-                {activeView === 'backup' && 'Backup & Restore'}
-                {activeView === 'audit-log' && 'Audit Log'}
-                {activeView === 'scheduler' && 'Task Scheduler'}
-                {activeView === 'data-tools' && 'Data Tools'}
+                {activeView === 'operations' && 'Operations'}
+                {activeView === 'financials' && 'Financials'}
+                {activeView === 'data' && 'Data Management'}
+                {activeView === 'reporting' && 'Reporting'}
+                {activeView === 'utilities' && 'Utilities'}
                 {activeView === 'settings' && 'Settings'}
               </h2>
               <p className="text-sm text-muted-foreground">
                 {activeView === 'dashboard' && 'Overview of your financial data'}
-                {activeView === 'transactions' && 'View and manage all transactions'}
-                {activeView === 'analytics' && 'Detailed charts and reports'}
-                {activeView === 'dbf-explorer' && 'Browse and edit DBF tables like a spreadsheet'}
-                {activeView === 'db-maintenance' && 'Database management tools'}
-                {activeView === 'state-reporting' && 'West Virginia reporting'}
-                {activeView === 'calculator' && 'Financial calculations and tools'}
-                {activeView === 'data-import' && 'Import data from external sources'}
-                {activeView === 'data-export' && 'Export data to various formats'}
-                {activeView === 'backup' && 'Backup and restore system data'}
-                {activeView === 'audit-log' && 'System activity and change tracking'}
-                {activeView === 'scheduler' && 'Schedule automated tasks and reports'}
-                {activeView === 'data-tools' && 'Data validation and transformation utilities'}
+                {activeView === 'operations' && 'Manage wells, production, and field operations'}
+                {activeView === 'financials' && 'Financial transactions, analytics, and accounting'}
+                {activeView === 'data' && 'Database maintenance and data management'}
+                {activeView === 'reporting' && 'Reports, compliance, and documentation'}
+                {activeView === 'utilities' && 'Tools, calculators, and system utilities'}
                 {activeView === 'settings' && 'System configuration and user management'}
               </p>
             </div>
             <div className="flex items-center space-x-4">
-              <ThemeSwitcher />
               <span className="text-sm text-muted-foreground">
                 Welcome, {currentUser?.username}
               </span>
@@ -645,51 +571,61 @@ function AdvancedDashboard({ currentUser, onLogout }) {
             </div>
           )}
 
-          {activeView === 'transactions' && (
+          {activeView === 'operations' && (
             <div className="space-y-6">
-              <TransactionsTable />
-            </div>
-          )}
-
-          {activeView === 'analytics' && (
-            <div className="space-y-6">
-              <Tabs defaultValue="revenue" className="w-full">
+              <Tabs defaultValue="wells" className="w-full">
                 <TabsList>
-                  <TabsTrigger value="revenue">Revenue Analysis</TabsTrigger>
-                  <TabsTrigger value="production">Production Analysis</TabsTrigger>
-                  <TabsTrigger value="expenses">Expense Breakdown</TabsTrigger>
+                  <TabsTrigger value="wells">Wells</TabsTrigger>
+                  <TabsTrigger value="production">Production</TabsTrigger>
+                  <TabsTrigger value="field-ops">Field Operations</TabsTrigger>
+                  <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
                 </TabsList>
-                <TabsContent value="revenue" className="space-y-4">
+                <TabsContent value="wells" className="space-y-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Revenue Trends</CardTitle>
-                      <CardDescription>Detailed revenue analysis</CardDescription>
+                      <CardTitle>Well Management</CardTitle>
+                      <CardDescription>Manage well information and status</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <RevenueChart />
+                      <div className="text-center py-8 text-muted-foreground">
+                        Well management interface would go here
+                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>
                 <TabsContent value="production" className="space-y-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Production Performance</CardTitle>
-                      <CardDescription>Well-by-well production metrics</CardDescription>
+                      <CardTitle>Production Tracking</CardTitle>
+                      <CardDescription>Monitor oil and gas production</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <ProductionChart />
                     </CardContent>
                   </Card>
                 </TabsContent>
-                <TabsContent value="expenses" className="space-y-4">
+                <TabsContent value="field-ops" className="space-y-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Expense Categories</CardTitle>
-                      <CardDescription>Breakdown of operational expenses</CardDescription>
+                      <CardTitle>Field Operations</CardTitle>
+                      <CardDescription>Manage field activities and schedules</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="text-center py-8 text-muted-foreground">
-                        Expense breakdown chart would go here
+                        Field operations management would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="maintenance" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Equipment Maintenance</CardTitle>
+                      <CardDescription>Track equipment maintenance schedules</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Maintenance tracking would go here
                       </div>
                     </CardContent>
                   </Card>
@@ -698,81 +634,302 @@ function AdvancedDashboard({ currentUser, onLogout }) {
             </div>
           )}
 
-          {activeView === 'dbf-explorer' && (
+          {activeView === 'financials' && (
             <div className="space-y-6">
-              <DBFExplorer />
-            </div>
-          )}
-
-          {activeView === 'db-maintenance' && (
-            <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Database Status</CardTitle>
-                    <CardDescription>Current database health and statistics</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between">
-                        <span>Database Size:</span>
-                        <span className="font-medium">245 MB</span>
+              <Tabs defaultValue="transactions" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                  <TabsTrigger value="revenue">Revenue</TabsTrigger>
+                  <TabsTrigger value="expenses">Expenses</TabsTrigger>
+                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                  <TabsTrigger value="accounting">Accounting</TabsTrigger>
+                </TabsList>
+                <TabsContent value="transactions" className="space-y-4">
+                  <TransactionsTable />
+                </TabsContent>
+                <TabsContent value="revenue" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Revenue Analysis</CardTitle>
+                      <CardDescription>Track and analyze revenue streams</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <RevenueChart />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="expenses" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Expense Management</CardTitle>
+                      <CardDescription>Monitor and categorize expenses</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Expense tracking interface would go here
                       </div>
-                      <div className="flex justify-between">
-                        <span>Total Records:</span>
-                        <span className="font-medium">15,847</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Last Backup:</span>
-                        <span className="font-medium">2024-07-30</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Maintenance Tools</CardTitle>
-                    <CardDescription>Database maintenance and optimization</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Button className="w-full">Run Database Backup</Button>
-                    <Button variant="outline" className="w-full">Optimize Tables</Button>
-                    <Button variant="outline" className="w-full">Check Data Integrity</Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {activeView === 'state-reporting' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>West Virginia State Reporting</CardTitle>
-                  <CardDescription>Generate and submit required state reports</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="analytics" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Button className="h-auto p-4 flex flex-col items-start">
-                      <div className="font-semibold">Monthly Production Report</div>
-                      <div className="text-sm text-muted-foreground">Due: August 15, 2024</div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                      <div className="font-semibold">Annual Tax Filing</div>
-                      <div className="text-sm text-muted-foreground">Due: March 31, 2025</div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                      <div className="font-semibold">Environmental Compliance</div>
-                      <div className="text-sm text-muted-foreground">Due: September 1, 2024</div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                      <div className="font-semibold">Royalty Statement</div>
-                      <div className="text-sm text-muted-foreground">Due: August 10, 2024</div>
-                    </Button>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Financial Trends</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <RevenueChart />
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Production vs Revenue</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ProductionChart />
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
+                </TabsContent>
+                <TabsContent value="accounting" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Accounting Tools</CardTitle>
+                      <CardDescription>General ledger and financial statements</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Accounting interface would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+
+          {activeView === 'data' && (
+            <div className="space-y-6">
+              <Tabs defaultValue="dbf-explorer" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="dbf-explorer">DBF Explorer</TabsTrigger>
+                  <TabsTrigger value="import">Import</TabsTrigger>
+                  <TabsTrigger value="export">Export</TabsTrigger>
+                  <TabsTrigger value="backup">Backup</TabsTrigger>
+                  <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
+                </TabsList>
+                <TabsContent value="dbf-explorer" className="space-y-4">
+                  <DBFExplorer />
+                </TabsContent>
+                <TabsContent value="import" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Data Import</CardTitle>
+                      <CardDescription>Import data from external sources</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
+                        <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Drag and drop files here, or click to browse
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Supported formats: CSV, Excel, JSON, DBF
+                        </p>
+                        <Button className="mt-4">Select Files</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="export" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Data Export</CardTitle>
+                      <CardDescription>Export data in various formats</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4">
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <h4 className="font-semibold">Export All Financial Data</h4>
+                            <p className="text-sm text-muted-foreground">Complete export of all financial records</p>
+                          </div>
+                          <Button>Export</Button>
+                        </div>
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <h4 className="font-semibold">Export Well Production Data</h4>
+                            <p className="text-sm text-muted-foreground">Oil and gas production records</p>
+                          </div>
+                          <Button>Export</Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="backup" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Backup & Restore</CardTitle>
+                      <CardDescription>Manage database backups</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-semibold">Last Backup</h4>
+                              <p className="text-sm text-muted-foreground">July 30, 2024 at 2:30 PM</p>
+                            </div>
+                            <Badge variant="outline" className="text-green-600">Successful</Badge>
+                          </div>
+                        </div>
+                        <div className="grid gap-3">
+                          <Button className="w-full">
+                            <Archive className="w-4 h-4 mr-2" />
+                            Create New Backup
+                          </Button>
+                          <Button variant="outline" className="w-full">Restore from Backup</Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="maintenance" className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Database Status</CardTitle>
+                        <CardDescription>Current database health</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex justify-between">
+                            <span>Database Size:</span>
+                            <span className="font-medium">245 MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Total Records:</span>
+                            <span className="font-medium">15,847</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Maintenance Tools</CardTitle>
+                        <CardDescription>Database optimization</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <Button variant="outline" className="w-full">Optimize Tables</Button>
+                        <Button variant="outline" className="w-full">Check Data Integrity</Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+
+          {activeView === 'reporting' && (
+            <div className="space-y-6">
+              <Tabs defaultValue="state" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="state">State Reports</TabsTrigger>
+                  <TabsTrigger value="financial">Financial Reports</TabsTrigger>
+                  <TabsTrigger value="production">Production Reports</TabsTrigger>
+                  <TabsTrigger value="custom">Custom Reports</TabsTrigger>
+                  <TabsTrigger value="audit">Audit Trail</TabsTrigger>
+                </TabsList>
+                <TabsContent value="state" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>West Virginia State Reporting</CardTitle>
+                      <CardDescription>Generate and submit required state reports</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Button className="h-auto p-4 flex flex-col items-start">
+                          <div className="font-semibold">Monthly Production Report</div>
+                          <div className="text-sm text-muted-foreground">Due: August 15, 2024</div>
+                        </Button>
+                        <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
+                          <div className="font-semibold">Annual Tax Filing</div>
+                          <div className="text-sm text-muted-foreground">Due: March 31, 2025</div>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="financial" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Financial Reports</CardTitle>
+                      <CardDescription>Generate financial statements and summaries</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Financial report generator would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="production" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Production Reports</CardTitle>
+                      <CardDescription>Well production and field reports</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Production report generator would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="custom" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Custom Report Builder</CardTitle>
+                      <CardDescription>Create custom reports with your data</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Custom report builder would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="audit" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Audit Trail</CardTitle>
+                      <CardDescription>System activity and change logs</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Timestamp</TableHead>
+                              <TableHead>User</TableHead>
+                              <TableHead>Action</TableHead>
+                              <TableHead>Details</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            <TableRow>
+                              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                                Audit log entries would appear here
+                              </TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
 
@@ -781,21 +938,60 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               <Tabs defaultValue="users" className="w-full">
                 <TabsList>
                   <TabsTrigger value="users">User Management</TabsTrigger>
-                  <TabsTrigger value="system">System Settings</TabsTrigger>
+                  <TabsTrigger value="appearance">Appearance</TabsTrigger>
+                  <TabsTrigger value="system">System</TabsTrigger>
                   <TabsTrigger value="security">Security</TabsTrigger>
                 </TabsList>
                 <TabsContent value="users" className="space-y-4">
                   <UserManagement currentUser={currentUser} />
                 </TabsContent>
+                <TabsContent value="appearance" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Appearance Settings</CardTitle>
+                      <CardDescription>Customize the look and feel of your application</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium">Theme</h4>
+                        <p className="text-sm text-muted-foreground">Select your preferred theme</p>
+                        <div className="pt-2">
+                          <ThemeSwitcher />
+                        </div>
+                      </div>
+                      <div className="border-t pt-6">
+                        <h4 className="text-sm font-medium mb-4">Additional Display Options</h4>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium">Compact Mode</p>
+                              <p className="text-sm text-muted-foreground">Reduce spacing for more content</p>
+                            </div>
+                            <Button variant="outline" size="sm" disabled>Coming Soon</Button>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium">Font Size</p>
+                              <p className="text-sm text-muted-foreground">Adjust text size for better readability</p>
+                            </div>
+                            <Button variant="outline" size="sm" disabled>Coming Soon</Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
                 <TabsContent value="system" className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>System Configuration</CardTitle>
-                      <CardDescription>Configure system-wide settings</CardDescription>
+                      <CardDescription>Configure system-wide settings and API keys</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="text-center py-8 text-muted-foreground">
-                        System settings configuration would go here
+                        API Key management will be available once the application is built with Wails.
+                        <br />
+                        <small className="text-xs">The configuration system has been implemented and is ready to use.</small>
                       </div>
                     </CardContent>
                   </Card>
@@ -817,266 +1013,121 @@ function AdvancedDashboard({ currentUser, onLogout }) {
             </div>
           )}
 
-          {/* Utilities Views */}
-          {activeView === 'calculator' && (
+          {activeView === 'utilities' && (
             <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Financial Calculator</CardTitle>
-                  <CardDescription>Perform various financial calculations</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Interest Calculator</div>
-                        <div className="text-sm text-muted-foreground">Calculate simple and compound interest</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Royalty Calculator</div>
-                        <div className="text-sm text-muted-foreground">Calculate oil & gas royalties</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Tax Calculator</div>
-                        <div className="text-sm text-muted-foreground">Estimate taxes and deductions</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Unit Converter</div>
-                        <div className="text-sm text-muted-foreground">Convert between measurement units</div>
-                      </div>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'data-import' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Data Import Wizard</CardTitle>
-                  <CardDescription>Import data from various sources into your system</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
-                      <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Drag and drop files here, or click to browse
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Supported formats: CSV, Excel, JSON, DBF
-                      </p>
-                      <Button className="mt-4">Select Files</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'data-export' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Data Export Manager</CardTitle>
-                  <CardDescription>Export your data in various formats</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4">
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h4 className="font-semibold">Export All Financial Data</h4>
-                        <p className="text-sm text-muted-foreground">Complete export of all financial records</p>
-                      </div>
-                      <Button>Export</Button>
-                    </div>
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h4 className="font-semibold">Export Well Production Data</h4>
-                        <p className="text-sm text-muted-foreground">Oil and gas production records</p>
-                      </div>
-                      <Button>Export</Button>
-                    </div>
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h4 className="font-semibold">Export Tax Reports</h4>
-                        <p className="text-sm text-muted-foreground">Tax-ready financial summaries</p>
-                      </div>
-                      <Button>Export</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'backup' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Backup & Restore</CardTitle>
-                  <CardDescription>Manage system backups and restore points</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="p-4 border rounded-lg bg-muted/50">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold">Last Backup</h4>
-                          <p className="text-sm text-muted-foreground">July 30, 2024 at 2:30 PM</p>
-                        </div>
-                        <Badge variant="outline" className="text-green-600">Successful</Badge>
-                      </div>
-                    </div>
-                    <div className="grid gap-3">
-                      <Button className="w-full">
-                        <Archive className="w-4 h-4 mr-2" />
-                        Create New Backup
-                      </Button>
-                      <Button variant="outline" className="w-full">
-                        Schedule Automatic Backups
-                      </Button>
-                      <Button variant="outline" className="w-full">
-                        Restore from Backup
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'audit-log' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>System Audit Log</CardTitle>
-                  <CardDescription>Track all system activities and changes</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex gap-4">
-                      <Input placeholder="Search audit logs..." className="flex-1" />
-                      <Button variant="outline">Filter</Button>
-                      <Button variant="outline">Export</Button>
-                    </div>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Timestamp</TableHead>
-                            <TableHead>User</TableHead>
-                            <TableHead>Action</TableHead>
-                            <TableHead>Resource</TableHead>
-                            <TableHead>Details</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                              Audit log entries would appear here
-                            </TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'scheduler' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Task Scheduler</CardTitle>
-                  <CardDescription>Schedule automated tasks and reports</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-end">
-                      <Button>
-                        <Calendar className="w-4 h-4 mr-2" />
-                        New Scheduled Task
-                      </Button>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-semibold">Daily Database Backup</h4>
-                            <p className="text-sm text-muted-foreground">Runs every day at 2:00 AM</p>
+              <Tabs defaultValue="calculator" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="calculator">Calculator</TabsTrigger>
+                  <TabsTrigger value="converter">Converter</TabsTrigger>
+                  <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
+                  <TabsTrigger value="tools">Data Tools</TabsTrigger>
+                </TabsList>
+                <TabsContent value="calculator" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Financial Calculators</CardTitle>
+                      <CardDescription>Various calculation tools</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Interest Calculator</div>
+                            <div className="text-sm text-muted-foreground">Calculate simple and compound interest</div>
                           </div>
-                          <div className="flex gap-2">
-                            <Badge variant="outline" className="text-green-600">Active</Badge>
-                            <Button size="sm" variant="outline">Edit</Button>
+                        </Button>
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Royalty Calculator</div>
+                            <div className="text-sm text-muted-foreground">Calculate oil & gas royalties</div>
+                          </div>
+                        </Button>
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Tax Calculator</div>
+                            <div className="text-sm text-muted-foreground">Estimate taxes and deductions</div>
+                          </div>
+                        </Button>
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Production Calculator</div>
+                            <div className="text-sm text-muted-foreground">Calculate production metrics</div>
+                          </div>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="converter" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Unit Converter</CardTitle>
+                      <CardDescription>Convert between different measurement units</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8 text-muted-foreground">
+                        Unit conversion tools would go here
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="scheduler" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Task Scheduler</CardTitle>
+                      <CardDescription>Schedule automated tasks and reports</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex justify-end">
+                          <Button>
+                            <Calendar className="w-4 h-4 mr-2" />
+                            New Scheduled Task
+                          </Button>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="p-4 border rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold">Daily Database Backup</h4>
+                                <p className="text-sm text-muted-foreground">Runs every day at 2:00 AM</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Badge variant="outline" className="text-green-600">Active</Badge>
+                                <Button size="sm" variant="outline">Edit</Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-semibold">Monthly Production Report</h4>
-                            <p className="text-sm text-muted-foreground">Runs on the 1st of each month</p>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="tools" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Data Tools</CardTitle>
+                      <CardDescription>Data validation and transformation utilities</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Data Validator</div>
+                            <div className="text-sm text-muted-foreground">Check data integrity</div>
                           </div>
-                          <div className="flex gap-2">
-                            <Badge variant="outline" className="text-green-600">Active</Badge>
-                            <Button size="sm" variant="outline">Edit</Button>
+                        </Button>
+                        <Button variant="outline" className="h-auto p-4">
+                          <div className="text-left">
+                            <div className="font-semibold">Duplicate Finder</div>
+                            <div className="text-sm text-muted-foreground">Find duplicate records</div>
                           </div>
-                        </div>
+                        </Button>
                       </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeView === 'data-tools' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Data Tools</CardTitle>
-                  <CardDescription>Utilities for data validation and transformation</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Data Validator</div>
-                        <div className="text-sm text-muted-foreground">Check data integrity and consistency</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Duplicate Finder</div>
-                        <div className="text-sm text-muted-foreground">Find and merge duplicate records</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Data Cleaner</div>
-                        <div className="text-sm text-muted-foreground">Clean and standardize data formats</div>
-                      </div>
-                    </Button>
-                    <Button variant="outline" className="h-auto p-4">
-                      <div className="text-left">
-                        <div className="font-semibold">Batch Operations</div>
-                        <div className="text-sm text-muted-foreground">Perform bulk updates on records</div>
-                      </div>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
         </main>

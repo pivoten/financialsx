@@ -7,6 +7,7 @@ import (
 
 	"github.com/pivoten/financialsx/desktop/internal/auth"
 	"github.com/pivoten/financialsx/desktop/internal/company"
+	"github.com/pivoten/financialsx/desktop/internal/config"
 	"github.com/pivoten/financialsx/desktop/internal/database"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -268,6 +269,66 @@ func (a *App) CreateUser(username, password, email string, roleID int) (*auth.Us
 	// Note: This would need a new method in auth.go for admin-created users
 	// For now, we'll use the existing Register method with some modifications
 	return a.auth.Register(username, password, email)
+}
+
+// Configuration Management Functions
+
+// GetAPIKey retrieves an API key for a service
+func (a *App) GetAPIKey(service string) (string, error) {
+	// Check permissions - only admins can view API keys
+	if a.currentUser == nil || (!a.currentUser.IsAdmin() && !a.currentUser.HasPermission("settings.read")) {
+		return "", fmt.Errorf("insufficient permissions")
+	}
+	
+	key := config.GetAPIKey(service)
+	return key, nil
+}
+
+// SetAPIKey sets an API key for a service
+func (a *App) SetAPIKey(service, key string) error {
+	// Check permissions - only admins can set API keys
+	if a.currentUser == nil || (!a.currentUser.IsAdmin() && !a.currentUser.HasPermission("settings.write")) {
+		return fmt.Errorf("insufficient permissions")
+	}
+	
+	return config.UpdateAPIKey(service, key)
+}
+
+// GetConfig retrieves the current configuration
+func (a *App) GetConfig() (map[string]interface{}, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("settings.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	cfg := config.GetConfig()
+	
+	// Return sanitized config (without exposing full API keys)
+	result := map[string]interface{}{
+		"settings": cfg.Settings,
+		"api_keys_configured": map[string]bool{
+			"openweather": cfg.APIKeys.OpenWeather != "",
+		},
+	}
+	
+	return result, nil
+}
+
+// TestAPIKey tests if an API key is valid
+func (a *App) TestAPIKey(service, key string) (bool, error) {
+	// Check permissions
+	if a.currentUser == nil || !a.currentUser.HasPermission("settings.write") {
+		return false, fmt.Errorf("insufficient permissions")
+	}
+	
+	switch service {
+	case "openweather":
+		// Here you would implement actual API testing
+		// For now, just check if key is not empty
+		return key != "" && len(key) > 10, nil
+	default:
+		return false, fmt.Errorf("unknown service: %s", service)
+	}
 }
 
 func main() {

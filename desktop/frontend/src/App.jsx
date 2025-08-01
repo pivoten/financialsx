@@ -9,6 +9,8 @@ import { RevenueChart } from './components/charts/RevenueChart'
 import { ProductionChart } from './components/charts/ProductionChart'
 import { TransactionsTable } from './components/tables/TransactionsTable'
 import { DBFExplorer } from './components/DBFExplorer'
+import { ThemeProvider } from './components/theme-provider'
+import { ThemeSwitcher } from './components/theme-switcher'
 import { 
   Home, 
   Database, 
@@ -219,7 +221,11 @@ function App() {
   }
 
   // Advanced Dashboard with Sidebar Navigation
-  return <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} />
+  return (
+    <ThemeProvider defaultTheme="light" defaultColorScheme="blue">
+      <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} />
+    </ThemeProvider>
+  )
 }
 
 // Advanced Dashboard Component with Sidebar and Multiple Views
@@ -326,8 +332,8 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
-      <Sidebar className="hidden lg:flex">
-        <SidebarHeader>
+      <Sidebar className="hidden lg:flex border-r">
+        <SidebarHeader className="border-b px-6 py-4">
           <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
         </SidebarHeader>
         <SidebarContent>
@@ -383,9 +389,6 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               <FileText className="w-4 h-4" />
               State Reporting
             </SidebarNavItem>
-          </SidebarNavGroup>
-          
-          <SidebarNavGroup title="Account">
             <SidebarNavItem href="#">
               <Settings className="w-4 h-4" />
               Settings
@@ -401,10 +404,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="border-b bg-card shadow-sm px-6 py-4">
+        <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-foreground">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 {activeView === 'dashboard' && 'Dashboard'}
                 {activeView === 'transactions' && 'Transactions'}
                 {activeView === 'analytics' && 'Analytics'}
@@ -422,6 +425,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
               </p>
             </div>
             <div className="flex items-center space-x-4">
+              <ThemeSwitcher />
               <span className="text-sm text-muted-foreground">
                 Welcome, {currentUser?.username}
               </span>
@@ -433,7 +437,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 bg-muted/30">
           {activeView === 'dashboard' && (
             <div className="space-y-6">
               {loadingDashboard && (

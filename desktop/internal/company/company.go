@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
 )
@@ -219,9 +222,9 @@ func GetDBFFiles(companyName string) ([]string, error) {
 	return dbfFiles, nil
 }
 
-// ReadDBFFile reads a DBF file and returns its structure and data
+// ReadDBFFile reads a DBF file and returns its structure and data with pagination and sorting
 // If searchTerm is provided, it searches across all records and returns only matching ones
-func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface{}, error) {
+func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
 	// Use defer/recover to prevent crashes
 	defer func() {
 		if r := recover(); r != nil {
@@ -268,24 +271,25 @@ func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface
 	totalRecords := table.Header().RecordsCount()
 	fmt.Printf("Total records in file: %d\n", totalRecords)
 	
-	// Read all records and count stats
-	var rows [][]interface{}
+	// Read and potentially sort all records first (for server-side sorting)
+	var allRows [][]interface{}
 	var deletedCount uint32 = 0
 	var activeCount uint32 = 0
 	var searchMatches uint32 = 0
 	isSearching := searchTerm != ""
 	searchLower := strings.ToLower(searchTerm)
+	needsSorting := sortColumn != ""
 	
-	fmt.Printf("Starting to read records... (searching: %v)\n", isSearching)
+	fmt.Printf("Starting to read records... (searching: %v, sorting: %v)\n", isSearching, needsSorting)
 	
+	// First pass: read all records (needed for sorting)
 	for !table.EOF() {
 		row, err := table.Next()
 		if err != nil {
 			fmt.Printf("Error reading row: %v\n", err)
-			break // End of file or error
+			break
 		}
 		
-		// Count deleted vs active rows
 		if row.Deleted {
 			deletedCount++
 			if deletedCount <= 10 {
@@ -310,7 +314,6 @@ func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface
 					fieldStr := strings.ToLower(fmt.Sprintf("%v", field.GetValue()))
 					if strings.Contains(fieldStr, searchLower) {
 						matchFound = true
-						searchMatches++
 					}
 				}
 			} else {
@@ -320,22 +323,96 @@ func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface
 		
 		// Only add row if we're not searching or if it matches
 		if !isSearching || matchFound {
-			rows = append(rows, rowData)
-			
-			// Limit results
-			if len(rows) >= 1000 {
-				fmt.Printf("Reached 1000 row limit, stopping\n")
+			allRows = append(allRows, rowData)
+			if matchFound {
+				searchMatches++
+			}
+		}
+		
+		// Log progress
+		if activeCount%1000 == 0 {
+			fmt.Printf("Processed %d active rows...\n", activeCount)
+		}
+	}
+	
+	fmt.Printf("Read %d total matching rows\n", len(allRows))
+	
+	// Server-side sorting
+	if needsSorting && len(allRows) > 0 {
+		sortColumnIndex := -1
+		for i, col := range columns {
+			if col == sortColumn {
+				sortColumnIndex = i
 				break
 			}
 		}
 		
-		// Log progress every 1000 rows when searching (since we're checking all)
-		if isSearching && activeCount%1000 == 0 {
-			fmt.Printf("Searched %d active rows, found %d matches so far...\n", activeCount, searchMatches)
-		} else if !isSearching && len(rows)%100 == 0 {
-			fmt.Printf("Read %d rows so far...\n", len(rows))
+		if sortColumnIndex >= 0 {
+			fmt.Printf("Sorting by column %s (%d) %s\n", sortColumn, sortColumnIndex, sortDirection)
+			sort.Slice(allRows, func(i, j int) bool {
+				aVal := allRows[i][sortColumnIndex]
+				bVal := allRows[j][sortColumnIndex]
+				
+				// Handle null/empty values
+				if aVal == nil && bVal == nil {
+					return false
+				}
+				if aVal == nil {
+					return sortDirection != "desc"
+				}
+				if bVal == nil {
+					return sortDirection == "desc"
+				}
+				
+				// Try to parse as time first (for date columns)
+				if aTime, aErr := parseDateTime(aVal); aErr == nil {
+					if bTime, bErr := parseDateTime(bVal); bErr == nil {
+						if sortDirection == "desc" {
+							return aTime.After(bTime)
+						}
+						return aTime.Before(bTime)
+					}
+				}
+				
+				// Try numeric comparison
+				if aNum, aErr := parseNumber(aVal); aErr == nil {
+					if bNum, bErr := parseNumber(bVal); bErr == nil {
+						if sortDirection == "desc" {
+							return aNum > bNum
+						}
+						return aNum < bNum
+					}
+				}
+				
+				// Fall back to string comparison
+				aStr := fmt.Sprintf("%v", aVal)
+				bStr := fmt.Sprintf("%v", bVal)
+				if sortDirection == "desc" {
+					return aStr > bStr
+				}
+				return aStr < bStr
+			})
 		}
 	}
+	
+	// Apply pagination
+	totalRows := len(allRows)
+	startIdx := offset
+	endIdx := offset + limit
+	
+	if startIdx >= totalRows {
+		startIdx = totalRows
+	}
+	if endIdx > totalRows {
+		endIdx = totalRows
+	}
+	
+	var rows [][]interface{}
+	if startIdx < endIdx {
+		rows = allRows[startIdx:endIdx]
+	}
+	
+	fmt.Printf("Returning page %d-%d of %d total rows\n", startIdx, endIdx, totalRows)
 	
 	if isSearching {
 		fmt.Printf("Search complete. Searched %d active rows, found %d matches\n", activeCount, searchMatches)
@@ -353,9 +430,14 @@ func ReadDBFFile(companyName, fileName, searchTerm string) (map[string]interface
 			"activeRecords":  activeCount,
 			"deletedRecords": deletedCount,
 			"loadedRecords":  len(rows),
-			"hasMoreRecords": activeCount > uint32(len(rows)),
+			"totalMatching":  totalRows,
+			"hasMoreRecords": totalRows > len(rows),
 			"searchTerm":     searchTerm,
 			"searchMatches":  searchMatches,
+			"offset":         offset,
+			"limit":          limit,
+			"sortColumn":     sortColumn,
+			"sortDirection":  sortDirection,
 		},
 	}, nil
 }
@@ -515,4 +597,47 @@ func getRecordCount(companyName, fileName string) (uint32, error) {
 	
 	fmt.Printf("Counted %d active records in %s\n", activeCount, fileName)
 	return activeCount, nil
+}
+
+// Helper function to parse various date/time formats
+func parseDateTime(value interface{}) (time.Time, error) {
+	if value == nil {
+		return time.Time{}, fmt.Errorf("nil value")
+	}
+	
+	str := fmt.Sprintf("%v", value)
+	
+	// Try common date formats
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"01/02/2006",
+		"01/02/06",
+		"2006/01/02",
+		"06/01/02",
+		"20060102",
+	}
+	
+	for _, format := range formats {
+		if t, err := time.Parse(format, str); err == nil {
+			return t, nil
+		}
+	}
+	
+	return time.Time{}, fmt.Errorf("unable to parse date: %v", str)
+}
+
+// Helper function to parse numeric values
+func parseNumber(value interface{}) (float64, error) {
+	if value == nil {
+		return 0, fmt.Errorf("nil value")
+	}
+	
+	str := strings.TrimSpace(fmt.Sprintf("%v", value))
+	
+	// Remove common currency symbols and commas
+	str = strings.ReplaceAll(str, "$", "")
+	str = strings.ReplaceAll(str, ",", "")
+	
+	return strconv.ParseFloat(str, 64)
 }

@@ -9,6 +9,8 @@ export function GetDBFFiles(arg1:string):Promise<Array<string>>;
 
 export function GetDBFTableData(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string,arg6:string):Promise<Record<string, any>>;
+
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;

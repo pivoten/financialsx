@@ -161,7 +161,15 @@ func (a *App) GetDBFTableData(companyName, fileName string) (map[string]interfac
 	fmt.Printf("GetDBFTableData called: company=%s, file=%s\n", companyName, fileName)
 	
 	// Call the real DBF reading function without search
-	return company.ReadDBFFile(companyName, fileName, "")
+	return company.ReadDBFFile(companyName, fileName, "", 0, 1000, "", "")
+}
+
+// GetDBFTableDataPaged returns paginated and sorted data from a DBF file
+func (a *App) GetDBFTableDataPaged(companyName, fileName string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
+	fmt.Printf("GetDBFTableDataPaged called: company=%s, file=%s, offset=%d, limit=%d, sort=%s %s\n", 
+		companyName, fileName, offset, limit, sortColumn, sortDirection)
+	
+	return company.ReadDBFFile(companyName, fileName, "", offset, limit, sortColumn, sortDirection)
 }
 
 // SearchDBFTable searches a DBF file and returns matching records
@@ -169,7 +177,7 @@ func (a *App) SearchDBFTable(companyName, fileName, searchTerm string) (map[stri
 	fmt.Printf("SearchDBFTable called: company=%s, file=%s, search=%s\n", companyName, fileName, searchTerm)
 	
 	// Call the DBF reading function with search term
-	return company.ReadDBFFile(companyName, fileName, searchTerm)
+	return company.ReadDBFFile(companyName, fileName, searchTerm, 0, 1000, "", "")
 }
 
 // UpdateDBFRecord updates a specific record in a DBF file

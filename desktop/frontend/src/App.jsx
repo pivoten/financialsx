@@ -13,6 +13,7 @@ import { TransactionsTable } from './components/tables/TransactionsTable'
 import { DBFExplorer } from './components/DBFExplorer'
 import { UserManagement } from './components/UserManagement'
 import { StateReportsSection } from './components/StateReportsSection'
+import { BankingSection } from './components/BankingSection'
 import { ThemeProvider } from './components/theme-provider'
 import { ThemeSwitcher } from './components/theme-switcher'
 import { 
@@ -644,6 +645,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   <TabsTrigger value="revenue">Revenue</TabsTrigger>
                   <TabsTrigger value="expenses">Expenses</TabsTrigger>
                   <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                  <TabsTrigger value="banking">Banking</TabsTrigger>
                   <TabsTrigger value="accounting">Accounting</TabsTrigger>
                 </TabsList>
                 <TabsContent value="transactions" className="space-y-4">
@@ -693,6 +695,9 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                     </Card>
                   </div>
                 </TabsContent>
+                <TabsContent value="banking" className="space-y-4">
+                  <BankingSection companyName={currentUser?.company_name} />
+                </TabsContent>
                 <TabsContent value="accounting" className="space-y-4">
                   <Card>
                     <CardHeader>
@@ -721,7 +726,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
                 </TabsList>
                 <TabsContent value="dbf-explorer" className="space-y-4">
-                  <DBFExplorer />
+                  <DBFExplorer currentUser={currentUser} />
                 </TabsContent>
                 <TabsContent value="import" className="space-y-4">
                   <Card>

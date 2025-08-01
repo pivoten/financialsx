@@ -22,6 +22,10 @@ export function GetAllUsers() {
   return window['go']['main']['App']['GetAllUsers']();
 }
 
+export function GetBankAccounts(arg1) {
+  return window['go']['main']['App']['GetBankAccounts'](arg1);
+}
+
 export function GetClosingStatus(arg1) {
   return window['go']['main']['App']['GetClosingStatus'](arg1);
 }

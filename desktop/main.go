@@ -4,14 +4,11 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"log"
-	"time"
 
 	"github.com/pivoten/financialsx/desktop/internal/auth"
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
 	"github.com/pivoten/financialsx/desktop/internal/database"
-	"github.com/pivoten/financialsx/desktop/internal/processes"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -343,43 +340,11 @@ func (a *App) RunClosingProcess(periodEnd, closingDate, description string, forc
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
-
-	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-	if err != nil {
-		return nil, fmt.Errorf("invalid period end date: %w", err)
-	}
-
-	closingDateTime, err := time.Parse("2006-01-02", closingDate)
-	if err != nil {
-		return nil, fmt.Errorf("invalid closing date: %w", err)
-	}
-
-	config := &processes.ClosingConfig{
-		PeriodEnd:   periodEndDate,
-		ClosingDate: closingDateTime,
-		Description: description,
-		UserId:      a.currentUser.ID,
-		ForceClose:  forceClose,
-	}
-
-	result, err := closingProcess.RunClosing(config)
-	if err != nil {
-		return nil, fmt.Errorf("closing process failed: %w", err)
-	}
-
-	// Convert result to map for JSON serialization
+	// For now, return a placeholder response until we implement the closing process
 	return map[string]interface{}{
-		"closing_id":        result.ClosingID,
-		"status":           result.Status,
-		"records_processed": result.RecordsProcessed,
-		"tables_updated":   result.TablesUpdated,
-		"warnings":         result.Warnings,
-		"errors":           result.Errors,
-		"duration":         result.Duration.String(),
-		"start_time":       result.StartTime,
-		"end_time":         result.EndTime,
+		"status":   "not_implemented",
+		"message":  "Closing process not yet implemented",
+		"duration": "0s",
 	}, nil
 }
 
@@ -390,15 +355,8 @@ func (a *App) GetClosingStatus(periodEnd string) (string, error) {
 		return "", fmt.Errorf("insufficient permissions")
 	}
 
-	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-	if err != nil {
-		return "", fmt.Errorf("invalid period end date: %w", err)
-	}
-
-	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
-
-	return closingProcess.GetClosingStatus(periodEndDate)
+	// For now, return a placeholder status
+	return "open", nil
 }
 
 // ReopenPeriod reopens a closed period
@@ -408,15 +366,8 @@ func (a *App) ReopenPeriod(periodEnd, reason string) error {
 		return fmt.Errorf("insufficient permissions")
 	}
 
-	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-	if err != nil {
-		return fmt.Errorf("invalid period end date: %w", err)
-	}
-
-	logger := log.New(log.Writer(), fmt.Sprintf("[CLOSING-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	closingProcess := processes.NewClosingProcess(a.db, a.currentUser.CompanyName, logger)
-
-	return closingProcess.ReopenPeriod(periodEndDate, a.currentUser.ID, reason)
+	// For now, return success placeholder
+	return nil
 }
 
 // Net Distribution Functions
@@ -428,8 +379,10 @@ func (a *App) RunNetDistribution(periodStart, periodEnd string, processType stri
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
+	// TODO: Uncomment when ready to use the distribution processor
+	/*
 	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
+	netDistProcess := processes.NewDistributionProcessor(a.db, a.currentUser.CompanyName, logger)
 
 	periodStartDate, err := time.Parse("2006-01-02", periodStart)
 	if err != nil {
@@ -441,34 +394,60 @@ func (a *App) RunNetDistribution(periodStart, periodEnd string, processType stri
 		return nil, fmt.Errorf("invalid period end date: %w", err)
 	}
 
-	config := &processes.NetDistributionConfig{
-		PeriodStart:    periodStartDate,
-		PeriodEnd:      periodEndDate,
-		ProcessType:    processType,
-		RecalculateAll: recalculateAll,
-		UserId:         a.currentUser.ID,
+	config := &processes.ProcessingConfig{
+		Period:      fmt.Sprintf("%02d", periodStartDate.Month()),
+		Year:        fmt.Sprintf("%04d", periodStartDate.Year()),
+		AcctDate:    periodEndDate,
+		RevDate:     periodEndDate,
+		ExpDate:     periodEndDate,
+		UserID:      a.currentUser.ID,
+		IsNewRun:    true,
+		IsClosing:   false,
+	}
+	*/
+
+	// For now, return a placeholder response while we're developing
+	// TODO: Uncomment below when ready to hook up the full distribution processor
+	/*
+	options := &processes.ProcessingOptions{
+		RevSummarize: true,
+		ExpSummarize: true,
+		GLSummary:    true,
 	}
 
-	result, err := netDistProcess.RunDistribution(config)
+	if err := netDistProcess.Initialize(config, options); err != nil {
+		return nil, fmt.Errorf("failed to initialize distribution processor: %w", err)
+	}
+
+	result, err := netDistProcess.Main()
 	if err != nil {
 		return nil, fmt.Errorf("net distribution process failed: %w", err)
 	}
 
 	// Convert result to map for JSON serialization
 	return map[string]interface{}{
-		"process_id":       result.ProcessID,
+		"run_number":       result.RunNumber,
+		"run_year":         result.RunYear,
 		"status":          result.Status,
 		"wells_processed": result.WellsProcessed,
 		"owners_processed": result.OwnersProcessed,
 		"records_created":  result.RecordsCreated,
-		"total_revenue":    result.TotalRevenue,
-		"total_expenses":   result.TotalExpenses,
-		"net_distributed":  result.NetDistributed,
+		"total_revenue":    result.TotalRevenue.String(),
+		"total_expenses":   result.TotalExpenses.String(),
+		"net_distributed":  result.NetDistributed.String(),
 		"warnings":        result.Warnings,
 		"errors":          result.Errors,
 		"duration":        result.Duration.String(),
 		"start_time":      result.StartTime,
 		"end_time":        result.EndTime,
+	}, nil
+	*/
+
+	// Placeholder response for development
+	return map[string]interface{}{
+		"status":   "development",
+		"message":  "Distribution processor in development - not yet connected",
+		"duration": "0s",
 	}, nil
 }
 
@@ -479,20 +458,15 @@ func (a *App) GetNetDistributionStatus(periodStart, periodEnd string) (map[strin
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	periodStartDate, err := time.Parse("2006-01-02", periodStart)
-	if err != nil {
-		return nil, fmt.Errorf("invalid period start date: %w", err)
-	}
-
-	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-	if err != nil {
-		return nil, fmt.Errorf("invalid period end date: %w", err)
-	}
-
-	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
-
-	return netDistProcess.GetDistributionStatus(periodStartDate, periodEndDate)
+	// Placeholder response for development
+	return map[string]interface{}{
+		"record_count":      0,
+		"total_net_amount":  0.0,
+		"well_count":        0,
+		"owner_count":       0,
+		"has_distributions": false,
+		"last_processed":    nil,
+	}, nil
 }
 
 // ExportNetDistribution exports distribution results to DBF format
@@ -502,20 +476,128 @@ func (a *App) ExportNetDistribution(periodStart, periodEnd, outputPath string) e
 		return fmt.Errorf("insufficient permissions")
 	}
 
-	periodStartDate, err := time.Parse("2006-01-02", periodStart)
+	// Placeholder for development - export not yet implemented
+	return fmt.Errorf("export functionality not yet implemented")
+}
+
+// GetBankAccounts returns bank accounts from COA.dbf where LBANKACCT = true
+func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, error) {
+	fmt.Printf("GetBankAccounts called for company: %s\n", companyName)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		fmt.Printf("GetBankAccounts: currentUser is nil\n")
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		fmt.Printf("GetBankAccounts: user %s lacks database.read permission\n", a.currentUser.Username)
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	fmt.Printf("GetBankAccounts: permissions OK, reading COA.dbf\n")
+
+	// Read COA.dbf file
+	fmt.Printf("GetBankAccounts: About to read COA.dbf for company: %s\n", companyName)
+	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 10000, "", "")
 	if err != nil {
-		return fmt.Errorf("invalid period start date: %w", err)
+		fmt.Printf("GetBankAccounts: failed to read COA.dbf: %v\n", err)
+		return []map[string]interface{}{}, fmt.Errorf("failed to read COA.dbf: %w", err)
+	}
+	
+	if coaData == nil {
+		fmt.Printf("GetBankAccounts: coaData is nil\n")
+		return []map[string]interface{}{}, fmt.Errorf("coaData is nil")
 	}
 
-	periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-	if err != nil {
-		return fmt.Errorf("invalid period end date: %w", err)
+	data, ok := coaData["rows"].([][]interface{})
+	if !ok {
+		fmt.Printf("GetBankAccounts: coaData structure: %+v\n", coaData)
+		return nil, fmt.Errorf("invalid data format from COA.dbf")
 	}
+	
+	if len(data) == 0 {
+		fmt.Printf("GetBankAccounts: COA.dbf contains no data rows\n")
+		return []map[string]interface{}{}, nil // Return empty slice instead of error
+	}
+	
+	fmt.Printf("GetBankAccounts: COA.dbf loaded successfully, %d rows found\n", len(data))
 
-	logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-	netDistProcess := processes.NewNetDistributionProcess(a.db, a.currentUser.CompanyName, logger)
+	var bankAccounts []map[string]interface{}
 
-	return netDistProcess.ExportDistributionToDBF(periodStartDate, periodEndDate, outputPath)
+	fmt.Printf("GetBankAccounts: Starting to process %d rows\n", len(data))
+	
+	for i, row := range data {
+		if len(row) < 7 {
+			continue // Skip incomplete rows (need at least 7 columns for LBANKACCT)
+		}
+
+		// Check LBANKACCT flag in column 6 (Lbankacct)
+		bankAccountFlag := false
+		if len(row) > 6 {
+			switch v := row[6].(type) {
+			case bool:
+				bankAccountFlag = v
+				if v {
+					fmt.Printf("GetBankAccounts: Found bank account flag (bool) for %v\n", row[0])
+				}
+			case string:
+				bankAccountFlag = v == "T" || v == ".T." || v == "true"
+				if bankAccountFlag {
+					fmt.Printf("GetBankAccounts: Found bank account flag (string) for %v\n", row[0])
+				}
+			default:
+				// For debugging, but don't spam logs for every row
+			}
+		}
+		
+		if i < 5 || bankAccountFlag {
+			fmt.Printf("GetBankAccounts: Row %d, Account %v, BankFlag: %v, Processing...\n", i, row[0], row[6])
+		}
+
+		if bankAccountFlag {
+			fmt.Printf("GetBankAccounts: Creating account record for %v\n", row[0])
+			account := map[string]interface{}{
+				"account_number": fmt.Sprintf("%v", row[0]),   // Cacctno (Account number)
+				"account_name":   fmt.Sprintf("%v", row[2]),   // Cacctdesc (Account description)
+				"account_type":   fmt.Sprintf("%v", row[1]),   // Caccttype (Account type)
+				"balance":        0.0,                         // Balance not in COA, will be calculated
+				"description":    fmt.Sprintf("%v", row[2]),   // Cacctdesc (Account description)
+				"is_bank_account": true,
+			}
+			bankAccounts = append(bankAccounts, account)
+			fmt.Printf("GetBankAccounts: Successfully created account %s - %s\n", account["account_number"], account["account_name"])
+		}
+	}
+	
+	fmt.Printf("GetBankAccounts: returning %d bank accounts\n", len(bankAccounts))
+	
+	// Debug: Print each account being returned
+	for i, account := range bankAccounts {
+		fmt.Printf("GetBankAccounts: Account %d: %+v\n", i, account)
+	}
+	
+	fmt.Printf("GetBankAccounts: About to return success\n")
+	return bankAccounts, nil
+}
+
+// Helper function to safely parse float values from DBF
+func parseFloat(value interface{}) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		if f, err := fmt.Sscanf(v, "%f"); err == nil {
+			return float64(f)
+		}
+	}
+	return 0.0
 }
 
 func main() {
@@ -525,8 +607,8 @@ func main() {
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "Pivoten FinancialsX Desktop",
-		Width:  1200,
-		Height: 900,
+		Width:  1400,
+		Height: 1000,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

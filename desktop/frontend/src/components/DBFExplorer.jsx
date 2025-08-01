@@ -4,6 +4,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { Select } from './ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
 import { Folder, FileText, Search, Edit, Save, X, Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown, Settings, Eye, EyeOff, GripVertical, Download, Upload, Filter, FilterX, Database } from 'lucide-react'
 import { GetDBFFiles, GetDBFTableData, GetDBFTableDataPaged, SearchDBFTable, UpdateDBFRecord } from '../../wailsjs/go/main/App'
 import {
@@ -29,7 +30,7 @@ import { CSS } from '@dnd-kit/utilities'
 let globalApiCallInProgress = false
 let lastGlobalApiCall = 0
 
-export function DBFExplorer() {
+export function DBFExplorer({ currentUser }) {
   const [dbfFiles, setDbfFiles] = useState([])
   const [selectedFile, setSelectedFile] = useState('')
   const [tableData, setTableData] = useState({ columns: [], rows: [], stats: {} })
@@ -52,6 +53,9 @@ export function DBFExplorer() {
   const [showColumnFilters, setShowColumnFilters] = useState(false)
   const [columnFilters, setColumnFilters] = useState([])
   const [showDataExport, setShowDataExport] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [selectedRecord, setSelectedRecord] = useState(null)
+  const [showRecordModal, setShowRecordModal] = useState(false)
   const lastClickTime = useRef(0)
   const clickTimeout = useRef(null)
   const searchTimeout = useRef(null)
@@ -311,6 +315,74 @@ export function DBFExplorer() {
   const handleCancelEdit = () => {
     setEditingCell(null)
     setEditValue('')
+  }
+
+  // Check if current user can edit
+  const canEdit = () => {
+    console.log('DBFExplorer canEdit check:', {
+      currentUser,
+      is_root: currentUser?.is_root,
+      role_name: currentUser?.role_name,
+      hasUser: !!currentUser
+    })
+    return currentUser && (currentUser.is_root || currentUser.role_name === 'Admin')
+  }
+
+  // Handle row click to show record details
+  const handleRowClick = (rowIndex) => {
+    if (!isEditMode) {
+      const record = tableData.rows[rowIndex]
+      const recordWithColumns = tableData.columns.map((col, index) => ({
+        column: col,
+        value: record[index],
+        index: index
+      }))
+      setSelectedRecord(recordWithColumns)
+      setShowRecordModal(true)
+    }
+  }
+
+  // Toggle edit mode
+  const toggleEditMode = () => {
+    setIsEditMode(!isEditMode)
+    // Cancel any ongoing edits when switching modes
+    if (!isEditMode) {
+      setEditingCell(null)
+      setEditValue('')
+    }
+  }
+
+  // Format values for display (logical, dates, nulls)
+  const formatLogicalValue = (value) => {
+    // Handle null, undefined, empty values
+    if (value === null || value === undefined || value === '') {
+      return ''
+    }
+    
+    // Handle boolean values
+    if (typeof value === 'boolean') {
+      return value ? 'True' : 'False'
+    }
+    
+    // Handle string values
+    if (typeof value === 'string') {
+      const lowerValue = value.toLowerCase()
+      
+      // Handle logical string values
+      if (lowerValue === 't' || lowerValue === '.t.' || lowerValue === 'true') {
+        return 'True'
+      }
+      if (lowerValue === 'f' || lowerValue === '.f.' || lowerValue === 'false') {
+        return 'False'
+      }
+      
+      // Handle null-like string values
+      if (lowerValue === 'null' || lowerValue === 'nil' || lowerValue.trim() === '') {
+        return ''
+      }
+    }
+    
+    return value
   }
 
   // Server-side search function
@@ -668,6 +740,17 @@ export function DBFExplorer() {
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
+                {canEdit() && (
+                  <Button
+                    variant={isEditMode ? "default" : "outline"}
+                    size="sm"
+                    onClick={toggleEditMode}
+                    title={isEditMode ? "Exit Edit Mode" : "Enter Edit Mode"}
+                  >
+                    <Edit className="w-4 h-4" />
+                    {isEditMode ? "Exit Edit" : "Edit"}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -971,10 +1054,20 @@ export function DBFExplorer() {
                                   </div>
                                 ) : (
                                   <div
-                                    className="cursor-pointer hover:bg-muted/50 p-1 rounded min-h-6"
-                                    onClick={() => handleCellEdit(rowIndex, col.index)}
+                                    className={`p-1 rounded min-h-6 ${
+                                      isEditMode 
+                                        ? "cursor-pointer hover:bg-muted/50" 
+                                        : "cursor-pointer hover:bg-blue-50"
+                                    }`}
+                                    onClick={() => {
+                                      if (isEditMode) {
+                                        handleCellEdit(rowIndex, col.index)
+                                      } else {
+                                        handleRowClick(rowIndex)
+                                      }
+                                    }}
                                   >
-                                    {cellValue}
+                                    {formatLogicalValue(cellValue)}
                                   </div>
                                 )}
                               </TableCell>
@@ -1013,6 +1106,39 @@ export function DBFExplorer() {
             )}
           </CardContent>
         </Card>
+      )}
+      
+      {/* Record Detail Modal */}
+      {showRecordModal && selectedRecord && (
+        <Dialog open={showRecordModal} onOpenChange={setShowRecordModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>Record Details - {selectedFile}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Complete record data for row {tableData.rows?.indexOf(selectedRecord.map(r => r.value)) + 1 || 'N/A'}
+              </div>
+              <div className="grid gap-3">
+                {selectedRecord.map((field, index) => (
+                  <div key={index} className="grid grid-cols-3 gap-4 p-3 border rounded">
+                    <div className="font-medium text-sm text-muted-foreground">
+                      {field.column}
+                    </div>
+                    <div className="col-span-2 break-all">
+                      <div className="p-2 bg-muted/30 rounded text-sm">
+                        {formatLogicalValue(field.value) || <span className="text-muted-foreground italic">Empty</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end pt-4 border-t">
+                <Button onClick={() => setShowRecordModal(false)}>Close</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

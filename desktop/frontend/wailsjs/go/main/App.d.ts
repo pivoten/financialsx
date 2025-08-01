@@ -13,6 +13,8 @@ export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
 
+export function GetBankAccounts(arg1:string):Promise<Array<Record<string, any>>>;
+
 export function GetClosingStatus(arg1:string):Promise<string>;
 
 export function GetCompanies():Promise<Array<company.Company>>;

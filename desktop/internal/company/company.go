@@ -425,26 +425,18 @@ func getFinancialSummary(companyName string) (map[string]interface{}, error) {
 		"hasData":      false,
 	}
 	
-	// Try to read INCOME.DBF
-	if incomeData, err := ReadDBFFile(companyName, "INCOME.DBF", ""); err == nil {
-		if stats, ok := incomeData["stats"].(map[string]interface{}); ok {
-			if activeRecords, ok := stats["activeRecords"].(uint32); ok && activeRecords > 0 {
-				financials["incomeRecords"] = activeRecords
-				financials["hasIncomeData"] = true
-				financials["hasData"] = true
-			}
-		}
+	// Try to count INCOME.DBF records
+	if incomeCount, err := getRecordCount(companyName, "INCOME.DBF"); err == nil && incomeCount > 0 {
+		financials["incomeRecords"] = incomeCount
+		financials["hasIncomeData"] = true
+		financials["hasData"] = true
 	}
 	
-	// Try to read EXPENSE.DBF
-	if expenseData, err := ReadDBFFile(companyName, "EXPENSE.DBF", ""); err == nil {
-		if stats, ok := expenseData["stats"].(map[string]interface{}); ok {
-			if activeRecords, ok := stats["activeRecords"].(uint32); ok && activeRecords > 0 {
-				financials["expenseRecords"] = activeRecords
-				financials["hasExpenseData"] = true
-				financials["hasData"] = true
-			}
-		}
+	// Try to count EXPENSE.DBF records
+	if expenseCount, err := getRecordCount(companyName, "EXPENSE.DBF"); err == nil && expenseCount > 0 {
+		financials["expenseRecords"] = expenseCount
+		financials["hasExpenseData"] = true
+		financials["hasData"] = true
 	}
 	
 	return financials, nil
@@ -457,13 +449,10 @@ func getWellSummary(companyName string) (map[string]interface{}, error) {
 		"hasData":    false,
 	}
 	
-	if wellData, err := ReadDBFFile(companyName, "WELLS.DBF", ""); err == nil {
-		if stats, ok := wellData["stats"].(map[string]interface{}); ok {
-			if activeRecords, ok := stats["activeRecords"].(uint32); ok {
-				wells["totalWells"] = activeRecords
-				wells["hasData"] = activeRecords > 0
-			}
-		}
+	// Use the new count function instead of reading all data
+	if count, err := getRecordCount(companyName, "WELLS.DBF"); err == nil {
+		wells["totalWells"] = count
+		wells["hasData"] = count > 0
 	}
 	
 	return wells, nil
@@ -476,14 +465,54 @@ func getCheckActivity(companyName string) (map[string]interface{}, error) {
 		"hasData":     false,
 	}
 	
-	if checkData, err := ReadDBFFile(companyName, "CHECKS.DBF", ""); err == nil {
-		if stats, ok := checkData["stats"].(map[string]interface{}); ok {
-			if activeRecords, ok := stats["activeRecords"].(uint32); ok {
-				checks["totalChecks"] = activeRecords
-				checks["hasData"] = activeRecords > 0
-			}
-		}
+	// Use the new count function instead of reading all data
+	if count, err := getRecordCount(companyName, "CHECKS.DBF"); err == nil {
+		checks["totalChecks"] = count
+		checks["hasData"] = count > 0
 	}
 	
 	return checks, nil
+}
+
+// getRecordCount efficiently counts active records in a DBF file without loading all data
+func getRecordCount(companyName, fileName string) (uint32, error) {
+	datafilesPath, err := getDatafilesPath()
+	if err != nil {
+		return 0, err
+	}
+	
+	filePath := filepath.Join(datafilesPath, companyName, fileName)
+	
+	// Check if file exists
+	if _, err := os.Stat(filePath); err != nil {
+		return 0, fmt.Errorf("DBF file does not exist: %s", fileName)
+	}
+	
+	// Open the DBF file
+	table, err := dbase.OpenTable(&dbase.Config{
+		Filename:   filePath,
+		TrimSpaces: true,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to open DBF file: %w", err)
+	}
+	defer table.Close()
+	
+	// Count active records without loading data
+	var activeCount uint32 = 0
+	
+	for !table.EOF() {
+		row, err := table.Next()
+		if err != nil {
+			break // End of file or error
+		}
+		
+		// Only count non-deleted rows
+		if !row.Deleted {
+			activeCount++
+		}
+	}
+	
+	fmt.Printf("Counted %d active records in %s\n", activeCount, fileName)
+	return activeCount, nil
 }

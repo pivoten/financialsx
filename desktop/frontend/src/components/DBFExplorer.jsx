@@ -95,8 +95,16 @@ export function DBFExplorer() {
       }
       
       const result = await GetDBFTableData(companyToUse, fileName)
-      console.log('API call completed successfully')
-      setTableData(result || { columns: [], rows: [], stats: {} })
+      console.log('API call completed successfully', result)
+      
+      // Ensure we have valid data structure even for empty files
+      const safeResult = {
+        columns: result?.columns || [],
+        rows: result?.rows || [],
+        stats: result?.stats || {}
+      }
+      
+      setTableData(safeResult)
       setSortColumn(null) // Reset sorting when loading new data
       setSortDirection('asc')
     } catch (error) {
@@ -204,11 +212,21 @@ export function DBFExplorer() {
       if (search.trim() === '') {
         // If search is empty, load normal data
         const result = await GetDBFTableData(companyToUse, selectedFile)
-        setTableData(result || { columns: [], rows: [], stats: {} })
+        const safeResult = {
+          columns: result?.columns || [],
+          rows: result?.rows || [],
+          stats: result?.stats || {}
+        }
+        setTableData(safeResult)
       } else {
         // Perform server-side search
         const result = await SearchDBFTable(companyToUse, selectedFile, search)
-        setTableData(result || { columns: [], rows: [], stats: {} })
+        const safeResult = {
+          columns: result?.columns || [],
+          rows: result?.rows || [],
+          stats: result?.stats || {}
+        }
+        setTableData(safeResult)
       }
     } catch (error) {
       console.error('Search failed:', error)
@@ -245,7 +263,7 @@ export function DBFExplorer() {
   }
 
   // Sort rows (no client-side filtering since we use server-side search)
-  let filteredRows = [...tableData.rows]
+  let filteredRows = [...(tableData.rows || [])]
 
   // Apply sorting if a column is selected
   if (sortColumn !== null) {

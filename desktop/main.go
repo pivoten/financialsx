@@ -4,6 +4,9 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"math"
+	"strings"
+	"time"
 
 	"github.com/pivoten/financialsx/desktop/internal/auth"
 	"github.com/pivoten/financialsx/desktop/internal/company"
@@ -579,6 +582,199 @@ func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, err
 	
 	fmt.Printf("GetBankAccounts: About to return success\n")
 	return bankAccounts, nil
+}
+
+// AuditCheckBatches performs an audit comparing checks.dbf entries with GLMASTER.dbf
+func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("AuditCheckBatches called for company: %s\n", companyName)
+	
+	// Check permissions - only admin/root can audit
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.IsRoot && a.currentUser.RoleName != "Admin" {
+		return nil, fmt.Errorf("insufficient permissions - admin or root required")
+	}
+	
+	// Read checks.dbf
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 10000, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	
+	// Read GLMASTER.dbf
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+	if err != nil {
+		// If GLMASTER.dbf doesn't exist, return informative error
+		return map[string]interface{}{
+			"status": "error",
+			"error": "GLMASTER.dbf not found",
+			"message": "The GLMASTER.dbf file is required for audit but was not found in the company directory",
+		}, nil
+	}
+	
+	// Get column indices for checks.dbf
+	checksColumns, ok := checksData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid checks.dbf structure")
+	}
+	
+	// Find CBATCH column index (if it exists)
+	cbatchIdx := -1
+	amountIdx := -1
+	checkNumIdx := -1
+	for i, col := range checksColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CBATCH" {
+			cbatchIdx = i
+		} else if colUpper == "AMOUNT" || colUpper == "NAMOUNT" {
+			amountIdx = i
+		} else if colUpper == "CHECKNUM" || colUpper == "CCHECKNUM" {
+			checkNumIdx = i
+		}
+	}
+	
+	// If no CBATCH column, try to use check number or other identifier
+	if cbatchIdx == -1 {
+		fmt.Printf("Warning: CBATCH column not found in checks.dbf, using check number for audit\n")
+	}
+	
+	// Get column indices for GLMASTER.dbf
+	glColumns, ok := glData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid GLMASTER.dbf structure")
+	}
+	
+	// Find relevant GL columns
+	glBatchIdx := -1
+	glAmountIdx := -1
+	glRefIdx := -1
+	for i, col := range glColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CBATCH" {
+			glBatchIdx = i
+		} else if colUpper == "AMOUNT" || colUpper == "NAMOUNT" {
+			glAmountIdx = i
+		} else if colUpper == "CREF" || colUpper == "REFERENCE" {
+			glRefIdx = i
+		}
+	}
+	
+	// Build GL lookup map
+	glMap := make(map[string][]map[string]interface{})
+	glRows, _ := glData["rows"].([][]interface{})
+	
+	for _, row := range glRows {
+		var key string
+		if glBatchIdx >= 0 && glBatchIdx < len(row) {
+			key = fmt.Sprintf("%v", row[glBatchIdx])
+		} else if glRefIdx >= 0 && glRefIdx < len(row) {
+			key = fmt.Sprintf("%v", row[glRefIdx])
+		}
+		
+		if key != "" {
+			entry := map[string]interface{}{
+				"row": row,
+				"columns": glColumns,
+			}
+			if glAmountIdx >= 0 && glAmountIdx < len(row) {
+				entry["amount"] = parseFloat(row[glAmountIdx])
+			}
+			glMap[key] = append(glMap[key], entry)
+		}
+	}
+	
+	// Audit results
+	var missingEntries []map[string]interface{}
+	var mismatchedAmounts []map[string]interface{}
+	totalChecks := 0
+	totalMatched := 0
+	
+	// Check each entry in checks.dbf
+	checksRows, _ := checksData["rows"].([][]interface{})
+	
+	for i, row := range checksRows {
+		if len(row) == 0 {
+			continue
+		}
+		
+		totalChecks++
+		
+		// Get check identifier (CBATCH or check number)
+		var checkID string
+		if cbatchIdx >= 0 && cbatchIdx < len(row) {
+			checkID = fmt.Sprintf("%v", row[cbatchIdx])
+		} else if checkNumIdx >= 0 && checkNumIdx < len(row) {
+			checkID = fmt.Sprintf("%v", row[checkNumIdx])
+		} else {
+			checkID = fmt.Sprintf("Row_%d", i)
+		}
+		
+		// Get check amount
+		var checkAmount float64
+		if amountIdx >= 0 && amountIdx < len(row) {
+			checkAmount = parseFloat(row[amountIdx])
+		}
+		
+		// Look for matching GL entries
+		glEntries, found := glMap[checkID]
+		
+		if !found || len(glEntries) == 0 {
+			// No GL entry found
+			missingEntries = append(missingEntries, map[string]interface{}{
+				"check_id": checkID,
+				"amount": checkAmount,
+				"row_index": i,
+				"check_data": row,
+				"check_columns": checksColumns,
+			})
+		} else {
+			// Check if amounts match
+			matched := false
+			for _, glEntry := range glEntries {
+				glAmount, _ := glEntry["amount"].(float64)
+				if math.Abs(checkAmount - glAmount) < 0.01 { // Allow for small rounding differences
+					matched = true
+					totalMatched++
+					break
+				}
+			}
+			
+			if !matched {
+				mismatchedAmounts = append(mismatchedAmounts, map[string]interface{}{
+					"check_id": checkID,
+					"check_amount": checkAmount,
+					"gl_entries": glEntries,
+					"row_index": i,
+					"check_data": row,
+					"check_columns": checksColumns,
+				})
+			}
+		}
+	}
+	
+	// Prepare audit report
+	auditReport := map[string]interface{}{
+		"status": "completed",
+		"summary": map[string]interface{}{
+			"total_checks": totalChecks,
+			"matched_entries": totalMatched,
+			"missing_entries": len(missingEntries),
+			"mismatched_amounts": len(mismatchedAmounts),
+		},
+		"missing_entries": missingEntries,
+		"mismatched_amounts": mismatchedAmounts,
+		"check_columns": checksColumns,
+		"gl_columns": glColumns,
+		"audit_date": time.Now().Format("2006-01-02 15:04:05"),
+		"audited_by": a.currentUser.Username,
+	}
+	
+	fmt.Printf("Audit completed: %d checks, %d matched, %d missing, %d mismatched\n", 
+		totalChecks, totalMatched, len(missingEntries), len(mismatchedAmounts))
+	
+	return auditReport, nil
 }
 
 // Helper function to safely parse float values from DBF

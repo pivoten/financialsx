@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { GetBankAccounts, GetDBFTableData } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { BankReconciliation } from './BankReconciliation'
+import { CheckAudit } from './CheckAudit'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
@@ -22,7 +23,7 @@ import {
   Clock
 } from 'lucide-react'
 
-export function BankingSection({ companyName }) {
+export function BankingSection({ companyName, currentUser }) {
   // State for banking data
   const [accounts, setAccounts] = useState([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
@@ -234,6 +235,9 @@ export function BankingSection({ companyName }) {
           <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
           <TabsTrigger value="transfers">Transfers</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
+          {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
+            <TabsTrigger value="audit">Audit</TabsTrigger>
+          )}
         </TabsList>
 
         {/* Bank Accounts Tab */}
@@ -570,6 +574,13 @@ export function BankingSection({ companyName }) {
             </Card>
           </div>
         </TabsContent>
+
+        {/* Audit Tab */}
+        {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
+          <TabsContent value="audit" className="space-y-4">
+            <CheckAudit companyName={companyName} currentUser={currentUser} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

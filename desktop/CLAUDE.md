@@ -38,9 +38,21 @@ Column Index | Field Name | Description
 3. **Filter**: Only accounts where `LBANKACCT = true` (column 6)
 4. **Transform**: Convert to display format with account_number, account_name, etc.
 
+### Check Batch Audit Feature (Admin/Root Only)
+1. **Function**: `AuditCheckBatches()` in `main.go:584-772`
+2. **UI Component**: `CheckAudit.jsx` - Full audit interface with results display
+3. **Purpose**: Compare checks.dbf entries with GLMASTER.dbf
+4. **Checks for**:
+   - Missing GL entries (checks without corresponding GL records)
+   - Mismatched amounts (checks where amounts differ from GL)
+5. **Fallback**: If CBATCH field doesn't exist, uses check number for matching
+6. **Export**: Results can be exported to CSV format
+
 ### Key Functions
 - **Go**: `GetBankAccounts()` in `main.go:484-582`
+- **Go**: `AuditCheckBatches()` in `main.go:584-772`
 - **React**: `loadBankAccounts()` in `BankingSection.jsx:105-207`
+- **React**: `CheckAudit.jsx` - Complete audit component
 - **DBF Reader**: `ReadDBFFile()` in `company.go:225-443`
 
 ## User Management & Permissions
@@ -225,8 +237,67 @@ users table:
 3. Enable debug logging in browser console
 4. Use fallback GetDBFTableData method
 
+## Future Development: Audit Results Persistence
+
+### Problem
+Currently, audit results are only stored in React state. When users navigate away from the audit tab, the results are lost and the audit must be run again. This is inefficient for large datasets (e.g., 1460 mismatched entries).
+
+### Proposed Solution
+1. **Create SQLite Tables**:
+   ```sql
+   -- Audit runs table
+   CREATE TABLE audit_runs (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     company_name TEXT NOT NULL,
+     audit_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     audited_by TEXT NOT NULL,
+     total_checks INTEGER,
+     matched_entries INTEGER,
+     missing_entries INTEGER,
+     mismatched_amounts INTEGER,
+     status TEXT DEFAULT 'completed'
+   );
+
+   -- Audit details table for issues found
+   CREATE TABLE audit_details (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     audit_run_id INTEGER NOT NULL,
+     issue_type TEXT NOT NULL, -- 'missing' or 'mismatched'
+     check_id TEXT,
+     check_amount DECIMAL(10,2),
+     gl_amount DECIMAL(10,2),
+     difference DECIMAL(10,2),
+     row_data TEXT, -- JSON blob of full row data
+     FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+   );
+   ```
+
+2. **Backend Changes**:
+   - Modify `AuditCheckBatches()` to save results to SQLite
+   - Add `GetLastAuditResults(companyName)` to retrieve saved audit
+   - Add `ClearAuditResults(companyName)` for rerun functionality
+
+3. **Frontend Changes**:
+   - On component mount, check for existing audit results
+   - Change "Run Audit" to "Rerun Audit" when results exist
+   - Add confirmation dialog for rerun (warns about clearing old data)
+   - Display audit timestamp on results page
+
+4. **Additional Features**:
+   - Audit history view (list of past audits with dates)
+   - Compare audits feature (show what changed between runs)
+   - Export specific audit results by ID
+   - Auto-save audit progress for very large datasets
+
+### Implementation Notes
+- Use transactions for atomic saves
+- Consider pagination at the database level for better performance
+- Add indexes on check_id and audit_run_id for fast queries
+- Store check_columns metadata with audit run for consistency
+- Consider archiving old audits after X days/months
+
 ---
 
 **Last Updated**: August 2, 2025
 **Key Fix Applied**: Changed data structure key from "data" to "rows" for DBF file reading
-**Status**: Bank account loading functional, DBF Explorer enhanced with read-only mode
+**Status**: Bank account loading functional, DBF Explorer enhanced with read-only mode, Check Audit with pagination implemented

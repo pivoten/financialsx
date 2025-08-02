@@ -696,7 +696,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </div>
                 </TabsContent>
                 <TabsContent value="banking" className="space-y-4">
-                  <BankingSection companyName={currentUser?.company_name} />
+                  <BankingSection companyName={currentUser?.company_name} currentUser={currentUser} />
                 </TabsContent>
                 <TabsContent value="accounting" className="space-y-4">
                   <Card>

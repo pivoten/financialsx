@@ -1000,14 +1000,14 @@ export function DBFExplorer({ currentUser }) {
               <div className="text-center py-8">Loading table data...</div>
             ) : tableData.columns.length > 0 ? (
               <div className="border rounded-md">
-                <div className="max-h-[600px] overflow-auto relative" onScroll={handleScroll}>
+                <div className="relative h-[600px] overflow-auto" onScroll={handleScroll}>
                   <Table>
-                    <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+                    <TableHeader className="sticky top-0 z-10 bg-background">
                       <TableRow>
                         {displayColumns.map((col) => (
                           <TableHead 
                             key={col.index} 
-                            className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
+                            className="cursor-pointer hover:bg-muted/50 select-none"
                             onClick={() => handleSort(col.index)}
                           >
                             <div className="flex items-center gap-1">

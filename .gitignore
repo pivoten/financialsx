@@ -71,4 +71,4 @@ pkg/
 # docs/go-dbase-main/
 # docs/legacy_wvoperator/
 # docs/mineraldesk/
-/datafiles/
+datafiles/

@@ -71,6 +71,21 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// Query executes a query that returns rows
+func (db *DB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return db.conn.Query(query, args...)
+}
+
+// QueryRow executes a query that is expected to return at most one row
+func (db *DB) QueryRow(query string, args ...interface{}) *sql.Row {
+	return db.conn.QueryRow(query, args...)
+}
+
+// Exec executes a query without returning any rows
+func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return db.conn.Exec(query, args...)
+}
+
 func (db *DB) initSchema() error {
 	schema := `
 	-- Roles table with predefined system roles

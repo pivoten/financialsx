@@ -30,6 +30,24 @@ Column Index | Field Name | Description
 6           | LBANKACCT  | Bank Account Flag (TRUE/FALSE) **KEY COLUMN**
 ```
 
+### CHECKS.dbf Structure (Outstanding Checks)
+```
+Field Name    | Description
+CCHECKNO     | Check Number (string)
+DCHECKDATE   | Check Date (date)
+CPAYEE       | Payee Name (string)
+NAMOUNT      | Check Amount (numeric)
+CACCTNO      | Bank Account Number (string)
+LCLEARED     | Cleared Flag (logical) - FALSE for outstanding
+LVOID        | Void Flag (logical) - FALSE for valid checks
+CBATCH       | Batch Number (optional, for audit matching)
+```
+
+**Outstanding Checks Logic**:
+- Include only checks where `LCLEARED = false` AND `LVOID = false`
+- Filter by `CACCTNO` when account-specific view is requested
+- Calculate days outstanding from `DCHECKDATE` to current date
+
 ## Banking Section Implementation
 
 ### Bank Account Loading Process
@@ -67,8 +85,34 @@ Column Index | Field Name | Description
 - Account numbers in COA.dbf must match account numbers in GLMASTER.dbf
 - User must have `database.read` permission to access GL data
 
+### Outstanding Checks Feature (Enhanced)
+**New Enhanced Feature**: Complete outstanding checks management with enterprise-level data handling
+
+**Backend Implementation**:
+1. **Function**: `GetOutstandingChecks(companyName, accountNumber)` in `main.go:587-722`
+   - Enhanced to support account filtering (only show checks for specific bank account)
+   - Filters checks where `LCLEARED = false` and `LVOID = false`
+   - Returns raw row data for editing capabilities
+   - Handles various DBF column name variations
+
+**Frontend Implementation**: `OutstandingChecks.jsx`
+1. **Account Filtering**: Dropdown to filter by specific bank account or show all
+2. **Row Selection**: Click any row to view/edit individual check details
+3. **Pagination**: Configurable page sizes (10, 25, 50, 100) with smart pagination controls
+4. **Sorting**: All columns sortable (Check #, Date, Payee, Amount, Days Outstanding)
+5. **Search**: Global search across all check fields (number, payee, account, amount)
+6. **Filtering**: "Stale Only" filter for checks >90 days outstanding
+7. **Edit Modal**: Full CRUD operations for Admin/Root users with permission checks
+8. **Summary Cards**: Real-time totals for outstanding count, amount, and stale checks
+
+**Key Features**:
+- **Account-Specific View**: Only shows checks for selected bank account (COA.dbf where `LBANKACCT = true`)
+- **Days Outstanding Calculation**: Color-coded badges (green ≤30 days, yellow ≤60, red ≤90, red+STALE >90)
+- **Permission-Based Editing**: Edit button only appears for Admin/Root users
+- **Responsive Design**: Full mobile and desktop support with ShadCN UI components
+
 ### Check Batch Audit Feature (Admin/Root Only)
-1. **Function**: `AuditCheckBatches()` in `main.go:584-772`
+1. **Function**: `AuditCheckBatches()` in `main.go:651-777` (updated line numbers)
 2. **UI Component**: `CheckAudit.jsx` - Full audit interface with results display
 3. **Purpose**: Compare checks.dbf entries with GLMASTER.dbf
 4. **Checks for**:
@@ -80,9 +124,11 @@ Column Index | Field Name | Description
 ### Key Functions
 - **Go**: `GetBankAccounts()` in `main.go:484-585`
 - **Go**: `GetAccountBalance()` in `main.go:587-649` - Fetches GL balance for specific account
+- **Go**: `GetOutstandingChecks(companyName, accountNumber)` in `main.go:587-722` - Enhanced with account filtering
 - **Go**: `AuditCheckBatches()` in `main.go:651-777`
 - **React**: `loadBankAccounts()` in `BankingSection.jsx:105-210`
 - **React**: `loadAccountBalances()` in `BankingSection.jsx:212-237` - Loads GL balances for all bank accounts
+- **React**: `OutstandingChecks.jsx` - Enhanced outstanding checks with full data management
 - **React**: `CheckAudit.jsx` - Complete audit component
 - **DBF Reader**: `ReadDBFFile()` in `company.go:225-443`
 
@@ -100,6 +146,87 @@ func canEdit() bool {
     return currentUser && (currentUser.is_root || currentUser.role_name === 'Admin')
 }
 ```
+
+## Reusable DataTable Component (NEW)
+
+**Location**: `frontend/src/components/ui/data-table.jsx`
+
+### Overview
+Enterprise-level reusable data table component that establishes the standard pattern for all data lists in the system. Used by Outstanding Checks and designed for future list implementations.
+
+### Core Features
+1. **Configurable Columns**: Custom rendering, sorting, and cell styling
+2. **Built-in Pagination**: Configurable page sizes with smart controls
+3. **Global Search**: Search across all columns with highlighting
+4. **Custom Filters**: Dropdown filters with custom filter functions
+5. **Sorting**: Click headers to sort, visual indicators for sort direction
+6. **Row Actions**: Click handlers for row selection and detail views
+7. **Loading States**: Built-in loading and error state handling
+8. **Responsive Design**: Full mobile/desktop support with ShadCN UI
+
+### Usage Pattern
+```javascript
+<DataTable
+  data={items}
+  columns={columnConfig}
+  title="Data List Title"
+  loading={loading}
+  error={error}
+  onRowClick={handleRowClick}
+  onRefresh={handleRefresh}
+  searchPlaceholder="Search items..."
+  filters={filterConfig}
+  pageSize={25}
+/>
+```
+
+### Column Configuration
+```javascript
+const columns = [
+  {
+    accessor: 'fieldName',
+    header: 'Display Name',
+    sortable: true,
+    type: 'number|date|string',
+    render: (value, row, index) => <CustomComponent />,
+    cellClassName: 'text-right',
+    headerClassName: 'text-center'
+  }
+]
+```
+
+### Filter Configuration
+```javascript
+const filters = [
+  {
+    key: 'filterKey',
+    label: 'Filter Label',
+    placeholder: 'Select option',
+    defaultValue: 'all',
+    options: [
+      { value: 'all', label: 'All Items' },
+      { value: 'active', label: 'Active Only' }
+    ],
+    filterFn: (row, value) => value === 'all' || row.status === value
+  }
+]
+```
+
+### Standard Data List Pattern
+This component establishes the pattern for ALL data lists in the system:
+
+1. **Account Filtering**: For bank-related data, filter by bank account
+2. **Row Selection**: Click rows to view/edit details in modal
+3. **Pagination**: Always include pagination for large datasets
+4. **Sorting**: Make all relevant columns sortable
+5. **Search**: Global search across all text fields
+6. **Permission-Based Actions**: Show edit buttons only for Admin/Root
+7. **Responsive Design**: Works on all screen sizes
+8. **Loading States**: Show loading spinners and error messages
+
+### Implementation Examples
+- **OutstandingChecks.jsx**: Full implementation with all features
+- **OutstandingChecksSimple.jsx**: Simplified example using DataTable component
 
 ## DBF Explorer Features
 
@@ -198,7 +325,11 @@ frontend/src/
 │   ├── BankingSection.jsx      # Banking module (CRITICAL)
 │   ├── BankReconciliation.jsx  # Bank reconciliation
 │   ├── DBFExplorer.jsx         # DBF file viewer/editor
-│   └── ui/                     # ShadCN UI components
+│   ├── OutstandingChecks.jsx   # Enhanced outstanding checks (NEW)
+│   ├── OutstandingChecksSimple.jsx # DataTable usage example (NEW)
+│   └── ui/
+│       ├── data-table.jsx      # Reusable data table component (NEW)
+│       └── [other ShadCN UI components]
 └── wailsjs/go/main/App.js      # Generated Wails bindings
 ```
 
@@ -329,7 +460,11 @@ Currently, audit results are only stored in React state. When users navigate awa
 
 ---
 
-**Last Updated**: August 2, 2025
+**Last Updated**: August 5, 2025
 **Key Fix Applied**: Changed data structure key from "data" to "rows" for DBF file reading
-**Latest Enhancement**: Added GL balance integration for bank account cards displaying real balances from GLMASTER.dbf
-**Status**: Bank account loading functional with real GL balances, DBF Explorer enhanced with read-only mode, Check Audit with pagination implemented
+**Latest Enhancement**: Enhanced Outstanding Checks with enterprise-level data management and created reusable DataTable component
+**Major Features Added**:
+- **Outstanding Checks Enhancement**: Account filtering, row selection, pagination, sorting, search, edit modals
+- **Reusable DataTable Component**: Standard pattern for all data lists with full CRUD capabilities
+- **Standard Data List Pattern**: Established consistent UX across all data management features
+**Status**: Outstanding Checks fully functional with enterprise features, DataTable component ready for system-wide use

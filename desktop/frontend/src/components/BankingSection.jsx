@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { GetBankAccounts, GetDBFTableData, GetAccountBalance } from '../../wailsjs/go/main/App'
+import { GetBankAccounts, GetDBFTableData, GetCachedBalances, RefreshAccountBalance, RefreshAllBalances } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { BankReconciliation } from './BankReconciliation'
 import { CheckAudit } from './CheckAudit'
@@ -21,13 +21,15 @@ import {
   MoreVertical,
   CheckCircle,
   AlertCircle,
-  Clock
+  Clock,
+  RefreshCw
 } from 'lucide-react'
 
 export function BankingSection({ companyName, currentUser }) {
   // State for banking data
   const [accounts, setAccounts] = useState([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
+  const [refreshingAccount, setRefreshingAccount] = useState(null)
 
   const [transactions, setTransactions] = useState([
     {
@@ -210,31 +212,114 @@ export function BankingSection({ companyName, currentUser }) {
     }
   }
 
-  // Load GL balances for bank accounts
+  // Load cached balances for bank accounts (MUCH FASTER!)
   const loadAccountBalances = async (accountList) => {
-    console.log('BankingSection: Loading GL balances for accounts:', accountList)
+    console.log('BankingSection: Loading cached balances for accounts:', accountList)
     
-    const updatedAccounts = []
-    
-    for (const account of accountList) {
-      try {
-        console.log('BankingSection: Fetching balance for account:', account.accountNumber)
-        const balance = await GetAccountBalance(companyName, account.accountNumber)
-        console.log('BankingSection: Balance for account', account.accountNumber, ':', balance)
+    try {
+      // Get all cached balances at once
+      const cachedBalances = await GetCachedBalances(companyName)
+      console.log('BankingSection: Retrieved cached balances:', cachedBalances)
+      
+      // Create a map for fast lookup
+      const balanceMap = new Map()
+      cachedBalances.forEach(balance => {
+        balanceMap.set(balance.account_number, balance)
+      })
+      
+      // Update accounts with cached balance data
+      const updatedAccounts = accountList.map(account => {
+        const cachedBalance = balanceMap.get(account.accountNumber)
         
-        updatedAccounts.push({
-          ...account,
-          balance: balance
-        })
-      } catch (error) {
-        console.error('BankingSection: Failed to load balance for account', account.accountNumber, ':', error)
-        // Keep original account with balance 0 if balance fetch fails
-        updatedAccounts.push(account)
-      }
+        if (cachedBalance) {
+          return {
+            ...account,
+            balance: cachedBalance.gl_balance,
+            bank_balance: cachedBalance.bank_balance,
+            outstanding_total: cachedBalance.outstanding_total,
+            outstanding_count: cachedBalance.outstanding_count,
+            gl_freshness: cachedBalance.gl_freshness,
+            checks_freshness: cachedBalance.checks_freshness,
+            is_stale: cachedBalance.is_stale,
+            last_updated: Math.max(
+              new Date(cachedBalance.gl_last_updated).getTime(),
+              new Date(cachedBalance.checks_last_updated).getTime()
+            )
+          }
+        } else {
+          // No cached balance found - trigger a refresh
+          console.log('BankingSection: No cached balance for account', account.accountNumber, '- will refresh')
+          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+            console.error('Failed to refresh account balance:', err)
+          })
+          
+          return {
+            ...account,
+            balance: 0,
+            bank_balance: 0,
+            outstanding_total: 0,
+            outstanding_count: 0,
+            gl_freshness: 'stale',
+            checks_freshness: 'stale',
+            is_stale: true,
+            last_updated: 0
+          }
+        }
+      })
+      
+      console.log('BankingSection: Updated accounts with cached balances:', updatedAccounts)
+      setAccounts(updatedAccounts)
+      
+    } catch (error) {
+      console.error('BankingSection: Failed to load cached balances:', error)
+      // Fallback to setting accounts without balance data
+      const fallbackAccounts = accountList.map(account => ({
+        ...account,
+        balance: 0,
+        bank_balance: 0,
+        outstanding_total: 0,
+        outstanding_count: 0,
+        gl_freshness: 'stale',
+        checks_freshness: 'stale',
+        is_stale: true,
+        last_updated: 0
+      }))
+      setAccounts(fallbackAccounts)
     }
+  }
+
+  // Refresh balance for a specific account
+  const refreshAccountBalance = async (accountNumber) => {
+    setRefreshingAccount(accountNumber)
     
-    console.log('BankingSection: Updated accounts with balances:', updatedAccounts)
-    setAccounts(updatedAccounts)
+    try {
+      await RefreshAccountBalance(companyName, accountNumber)
+      // Reload all account balances to reflect the update
+      const currentAccounts = [...accounts]
+      await loadAccountBalances(currentAccounts)
+    } catch (error) {
+      console.error('Failed to refresh account balance:', error)
+      alert('Failed to refresh balance: ' + error.message)
+    } finally {
+      setRefreshingAccount(null)
+    }
+  }
+
+  // Refresh all account balances
+  const refreshAllBalances = async () => {
+    setRefreshingAccount('all')
+    
+    try {
+      await RefreshAllBalances(companyName)
+      // Reload all account balances to reflect the updates
+      const currentAccounts = [...accounts]
+      await loadAccountBalances(currentAccounts)
+    } catch (error) {
+      console.error('Failed to refresh all balances:', error)
+      alert('Failed to refresh all balances: ' + error.message)
+    } finally {
+      setRefreshingAccount(null)
+    }
   }
 
   const formatCurrency = (amount) => {
@@ -276,6 +361,24 @@ export function BankingSection({ companyName, currentUser }) {
 
         {/* Bank Accounts Tab */}
         <TabsContent value="accounts" className="space-y-4">
+          {/* Header with Refresh All */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Bank Accounts</h3>
+              <p className="text-sm text-muted-foreground">
+                GL balances with actual bank balance after uncleared checks
+              </p>
+            </div>
+            <Button
+              onClick={refreshAllBalances}
+              disabled={refreshingAccount === 'all' || loadingAccounts}
+              variant="outline"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshingAccount === 'all' ? 'animate-spin' : ''}`} />
+              Refresh All
+            </Button>
+          </div>
+
           {/* Account Summary Cards */}
           {loadingAccounts ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -329,13 +432,36 @@ export function BankingSection({ companyName, currentUser }) {
                       <span className="text-sm text-muted-foreground">Type</span>
                       <span className="text-sm">{account.type}</span>
                     </div>
-                    <div className="pt-2 border-t">
+                    <div className="pt-2 border-t space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Current Balance</span>
+                        <span className="text-sm font-medium">GL Balance</span>
                         <span className={`text-lg font-bold ${account.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(account.balance)}
                         </span>
                       </div>
+                      
+                      {account.outstanding_total > 0 && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-muted-foreground">Uncleared Checks</span>
+                          <span className="text-red-600">
+                            -{formatCurrency(account.outstanding_total)} ({account.outstanding_count})
+                          </span>
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-center border-t pt-2">
+                        <span className="text-sm font-medium">Bank Balance</span>
+                        <span className={`text-xl font-bold ${(account.bank_balance || account.balance) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(account.bank_balance || account.balance)}
+                        </span>
+                      </div>
+                      
+                      {account.is_stale && (
+                        <div className="flex items-center gap-1 text-xs text-amber-600">
+                          <AlertCircle className="h-3 w-3" />
+                          <span>Data may be stale</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4">
@@ -343,6 +469,28 @@ export function BankingSection({ companyName, currentUser }) {
                       <ArrowUpRight className="w-4 h-4 mr-1" />
                       Transfer
                     </Button>
+                    
+                    {account.is_stale ? (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => refreshAccountBalance(account.accountNumber)}
+                        disabled={refreshingAccount === account.accountNumber}
+                        className="text-amber-600 border-amber-200"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${refreshingAccount === account.accountNumber ? 'animate-spin' : ''}`} />
+                      </Button>
+                    ) : (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => refreshAccountBalance(account.accountNumber)}
+                        disabled={refreshingAccount === account.accountNumber}
+                      >
+                        <RefreshCw className={`w-4 h-4 ${refreshingAccount === account.accountNumber ? 'animate-spin' : ''}`} />
+                      </Button>
+                    )}
+                    
                     <Button size="sm" variant="outline">
                       <MoreVertical className="w-4 h-4" />
                     </Button>

@@ -30,8 +30,16 @@ export function GetAllUsers() {
   return window['go']['main']['App']['GetAllUsers']();
 }
 
+export function GetBalanceHistory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetBalanceHistory'](arg1, arg2, arg3);
+}
+
 export function GetBankAccounts(arg1) {
   return window['go']['main']['App']['GetBankAccounts'](arg1);
+}
+
+export function GetCachedBalances(arg1) {
+  return window['go']['main']['App']['GetCachedBalances'](arg1);
 }
 
 export function GetClosingStatus(arg1) {
@@ -66,8 +74,8 @@ export function GetNetDistributionStatus(arg1, arg2) {
   return window['go']['main']['App']['GetNetDistributionStatus'](arg1, arg2);
 }
 
-export function GetOutstandingChecks(arg1) {
-  return window['go']['main']['App']['GetOutstandingChecks'](arg1);
+export function GetOutstandingChecks(arg1, arg2) {
+  return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
 }
 
 export function Greet(arg1) {
@@ -80,6 +88,14 @@ export function Login(arg1, arg2, arg3) {
 
 export function Logout(arg1) {
   return window['go']['main']['App']['Logout'](arg1);
+}
+
+export function RefreshAccountBalance(arg1, arg2) {
+  return window['go']['main']['App']['RefreshAccountBalance'](arg1, arg2);
+}
+
+export function RefreshAllBalances(arg1) {
+  return window['go']['main']['App']['RefreshAllBalances'](arg1);
 }
 
 export function Register(arg1, arg2, arg3, arg4) {

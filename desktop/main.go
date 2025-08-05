@@ -61,6 +61,13 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
+		
+		// Initialize balance cache tables
+		err = database.InitializeBalanceCache(db)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+		}
+		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
@@ -95,6 +102,13 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
+		
+		// Initialize balance cache tables
+		err = database.InitializeBalanceCache(db)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+		}
+		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
@@ -138,6 +152,13 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to company database: %w", err)
 		}
+		
+		// Initialize balance cache tables
+		err = database.InitializeBalanceCache(db)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+		}
+		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 	}
@@ -585,8 +606,9 @@ func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, err
 }
 
 // GetOutstandingChecks retrieves all checks that have not been cleared (LCLEARED = false)
-func (a *App) GetOutstandingChecks(companyName string) (map[string]interface{}, error) {
-	fmt.Printf("GetOutstandingChecks called for company: %s\n", companyName)
+// Optionally filter by account number if provided
+func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("GetOutstandingChecks called for company: %s, account: %s\n", companyName, accountNumber)
 	
 	// Check permissions
 	if a.currentUser == nil {
@@ -691,9 +713,21 @@ func (a *App) GetOutstandingChecks(companyName string) (map[string]interface{}, 
 		
 		// Only include if not cleared and not voided
 		if !isCleared && !isVoided {
+			// Get account for this check
+			checkAccount := ""
+			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
+				checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+			}
+			
+			// If account filter is provided, only include checks for that account
+			if accountNumber != "" && checkAccount != accountNumber {
+				continue
+			}
+			
 			check := map[string]interface{}{
 				"checkNumber": fmt.Sprintf("%v", row[checkNumIdx]),
 				"amount": parseFloat(row[amountIdx]),
+				"account": checkAccount,
 			}
 			
 			// Add optional fields if available
@@ -703,9 +737,10 @@ func (a *App) GetOutstandingChecks(companyName string) (map[string]interface{}, 
 			if payeeIdx != -1 && len(row) > payeeIdx && row[payeeIdx] != nil {
 				check["payee"] = fmt.Sprintf("%v", row[payeeIdx])
 			}
-			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
-				check["account"] = fmt.Sprintf("%v", row[accountIdx])
-			}
+			
+			// Add raw row data for editing
+			check["_rowIndex"] = len(outstandingChecks)
+			check["_rawData"] = row
 			
 			outstandingChecks = append(outstandingChecks, check)
 		}
@@ -808,6 +843,210 @@ func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, err
 	
 	fmt.Printf("GetAccountBalance: Final balance for account %s: %f\n", accountNumber, totalBalance)
 	return totalBalance, nil
+}
+
+// GetCachedBalances retrieves cached balances for all bank accounts
+func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, error) {
+	fmt.Printf("GetCachedBalances called for company: %s\n", companyName)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	balances, err := database.GetAllCachedBalances(a.db, companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+	
+	// Convert to interface for JSON response
+	var result []map[string]interface{}
+	for _, balance := range balances {
+		result = append(result, map[string]interface{}{
+			"account_number":         balance.AccountNumber,
+			"account_name":          balance.AccountName,
+			"gl_balance":            balance.GLBalance,
+			"outstanding_total":     balance.OutstandingTotal,
+			"outstanding_count":     balance.OutstandingCount,
+			"bank_balance":          balance.BankBalance,
+			"gl_last_updated":       balance.GLLastUpdated,
+			"checks_last_updated":   balance.OutstandingLastUpdated,
+			"gl_age_hours":          balance.GLAgeHours,
+			"checks_age_hours":      balance.ChecksAgeHours,
+			"gl_freshness":          balance.GLFreshness,
+			"checks_freshness":      balance.ChecksFreshness,
+			"is_stale":             balance.GLFreshness == "stale" || balance.ChecksFreshness == "stale",
+		})
+	}
+	
+	return result, nil
+}
+
+// RefreshAccountBalance refreshes both GL and outstanding checks for an account
+func (a *App) RefreshAccountBalance(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("RefreshAccountBalance called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	username := a.currentUser.Username
+	
+	// Refresh GL balance
+	err := database.RefreshGLBalance(a.db, companyName, accountNumber, username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh GL balance: %w", err)
+	}
+	
+	// Refresh outstanding checks
+	err = database.RefreshOutstandingChecks(a.db, companyName, accountNumber, username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh outstanding checks: %w", err)
+	}
+	
+	// Get the updated cached balance
+	balance, err := database.GetCachedBalance(a.db, companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated balance: %w", err)
+	}
+	
+	if balance == nil {
+		return nil, fmt.Errorf("balance not found after refresh")
+	}
+	
+	return map[string]interface{}{
+		"status":                "success",
+		"account_number":        balance.AccountNumber,
+		"account_name":          balance.AccountName,
+		"gl_balance":            balance.GLBalance,
+		"outstanding_total":     balance.OutstandingTotal,
+		"outstanding_count":     balance.OutstandingCount,
+		"bank_balance":          balance.BankBalance,
+		"gl_last_updated":       balance.GLLastUpdated,
+		"checks_last_updated":   balance.OutstandingLastUpdated,
+		"refreshed_by":          username,
+	}, nil
+}
+
+// RefreshAllBalances refreshes balances for all bank accounts
+func (a *App) RefreshAllBalances(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("RefreshAllBalances called for company: %s\n", companyName)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	// Get all bank accounts
+	bankAccounts, err := a.GetBankAccounts(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+	
+	var successCount, errorCount int
+	var errors []string
+	
+	for _, account := range bankAccounts {
+		accountNumber := account["account_number"].(string)
+		_, err := a.RefreshAccountBalance(companyName, accountNumber)
+		if err != nil {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Account %s: %v", accountNumber, err))
+		} else {
+			successCount++
+		}
+	}
+	
+	return map[string]interface{}{
+		"status":        "completed",
+		"total_accounts": len(bankAccounts),
+		"success_count": successCount,
+		"error_count":   errorCount,
+		"errors":        errors,
+		"refreshed_by":  a.currentUser.Username,
+		"refresh_time":  time.Now(),
+	}, nil
+}
+
+// GetBalanceHistory gets the balance change history for an account
+func (a *App) GetBalanceHistory(companyName, accountNumber string, limit int) ([]map[string]interface{}, error) {
+	fmt.Printf("GetBalanceHistory called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	if limit <= 0 {
+		limit = 50
+	}
+	
+	query := `
+		SELECT bh.*, ab.account_name
+		FROM balance_history bh
+		JOIN account_balances ab ON bh.account_balance_id = ab.id
+		WHERE bh.company_name = ? AND bh.account_number = ?
+		ORDER BY bh.change_timestamp DESC
+		LIMIT ?
+	`
+	
+	rows, err := a.db.Query(query, companyName, accountNumber, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query balance history: %w", err)
+	}
+	defer rows.Close()
+	
+	var history []map[string]interface{}
+	for rows.Next() {
+		var h database.BalanceHistory
+		var accountName string
+		
+		err := rows.Scan(
+			&h.ID, &h.AccountBalanceID, &h.CompanyName, &h.AccountNumber,
+			&h.ChangeType, &h.OldGLBalance, &h.NewGLBalance,
+			&h.OldOutstandingTotal, &h.NewOutstandingTotal,
+			&h.OldBankBalance, &h.NewBankBalance,
+			&h.ChangeReason, &h.ChangedBy, &h.ChangeTimestamp, &h.Metadata,
+			&accountName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan balance history: %w", err)
+		}
+		
+		history = append(history, map[string]interface{}{
+			"id":                     h.ID,
+			"account_name":           accountName,
+			"change_type":            h.ChangeType,
+			"old_gl_balance":         h.OldGLBalance,
+			"new_gl_balance":         h.NewGLBalance,
+			"old_outstanding_total":  h.OldOutstandingTotal,
+			"new_outstanding_total":  h.NewOutstandingTotal,
+			"old_bank_balance":       h.OldBankBalance,
+			"new_bank_balance":       h.NewBankBalance,
+			"change_reason":          h.ChangeReason,
+			"changed_by":             h.ChangedBy,
+			"change_timestamp":       h.ChangeTimestamp,
+		})
+	}
+	
+	return history, nil
 }
 
 // AuditCheckBatches performs an audit comparing checks.dbf entries with GLMASTER.dbf

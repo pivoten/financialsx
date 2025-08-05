@@ -17,7 +17,11 @@ export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
 
+export function GetBalanceHistory(arg1:string,arg2:string,arg3:number):Promise<Array<Record<string, any>>>;
+
 export function GetBankAccounts(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetClosingStatus(arg1:string):Promise<string>;
 
@@ -35,13 +39,17 @@ export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
-export function GetOutstandingChecks(arg1:string):Promise<Record<string, any>>;
+export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function Logout(arg1:string):Promise<void>;
+
+export function RefreshAccountBalance(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function RefreshAllBalances(arg1:string):Promise<Record<string, any>>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 

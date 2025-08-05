@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { GetBankAccounts, GetDBFTableData } from '../../wailsjs/go/main/App'
+import { GetBankAccounts, GetDBFTableData, GetAccountBalance } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { BankReconciliation } from './BankReconciliation'
 import { CheckAudit } from './CheckAudit'
+import OutstandingChecks from './OutstandingChecks'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
@@ -148,6 +149,9 @@ export function BankingSection({ companyName, currentUser }) {
       
       console.log('BankingSection: Transformed accounts:', transformedAccounts)
       setAccounts(transformedAccounts)
+      
+      // Load GL balances for each account
+      await loadAccountBalances(transformedAccounts)
     } catch (err) {
       console.log('BankingSection: Primary method failed, trying fallback...')
       // Fallback: Try to read COA.dbf directly using existing function
@@ -190,6 +194,9 @@ export function BankingSection({ companyName, currentUser }) {
           
           console.log('BankingSection: Transformed accounts (fallback):', transformedAccounts)
           setAccounts(transformedAccounts)
+          
+          // Load GL balances for each account
+          await loadAccountBalances(transformedAccounts)
         } else {
           console.log('BankingSection: COA.dbf fallback - no data found. coaData structure:', coaData)
           setAccounts([]) // Set empty array for "no accounts found" display
@@ -201,6 +208,33 @@ export function BankingSection({ companyName, currentUser }) {
     } finally {
       setLoadingAccounts(false)
     }
+  }
+
+  // Load GL balances for bank accounts
+  const loadAccountBalances = async (accountList) => {
+    console.log('BankingSection: Loading GL balances for accounts:', accountList)
+    
+    const updatedAccounts = []
+    
+    for (const account of accountList) {
+      try {
+        console.log('BankingSection: Fetching balance for account:', account.accountNumber)
+        const balance = await GetAccountBalance(companyName, account.accountNumber)
+        console.log('BankingSection: Balance for account', account.accountNumber, ':', balance)
+        
+        updatedAccounts.push({
+          ...account,
+          balance: balance
+        })
+      } catch (error) {
+        console.error('BankingSection: Failed to load balance for account', account.accountNumber, ':', error)
+        // Keep original account with balance 0 if balance fetch fails
+        updatedAccounts.push(account)
+      }
+    }
+    
+    console.log('BankingSection: Updated accounts with balances:', updatedAccounts)
+    setAccounts(updatedAccounts)
   }
 
   const formatCurrency = (amount) => {
@@ -231,9 +265,9 @@ export function BankingSection({ companyName, currentUser }) {
       <Tabs defaultValue="accounts" className="w-full">
         <TabsList>
           <TabsTrigger value="accounts">Bank Accounts</TabsTrigger>
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
-          <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
-          <TabsTrigger value="transfers">Transfers</TabsTrigger>
+          <TabsTrigger value="reconciliation">Reconcile</TabsTrigger>
+          <TabsTrigger value="outstanding">Outstanding Checks</TabsTrigger>
+          <TabsTrigger value="cleared">Cleared Checks</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
             <TabsTrigger value="audit">Audit</TabsTrigger>
@@ -573,6 +607,24 @@ export function BankingSection({ companyName, currentUser }) {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Outstanding Checks Tab */}
+        <TabsContent value="outstanding" className="space-y-4">
+          <OutstandingChecks companyName={companyName} currentUser={currentUser} />
+        </TabsContent>
+
+        {/* Cleared Checks Tab - Placeholder */}
+        <TabsContent value="cleared" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cleared Checks</CardTitle>
+              <CardDescription>Checks that have been cleared by the bank</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">This feature will be implemented in a future update.</p>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Audit Tab */}

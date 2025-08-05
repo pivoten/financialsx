@@ -18,6 +18,10 @@ export function GetAPIKey(arg1) {
   return window['go']['main']['App']['GetAPIKey'](arg1);
 }
 
+export function GetAccountBalance(arg1, arg2) {
+  return window['go']['main']['App']['GetAccountBalance'](arg1, arg2);
+}
+
 export function GetAllRoles() {
   return window['go']['main']['App']['GetAllRoles']();
 }
@@ -60,6 +64,10 @@ export function GetDashboardData(arg1) {
 
 export function GetNetDistributionStatus(arg1, arg2) {
   return window['go']['main']['App']['GetNetDistributionStatus'](arg1, arg2);
+}
+
+export function GetOutstandingChecks(arg1) {
+  return window['go']['main']['App']['GetOutstandingChecks'](arg1);
 }
 
 export function Greet(arg1) {

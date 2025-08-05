@@ -37,6 +37,35 @@ Column Index | Field Name | Description
 2. **Fallback**: `GetDBFTableData(companyName, 'COA.dbf')` - Direct DBF read
 3. **Filter**: Only accounts where `LBANKACCT = true` (column 6)
 4. **Transform**: Convert to display format with account_number, account_name, etc.
+5. **Balance Loading**: `GetAccountBalance()` reads GLMASTER.dbf to sum GL entries for each bank account
+
+### GL Balance Integration
+**New Feature**: Bank account cards now display actual General Ledger balances instead of hardcoded $0.00
+
+**Implementation Details**:
+1. **Backend Function**: `GetAccountBalance(companyName, accountNumber)` in `main.go:587-649`
+   - Reads GLMASTER.dbf and sums all GL entries for the specified account number
+   - Handles various column name variations (CACCTNO, ACCOUNT, ACCTNO for account numbers)
+   - Supports different amount column names (AMOUNT, NAMOUNT, BALANCE, NBALANCE)
+   - Returns total balance as float64 with proper error handling
+
+2. **Frontend Integration**: `loadAccountBalances()` in `BankingSection.jsx:212-237`
+   - Called automatically after bank accounts are loaded from COA.dbf
+   - Iterates through all discovered bank accounts
+   - Fetches real-time GL balance for each account using `GetAccountBalance()`
+   - Updates account objects with actual balances for display
+   - Graceful error handling - falls back to $0.00 if balance fetch fails
+
+3. **User Experience**:
+   - Bank account cards show color-coded balances (green for positive, red for negative)
+   - Real-time data from GLMASTER.dbf ensures accuracy
+   - Seamless loading experience with balance updates after initial account discovery
+   - Maintains existing UI/UX while enhancing data accuracy
+
+**Technical Requirements**:
+- GLMASTER.dbf must exist in company data directory
+- Account numbers in COA.dbf must match account numbers in GLMASTER.dbf
+- User must have `database.read` permission to access GL data
 
 ### Check Batch Audit Feature (Admin/Root Only)
 1. **Function**: `AuditCheckBatches()` in `main.go:584-772`
@@ -49,9 +78,11 @@ Column Index | Field Name | Description
 6. **Export**: Results can be exported to CSV format
 
 ### Key Functions
-- **Go**: `GetBankAccounts()` in `main.go:484-582`
-- **Go**: `AuditCheckBatches()` in `main.go:584-772`
-- **React**: `loadBankAccounts()` in `BankingSection.jsx:105-207`
+- **Go**: `GetBankAccounts()` in `main.go:484-585`
+- **Go**: `GetAccountBalance()` in `main.go:587-649` - Fetches GL balance for specific account
+- **Go**: `AuditCheckBatches()` in `main.go:651-777`
+- **React**: `loadBankAccounts()` in `BankingSection.jsx:105-210`
+- **React**: `loadAccountBalances()` in `BankingSection.jsx:212-237` - Loads GL balances for all bank accounts
 - **React**: `CheckAudit.jsx` - Complete audit component
 - **DBF Reader**: `ReadDBFFile()` in `company.go:225-443`
 
@@ -300,4 +331,5 @@ Currently, audit results are only stored in React state. When users navigate awa
 
 **Last Updated**: August 2, 2025
 **Key Fix Applied**: Changed data structure key from "data" to "rows" for DBF file reading
-**Status**: Bank account loading functional, DBF Explorer enhanced with read-only mode, Check Audit with pagination implemented
+**Latest Enhancement**: Added GL balance integration for bank account cards displaying real balances from GLMASTER.dbf
+**Status**: Bank account loading functional with real GL balances, DBF Explorer enhanced with read-only mode, Check Audit with pagination implemented

@@ -1,3 +1,5 @@
+github.com/Valentin-Kaiser/go-dbase v1.12.10 h1:j9QQqo27QV72m62/OutWA2BXcNesAEuDR2dDoRE2m30=
+github.com/Valentin-Kaiser/go-dbase v1.12.10/go.mod h1:7ajpZ+NQffnNFQ3D/iElH0VndDr1szZBd6wJTzjY7HU=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

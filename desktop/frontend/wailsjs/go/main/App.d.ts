@@ -11,6 +11,8 @@ export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promi
 
 export function GetAPIKey(arg1:string):Promise<string>;
 
+export function GetAccountBalance(arg1:string,arg2:string):Promise<number>;
+
 export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
@@ -32,6 +34,8 @@ export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:nu
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetOutstandingChecks(arg1:string):Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;
 

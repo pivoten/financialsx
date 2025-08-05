@@ -584,6 +584,232 @@ func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, err
 	return bankAccounts, nil
 }
 
+// GetOutstandingChecks retrieves all checks that have not been cleared (LCLEARED = false)
+func (a *App) GetOutstandingChecks(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("GetOutstandingChecks called for company: %s\n", companyName)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	// Read checks.dbf
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 10000, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	
+	// Get column indices for checks.dbf
+	checksColumns, ok := checksData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid checks.dbf structure")
+	}
+	
+	// Debug: Print all available columns
+	fmt.Printf("GetOutstandingChecks: Available columns in checks.dbf: %v\n", checksColumns)
+	
+	// Find relevant check columns based on actual CHECKS.dbf structure
+	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx int = -1, -1, -1, -1, -1, -1, -1
+	for i, col := range checksColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CCHECKNO" {
+			checkNumIdx = i
+			fmt.Printf("GetOutstandingChecks: Found check number column at index %d: %s\n", i, col)
+		} else if colUpper == "DCHECKDATE" {
+			dateIdx = i
+			fmt.Printf("GetOutstandingChecks: Found date column at index %d: %s\n", i, col)
+		} else if colUpper == "CPAYEE" {
+			payeeIdx = i
+			fmt.Printf("GetOutstandingChecks: Found payee column at index %d: %s\n", i, col)
+		} else if colUpper == "NAMOUNT" {
+			amountIdx = i
+			fmt.Printf("GetOutstandingChecks: Found amount column at index %d: %s\n", i, col)
+		} else if colUpper == "CACCTNO" {
+			accountIdx = i
+			fmt.Printf("GetOutstandingChecks: Found account column at index %d: %s\n", i, col)
+		} else if colUpper == "LCLEARED" {
+			clearedIdx = i
+			fmt.Printf("GetOutstandingChecks: Found cleared column at index %d: %s\n", i, col)
+		} else if colUpper == "LVOID" {
+			voidIdx = i
+			fmt.Printf("GetOutstandingChecks: Found void column at index %d: %s\n", i, col)
+		}
+	}
+	
+	if checkNumIdx == -1 || amountIdx == -1 {
+		return map[string]interface{}{
+			"status": "error",
+			"error": "Required columns not found",
+			"columns": checksColumns,
+		}, nil
+	}
+	
+	// Process check rows to find outstanding checks
+	var outstandingChecks []map[string]interface{}
+	checksRows, _ := checksData["rows"].([][]interface{})
+	
+	for _, row := range checksRows {
+		if len(row) <= checkNumIdx || len(row) <= amountIdx {
+			continue
+		}
+		
+		// Check if cleared (default to false if no cleared column)
+		isCleared := false
+		if clearedIdx != -1 && len(row) > clearedIdx {
+			clearedValue := row[clearedIdx]
+			if clearedValue != nil {
+				// Handle different boolean representations
+				switch v := clearedValue.(type) {
+				case bool:
+					isCleared = v
+				case string:
+					lowerVal := strings.ToLower(strings.TrimSpace(v))
+					isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+				}
+			}
+		}
+		
+		// Check if voided (default to false if no void column)
+		isVoided := false
+		if voidIdx != -1 && len(row) > voidIdx {
+			voidValue := row[voidIdx]
+			if voidValue != nil {
+				// Handle different boolean representations
+				switch v := voidValue.(type) {
+				case bool:
+					isVoided = v
+				case string:
+					lowerVal := strings.ToLower(strings.TrimSpace(v))
+					isVoided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+				}
+			}
+		}
+		
+		// Only include if not cleared and not voided
+		if !isCleared && !isVoided {
+			check := map[string]interface{}{
+				"checkNumber": fmt.Sprintf("%v", row[checkNumIdx]),
+				"amount": parseFloat(row[amountIdx]),
+			}
+			
+			// Add optional fields if available
+			if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
+				check["date"] = fmt.Sprintf("%v", row[dateIdx])
+			}
+			if payeeIdx != -1 && len(row) > payeeIdx && row[payeeIdx] != nil {
+				check["payee"] = fmt.Sprintf("%v", row[payeeIdx])
+			}
+			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
+				check["account"] = fmt.Sprintf("%v", row[accountIdx])
+			}
+			
+			outstandingChecks = append(outstandingChecks, check)
+		}
+	}
+	
+	fmt.Printf("GetOutstandingChecks: Found %d outstanding checks\n", len(outstandingChecks))
+	
+	return map[string]interface{}{
+		"status": "success",
+		"checks": outstandingChecks,
+		"total": len(outstandingChecks),
+		"columns": checksColumns,
+	}, nil
+}
+
+// GetAccountBalance retrieves the current GL balance for a specific account
+func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, error) {
+	fmt.Printf("GetAccountBalance called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return 0, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return 0, fmt.Errorf("insufficient permissions")
+	}
+	
+	// Read GLMASTER.dbf to get account balance
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+	if err != nil {
+		fmt.Printf("GetAccountBalance: failed to read GLMASTER.dbf: %v\n", err)
+		return 0, fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
+	}
+	
+	// Get column indices for GLMASTER.dbf
+	glColumns, ok := glData["columns"].([]string)
+	if !ok {
+		return 0, fmt.Errorf("invalid GLMASTER.dbf structure")
+	}
+	
+	// Debug: Print all available columns
+	fmt.Printf("GetAccountBalance: Available columns in GLMASTER.dbf: %v\n", glColumns)
+	
+	// Find relevant GL columns (GLMASTER has separate debit/credit columns)
+	var accountIdx, debitIdx, creditIdx int = -1, -1, -1
+	for i, col := range glColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CACCTNO" || colUpper == "ACCOUNT" || colUpper == "ACCTNO" {
+			accountIdx = i
+			fmt.Printf("GetAccountBalance: Found account column at index %d: %s\n", i, col)
+		} else if colUpper == "NDEBITS" || colUpper == "DEBIT" || colUpper == "NDEBIT" {
+			debitIdx = i
+			fmt.Printf("GetAccountBalance: Found debit column at index %d: %s\n", i, col)
+		} else if colUpper == "NCREDITS" || colUpper == "CREDIT" || colUpper == "NCREDIT" {
+			creditIdx = i
+			fmt.Printf("GetAccountBalance: Found credit column at index %d: %s\n", i, col)
+		}
+	}
+	
+	if accountIdx == -1 || (debitIdx == -1 && creditIdx == -1) {
+		fmt.Printf("GetAccountBalance: could not find required columns. accountIdx=%d, debitIdx=%d, creditIdx=%d\n", accountIdx, debitIdx, creditIdx)
+		return 0, fmt.Errorf("required columns not found in GLMASTER.dbf")
+	}
+	
+	// Sum all entries for this account (debits and credits)
+	var totalBalance float64 = 0
+	glRows, _ := glData["rows"].([][]interface{})
+	
+	for _, row := range glRows {
+		if len(row) <= accountIdx {
+			continue
+		}
+		
+		// Check if this row is for our account
+		rowAccount := fmt.Sprintf("%v", row[accountIdx])
+		if rowAccount == accountNumber {
+			var debit, credit float64 = 0, 0
+			
+			// Get debit amount if column exists
+			if debitIdx != -1 && len(row) > debitIdx {
+				debit = parseFloat(row[debitIdx])
+			}
+			
+			// Get credit amount if column exists
+			if creditIdx != -1 && len(row) > creditIdx {
+				credit = parseFloat(row[creditIdx])
+			}
+			
+			// For bank accounts, debits increase balance, credits decrease balance
+			entryAmount := debit - credit
+			totalBalance += entryAmount
+			
+			if debit != 0 || credit != 0 {
+				fmt.Printf("GetAccountBalance: Found entry for account %s: debit=%f, credit=%f, net=%f, running total=%f\n", 
+					accountNumber, debit, credit, entryAmount, totalBalance)
+			}
+		}
+	}
+	
+	fmt.Printf("GetAccountBalance: Final balance for account %s: %f\n", accountNumber, totalBalance)
+	return totalBalance, nil
+}
+
 // AuditCheckBatches performs an audit comparing checks.dbf entries with GLMASTER.dbf
 func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("AuditCheckBatches called for company: %s\n", companyName)

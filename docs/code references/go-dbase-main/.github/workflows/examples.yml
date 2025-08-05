@@ -1,0 +1,49 @@
+---
+
+name: Examples
+
+on:
+  push:
+    tags:
+      - v*
+    branches:
+      - master
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Examples
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          check-latest: true
+      - name: Check out source code
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: go mod tidy
+      - name: Run read table example
+        run: cd examples && make read_table
+      - name: Run write table example
+        run: cd examples && make write_table
+      - name: Run create table example
+        run: cd examples && make create_table
+      - name: Run open table custom
+        run: cd examples && make open_table_custom
+      - name: Run search table example
+        run: cd examples && make search_table
+      - name: Run database export example
+        run: cd examples && make database_export
+      - name: Run database documentation example
+        run: cd examples && make database_documentation
+      - name: Run database schema example
+        run: cd examples && make database_schema

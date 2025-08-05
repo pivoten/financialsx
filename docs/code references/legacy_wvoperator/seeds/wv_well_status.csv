@@ -1,0 +1,12 @@
+StatusCode,StatusDescription
+A,Active
+B,Producing after being shut-in in 2023(must include date well started producing again)
+C,Coal Bed Methane
+E,Enhanced
+F,Flat Rate (Royalties paid when there was no working interest)
+H,Home-Use (ALL Gas goes to a home(s), no oil, gas, or NGLs sold. Must include recipient(s) of Gas)
+L,Horizontal Other Than Marcellus
+M,Marcellus Vertical
+P,Plugged
+S,Shut-In
+Z,Marcellus Horizontal 

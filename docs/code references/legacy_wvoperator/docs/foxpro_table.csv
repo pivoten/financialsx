@@ -1,0 +1,193 @@
+Database,Record Type,Table Name,Table Caption
+appdata,Table,afedet,AFE Details
+appdata,Table,afehdr,AFE Headers
+appdata,Table,afeopt,Afeopt
+appdata,Table,afeowner,AFE - Allocations
+appdata,Table,ami,AMI
+appdata,Table,annprod,Annual Statement of Production
+appdata,Table,apopt,A/P Preferences
+appdata,Table,appdata_log,Appdata Log
+appdata,Table,appdata_log_k,Appdata Log K
+appdata,Table,appdata_log_m,Appdata Log M
+appdata,Table,appmtdet,A/P Payment Details
+appdata,Table,appmthdr,A/P Payments
+appdata,Table,appreg01,Control File
+appdata,Table,appurchd,A/P Bill Details
+appdata,Table,appurchh,A/P Bill Headers
+appdata,Table,appurecd,Recurring Bill Details
+appdata,Table,appurech,A/P Recurring Bill Headers
+appdata,Table,aropt,A/R Preferences
+appdata,Table,arpmtdet,A/R Payment Details
+appdata,Table,arpmthdr,A/R Payments Headers
+appdata,Table,assets,Assets
+appdata,Table,audlinks,Land - Auditor Links
+appdata,Table,brineinjection,Brineinjection
+appdata,Table,brinelog,Brine Log Entries
+appdata,Table,checkbal,Checking Balances
+appdata,Table,checkrec,Cash - Reconciliations
+appdata,Table,checks,Check Register
+appdata,Table,chkclear,Cleared Checks
+appdata,Table,coa,Chart of Accounts
+appdata,Table,coabal,G/L Account Balances
+appdata,Table,coabald,G/L Dept Balances
+appdata,Table,coabalu,G/L Unit Balances
+appdata,Table,codr0021w,Colorado DR0021W
+appdata,Table,codr0456,Colorado DR0456
+appdata,Table,codr0461,Colorado DR0461
+appdata,Table,csdisdet,Cash Disbursement Details
+appdata,Table,csdishdr,Cash Disbursement Headers
+appdata,Table,csrctdet,Cash Receipts Details
+appdata,Table,csrcthdr,Cash Receipts Headers
+appdata,Table,custs,Customers
+appdata,Table,decline,Well Decline Work File
+appdata,Table,deplfile,Depletion File
+appdata,Table,deplset,Depletion Setup
+appdata,Table,depositd,Deposit Details
+appdata,Table,deposits,Deposits
+appdata,Table,disbhist,Owner History File
+appdata,Table,disposal,Brine - Disposal Permits
+appdata,Table,documents,Documents
+appdata,Table,doichanges,Doichanges
+appdata,Table,doidecks,Doidecks
+appdata,Table,emaillog,Emaillog
+appdata,Table,emps,Employees
+appdata,Table,expcat,Expense Codes
+appdata,Table,expense,Well Expense Details
+appdata,Table,expsusp,Unallocated Well Expenses
+appdata,Table,exptxnid,Exptxnid
+appdata,Table,fields,Well Fields
+appdata,Table,finchgs,Finance Charge Codes
+appdata,Table,form1065,1065/K1 - Form 1065 File
+appdata,Table,form1065b2,Form1065b2
+appdata,Table,form6,Form 6 Records
+appdata,Table,form6s,State Compliance Owner File
+appdata,Table,formations,Land - Formations
+appdata,Table,gasinv,House Gas - Invoices
+appdata,Table,gasopt,House Gas - Preferences
+appdata,Table,gasown,House Gas - Owners
+appdata,Table,gasuse,House Gas - Usage
+appdata,Table,glacctyp,G/L Account Types
+appdata,Table,glbatches,G/L Batches
+appdata,Table,gldept,Departments
+appdata,Table,gljndet,G/L Journal Details
+appdata,Table,gljourn,G/L Journal
+appdata,Table,glmaster,G/L Master File
+appdata,Table,glopt,G/L Options
+appdata,Table,glrecur,Recurring G/L Entries
+appdata,Table,glredet,Recurring G/L Detail
+appdata,Table,groups,Well Groups
+appdata,Table,importbatch,Importbatch
+appdata,Table,importdefs,Import - Definitions
+appdata,Table,importexplain,Import - Explanations
+appdata,Table,importmap,Import - Mapping
+appdata,Table,importtypes,Import - Types
+appdata,Table,income,Well Revenue Details
+appdata,Table,incsusp,Unallocated Revenue
+appdata,Table,inctxnid,Inctxnid
+appdata,Table,integrators,Integrators
+appdata,Table,invdet,Invoice Details
+appdata,Table,investor,Owners Master File
+appdata,Table,invhdr,Invoice Headers
+appdata,Table,invrecd,Recurring Invoice Details
+appdata,Table,invrech,Recurring Invoices
+appdata,Table,invtrans,Inventory Transfers
+appdata,Table,items,Inventory and Billing Codes
+appdata,Table,k1deducts,K1 Deductions
+appdata,Table,k1file,1065/K1 - Form K1 File
+appdata,Table,land,Land Lease Master File
+appdata,Table,landami,Land - Lease/Formation Links
+appdata,Table,landform,Land - Lease/Formation Links
+appdata,Table,landhist,Land - History File
+appdata,Table,landopt,Land - Preferences
+appdata,Table,landowner,Land - Lease Obligations
+appdata,Table,leaseaudit,Land - Auditors
+appdata,Table,leaseprog,Land - Lease/Program Links
+appdata,Table,leases,Brine - Leases
+appdata,Table,leasewell,Land - Lease/Well Links
+appdata,Table,menupads,Custom Menu
+appdata,Table,meterall,Meter Allocation Headers
+appdata,Table,meterdata,Well Meter Readings
+appdata,Table,meters,Master Meters
+appdata,Table,metersub,Meter Allocation Details
+appdata,Table,micrdata,MICR
+appdata,Table,mplhist,Mplhist
+appdata,Table,mplopt,Mplopt
+appdata,Table,mpltrans,Mpltrans
+appdata,Table,mplunits,Mplunits
+appdata,Table,nelcobatches,Nelcobatches
+appdata,Table,nickname,Nicknames
+appdata,Table,notes,Land - Common Notes
+appdata,Table,one_man_tax,One Man Tax
+appdata,Table,operator,Operator
+appdata,Table,options,Disbursement and JIB Preferences
+appdata,Table,othnames,Other Names
+appdata,Table,ownhistold,Owner History File (Archive)
+appdata,Table,ownpcts,Owner Interest History
+appdata,Table,ownpctsold,Owner Interest History (Archive)
+appdata,Table,owntots,Owner YTD and ITD Totals
+appdata,Table,p18formp1,P18formp1
+appdata,Table,p18formp2,P18formp2
+appdata,Table,p18gathersys,P18gathersys
+appdata,Table,p18properties,P18properties
+appdata,Table,plugowner,Plugging - Owner Balances
+appdata,Table,plugwell,Plugging - Well Setup
+appdata,Table,plugwellbal,Plugging - Well Balances
+appdata,Table,prcodef,Payroll Codes
+appdata,Table,prcodes,Payroll Codes
+appdata,Table,prdata,Payroll History
+appdata,Table,premptax,Payroll Employee Taxes
+appdata,Table,prepayd,JIB Pre-Pay Details
+appdata,Table,prepayh,JIB Pre-Pay Headers
+appdata,Table,proghstd,Partnership - Disbursment Details
+appdata,Table,proghsth,Partnership - Disbursements
+appdata,Table,progopt,Partnership - Preferences
+appdata,Table,programs,Programs/Joint Ventures
+appdata,Table,progrel,Partnership - DOI
+appdata,Table,propt,Payroll Options
+appdata,Table,prsuta,Payroll SUTA
+appdata,Table,prtaxes,Payroll Taxes
+appdata,Table,prw2file,Payroll W2s
+appdata,Table,pumpers,Well Pumpers
+appdata,Table,purchasermap,Purchasermap
+appdata,Table,qbpost,Qbpost
+appdata,Table,reconsav,Check Recon Temp
+appdata,Table,revcat,Revenue Categories
+appdata,Table,revsrc,Purchasers
+appdata,Table,roundtmp,Owner Rounding Adjustments
+appdata,Table,runclose,Run Closing Details
+appdata,Table,salestx,Sales Tax Codes
+appdata,Table,sercfacility,SERC Facility
+appdata,Table,settlementnotes,Settlement Stmt Notes
+appdata,Table,sevtax,Well Product Tax Tables
+appdata,Table,stateaccounts,State Account Numbers
+appdata,Table,stmtnote,Owner Statement Notes
+appdata,Table,stmtone1065,1065 Stmt One
+appdata,Table,susaudit,Old Suspense Audit File
+appdata,Table,suspense,Owner Suspense
+appdata,Table,susppcts,Suspense DOI
+appdata,Table,suspreasons,Suspreasons
+appdata,Table,sysctl,System Control File
+appdata,Table,system_email,System Email
+appdata,Table,tanks,Well - Tank Batteries
+appdata,Table,tax1099,1099s - 1099 File
+appdata,Table,tax1099corrections,1099 Corrections
+appdata,Table,tax1099det,1099 - Reconciliation Details
+appdata,Table,tax1099st,1099 - State 1099s
+appdata,Table,tax1099states,1099 - State IDs
+appdata,Table,taxbandit1099,Taxbandit1099
+appdata,Table,taxcodes,Expense Tax Codes
+appdata,Table,terms,A/P - Vendor Terms    Terms Codes
+appdata,Table,trangroup,Transaction Groups
+appdata,Table,trucks,Brine - Hauler Trucks
+appdata,Table,txrrcdata,Texas P1 and P2 Data
+appdata,Table,vendexp,Expenses by Vendor Header
+appdata,Table,vendor,Vendors
+appdata,Table,version,Version
+appdata,Table,water,Water
+appdata,Table,welldays,Wells - Days On
+appdata,Table,wellhist,Well History
+appdata,Table,wellinv,Division of Interests
+appdata,Table,wells,Wells
+appdata,Table,welltots,Well YTD and ITD Totals
+appdata,Table,workord,Brine Work Order
+appdata,U,glmaster.nbalance,Balance

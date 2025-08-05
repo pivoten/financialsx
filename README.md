@@ -1,4 +1,3 @@
-cat > README.md <<'EOF'
 # financialsx
 Pivoten Financials X - Enhanced Legacy
 

@@ -1261,6 +1261,302 @@ func parseFloat(value interface{}) float64 {
 	return 0.0
 }
 
+// AuditBankReconciliation performs a bank reconciliation audit comparing:
+// Bank Reconciliation Balance vs (GL Balance + Outstanding Checks)
+func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("AuditBankReconciliation called for company: %s\n", companyName)
+	
+	// Check permissions - only admin/root can audit
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.IsRoot && a.currentUser.RoleName != "Admin" {
+		return nil, fmt.Errorf("insufficient permissions - admin or root required")
+	}
+
+	// Force refresh of all cached balances before audit (as requested by user)
+	fmt.Printf("AuditBankReconciliation: Refreshing all cached balances...\n")
+	_, err := a.RefreshAllBalances(companyName)
+	if err != nil {
+		fmt.Printf("AuditBankReconciliation: Warning - failed to refresh balances: %v\n", err)
+		// Continue with audit even if refresh fails
+	}
+
+	// Get bank accounts from COA.dbf
+	bankAccounts, err := a.GetBankAccounts(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+	
+	if len(bankAccounts) == 0 {
+		return map[string]interface{}{
+			"status": "warning",
+			"message": "No bank accounts found in Chart of Accounts",
+			"discrepancies": []interface{}{},
+			"accounts_audited": 0,
+			"total_discrepancies": 0,
+		}, nil
+	}
+
+	// Read CHECKREC.dbf for reconciliation data
+	fmt.Printf("AuditBankReconciliation: Reading CHECKREC.dbf for company: %s\n", companyName)
+	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 10000, "", "")
+	if err != nil {
+		fmt.Printf("AuditBankReconciliation: Error reading CHECKREC.dbf: %v\n", err)
+		return map[string]interface{}{
+			"status": "error",
+			"error": "CHECKREC.dbf not found",
+			"message": "The CHECKREC.dbf file is required for bank reconciliation audit but was not found in the company directory",
+		}, nil
+	}
+
+	// Get column indices for CHECKREC.dbf
+	checkrecColumns, ok := checkrecData["columns"].([]string)
+	if !ok {
+		fmt.Printf("AuditBankReconciliation: Invalid CHECKREC.dbf structure - columns not found\n")
+		return nil, fmt.Errorf("invalid CHECKREC.dbf structure")
+	}
+	
+	fmt.Printf("AuditBankReconciliation: CHECKREC.dbf columns: %v\n", checkrecColumns)
+	
+	// Get rows for debugging
+	checkrecRows, rowsOk := checkrecData["rows"].([][]interface{})
+	if !rowsOk {
+		fmt.Printf("AuditBankReconciliation: Invalid CHECKREC.dbf structure - rows not found\n")
+		return nil, fmt.Errorf("invalid CHECKREC.dbf structure - no rows")
+	}
+	
+	fmt.Printf("AuditBankReconciliation: CHECKREC.dbf has %d rows\n", len(checkrecRows))
+
+	// Find relevant columns in CHECKREC.dbf
+	var accountIdx, endingBalanceIdx, dateIdx int = -1, -1, -1
+	for i, col := range checkrecColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CACCTNO" {
+			accountIdx = i
+		} else if colUpper == "NENDBAL" {
+			endingBalanceIdx = i
+		} else if colUpper == "DRECDATE" {
+			dateIdx = i
+		}
+	}
+
+	if accountIdx == -1 || endingBalanceIdx == -1 {
+		return nil, fmt.Errorf("required columns not found in CHECKREC.dbf (need account and ending balance)")
+	}
+
+	// Build reconciliation data per account
+	type ReconciliationRecord struct {
+		Date    time.Time
+		Balance float64
+	}
+	
+	accountRecords := make(map[string][]ReconciliationRecord)
+
+	// Collect all reconciliation records per account
+	for i, row := range checkrecRows {
+		if len(row) <= accountIdx || len(row) <= endingBalanceIdx {
+			if i < 5 { // Debug first few rows
+				fmt.Printf("AuditBankReconciliation: Row %d skipped - insufficient columns (need idx %d and %d, got %d)\n", i, accountIdx, endingBalanceIdx, len(row))
+			}
+			continue
+		}
+
+		accountNum := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		endingBalance := parseFloat(row[endingBalanceIdx])
+		
+		if i < 5 { // Debug first few rows
+			fmt.Printf("AuditBankReconciliation: Row %d - Account: %s, Balance: %f\n", i, accountNum, endingBalance)
+		}
+		
+		// Parse date (required for proper logic)
+		var recDate time.Time
+		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
+			if dateStr := fmt.Sprintf("%v", row[dateIdx]); dateStr != "" {
+				if i < 5 { // Debug first few rows
+					fmt.Printf("AuditBankReconciliation: Row %d - Date string: %s\n", i, dateStr)
+				}
+				// Handle ISO format like "2025-06-27T00:00:00Z"
+				for _, format := range []string{"2006-01-02T15:04:05Z", "2006-01-02T15:04:05", "2006-01-02", "01/02/2006", "1/2/2006"} {
+					if parsedDate, err := time.Parse(format, dateStr); err == nil {
+						recDate = parsedDate
+						if i < 5 { // Debug first few rows
+							fmt.Printf("AuditBankReconciliation: Row %d - Parsed date: %s\n", i, recDate.Format("2006-01-02"))
+						}
+						break
+					}
+				}
+			}
+		} else {
+			if i < 5 { // Debug first few rows
+				fmt.Printf("AuditBankReconciliation: Row %d - No date column or data\n", i)
+			}
+		}
+		
+		// Only include records with valid dates
+		if !recDate.IsZero() {
+			accountRecords[accountNum] = append(accountRecords[accountNum], ReconciliationRecord{
+				Date:    recDate,
+				Balance: endingBalance,
+			})
+			if i < 5 { // Debug first few rows
+				fmt.Printf("AuditBankReconciliation: Row %d - Added record for account %s\n", i, accountNum)
+			}
+		} else {
+			if i < 5 { // Debug first few rows
+				fmt.Printf("AuditBankReconciliation: Row %d - Skipped due to invalid date for account %s\n", i, accountNum)
+			}
+		}
+	}
+	
+	fmt.Printf("AuditBankReconciliation: Processed records for %d accounts\n", len(accountRecords))
+
+	// Process each account to find the correct reconciliation balance and date
+	lastRecBalances := make(map[string]float64)
+	lastRecDates := make(map[string]time.Time)
+	
+	for accountNum, records := range accountRecords {
+		if len(records) == 0 {
+			continue
+		}
+		
+		// Sort by date (latest first)
+		for i := 0; i < len(records)-1; i++ {
+			for j := i + 1; j < len(records); j++ {
+				if records[j].Date.After(records[i].Date) {
+					records[i], records[j] = records[j], records[i]
+				}
+			}
+		}
+		
+		// Logic: If latest reconciliation has NENDBAL = 0 (interim), use previous reconciliation's balance
+		// but use the latest reconciliation's date
+		latestRecord := records[0]
+		lastRecDates[accountNum] = latestRecord.Date
+		
+		if latestRecord.Balance == 0 && len(records) > 1 {
+			// This is an interim reconciliation - use previous reconciliation's balance
+			lastRecBalances[accountNum] = records[1].Balance
+		} else {
+			// Normal case - use the latest reconciliation's balance
+			lastRecBalances[accountNum] = latestRecord.Balance
+		}
+	}
+
+	// Get current cached balances for comparison
+	cachedBalances, err := database.GetAllCachedBalances(a.db, companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+
+	// Create map for fast lookup
+	balanceMap := make(map[string]*database.CachedBalance)
+	for i, balance := range cachedBalances {
+		balanceMap[balance.AccountNumber] = &cachedBalances[i]
+	}
+
+	// Perform the audit
+	var discrepancies []map[string]interface{}
+	accountsAudited := 0
+	totalDiscrepancies := 0
+
+	for _, account := range bankAccounts {
+		accountNum := account["account_number"].(string)
+		accountsAudited++
+
+		// Get reconciliation balance and date
+		reconciliationBalance, hasRecData := lastRecBalances[accountNum]
+		reconciliationDate, hasRecDate := lastRecDates[accountNum]
+		
+		// Get cached balance data
+		cachedBalance, hasCachedData := balanceMap[accountNum]
+		
+		var glBalance, outstandingChecks float64
+		var glFreshness, checksFreshness string
+		
+		if hasCachedData {
+			glBalance = cachedBalance.GLBalance
+			outstandingChecks = cachedBalance.OutstandingTotal
+			glFreshness = cachedBalance.GLFreshness
+			checksFreshness = cachedBalance.ChecksFreshness
+		} else {
+			// If no cached data, skip this account or mark as no data
+			discrepancies = append(discrepancies, map[string]interface{}{
+				"account_number": accountNum,
+				"account_name": account["account_name"],
+				"issue_type": "no_cached_data",
+				"description": "No cached balance data available for this account (run refresh)",
+				"reconciliation_balance": reconciliationBalance,
+				"reconciliation_date": func() interface{} {
+					if hasRecDate && !reconciliationDate.IsZero() {
+						return reconciliationDate.Format("2006-01-02")
+					}
+					return nil
+				}(),
+				"has_reconciliation_data": hasRecData,
+			})
+			totalDiscrepancies++
+			continue
+		}
+
+		// Check if we have reconciliation data
+		if !hasRecData {
+			discrepancies = append(discrepancies, map[string]interface{}{
+				"account_number": accountNum,
+				"account_name": account["account_name"],
+				"issue_type": "no_reconciliation_data",
+				"description": "No reconciliation data found in CHECKREC.dbf",
+				"gl_balance": glBalance,
+				"outstanding_checks": outstandingChecks,
+				"reconciliation_date": nil,
+				"gl_freshness": glFreshness,
+				"checks_freshness": checksFreshness,
+			})
+			totalDiscrepancies++
+			continue
+		}
+
+		// Calculate the expected GL balance: Reconciliation Balance - Outstanding Checks
+		expectedGLBalance := reconciliationBalance - outstandingChecks
+		difference := glBalance - expectedGLBalance
+		tolerance := 0.01 // 1 cent tolerance for rounding
+
+		if difference > tolerance || difference < -tolerance {
+			discrepancies = append(discrepancies, map[string]interface{}{
+				"account_number": accountNum,
+				"account_name": account["account_name"],
+				"issue_type": "balance_mismatch",
+				"description": fmt.Sprintf("GL balance does not match (Reconciliation Balance - Outstanding Checks)"),
+				"reconciliation_balance": reconciliationBalance,
+				"reconciliation_date": func() interface{} {
+					if hasRecDate && !reconciliationDate.IsZero() {
+						return reconciliationDate.Format("2006-01-02")
+					}
+					return nil
+				}(),
+				"gl_balance": glBalance,
+				"outstanding_checks": outstandingChecks,
+				"expected_gl_balance": expectedGLBalance,
+				"difference": difference,
+				"gl_freshness": glFreshness,
+				"checks_freshness": checksFreshness,
+			})
+			totalDiscrepancies++
+		}
+	}
+
+	return map[string]interface{}{
+		"status": "success",
+		"message": fmt.Sprintf("Bank reconciliation audit completed for %d accounts", accountsAudited),
+		"discrepancies": discrepancies,
+		"accounts_audited": accountsAudited,
+		"total_discrepancies": totalDiscrepancies,
+		"audit_timestamp": time.Now().Format(time.RFC3339),
+		"audited_by": a.currentUser.Username,
+	}, nil
+}
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()

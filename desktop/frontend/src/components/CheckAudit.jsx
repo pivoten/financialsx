@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AuditCheckBatches } from '../../wailsjs/go/main/App'
+import { AuditCheckBatches, AuditBankReconciliation } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
@@ -26,8 +26,11 @@ import {
 
 export function CheckAudit({ companyName, currentUser }) {
   const [auditResults, setAuditResults] = useState(null)
+  const [bankRecAuditResults, setBankRecAuditResults] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [bankRecLoading, setBankRecLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [bankRecError, setBankRecError] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
   const [missingPage, setMissingPage] = useState(1)
@@ -80,6 +83,27 @@ export function CheckAudit({ companyName, currentUser }) {
       setError(err.message || 'Failed to run audit')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const runBankReconciliationAudit = async () => {
+    try {
+      setBankRecLoading(true)
+      setBankRecError(null)
+      setBankRecAuditResults(null)
+      
+      const results = await AuditBankReconciliation(companyName)
+      
+      if (results.status === 'error') {
+        setBankRecError(results.message || results.error)
+      } else {
+        setBankRecAuditResults(results)
+      }
+    } catch (err) {
+      console.error('Bank reconciliation audit failed:', err)
+      setBankRecError(err.message || 'Failed to run bank reconciliation audit')
+    } finally {
+      setBankRecLoading(false)
     }
   }
 
@@ -731,6 +755,250 @@ export function CheckAudit({ companyName, currentUser }) {
               </p>
               <p className="text-sm text-muted-foreground">
                 This will analyze the CBATCH field in checks.dbf against GLMASTER.dbf
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Bank Reconciliation Audit Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Bank Reconciliation Audit</CardTitle>
+              <CardDescription>
+                Verify that Reconciliation Balance - Outstanding Checks = GL Balance
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              {bankRecAuditResults && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    // Export bank reconciliation results to CSV
+                    const csvData = bankRecAuditResults.discrepancies.map(item => ({
+                      account_number: item.account_number,
+                      account_name: item.account_name,
+                      issue_type: item.issue_type,
+                      reconciliation_balance: item.reconciliation_balance || 'N/A',
+                      reconciliation_date: item.reconciliation_date || 'N/A',
+                      gl_balance: item.gl_balance || 'N/A',
+                      outstanding_checks: item.outstanding_checks || 'N/A',
+                      expected_gl_balance: item.expected_gl_balance || 'N/A',
+                      difference: item.difference || 'N/A',
+                      description: item.description
+                    }))
+                    
+                    const csv = [
+                      Object.keys(csvData[0] || {}).join(','),
+                      ...csvData.map(row => Object.values(row).join(','))
+                    ].join('\n')
+                    
+                    const blob = new Blob([csv], { type: 'text/csv' })
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `bank-reconciliation-audit-${companyName}-${new Date().toISOString().split('T')[0]}.csv`
+                    a.click()
+                    window.URL.revokeObjectURL(url)
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+              )}
+              <Button 
+                onClick={runBankReconciliationAudit}
+                disabled={bankRecLoading}
+              >
+                {bankRecLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Running Audit...
+                  </>
+                ) : (
+                  <>
+                    <FileSearch className="w-4 h-4 mr-2" />
+                    Run Bank Reconciliation Audit
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {bankRecError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="font-medium">Audit Error</span>
+              </div>
+              <p className="mt-1 text-sm">{bankRecError}</p>
+            </div>
+          )}
+
+          {bankRecAuditResults && (
+            <div className="space-y-6">
+              {/* Summary Cards */}
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold">{bankRecAuditResults.accounts_audited}</div>
+                    <p className="text-sm text-muted-foreground">Bank Accounts Audited</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-green-600">
+                      {bankRecAuditResults.accounts_audited - bankRecAuditResults.total_discrepancies}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Balanced</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-red-600">
+                      {bankRecAuditResults.total_discrepancies}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Discrepancies</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {bankRecAuditResults.discrepancies.filter(d => d.issue_type === 'balance_mismatch').length}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Balance Mismatches</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Results Table */}
+              {bankRecAuditResults.discrepancies.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Discrepancies Found</CardTitle>
+                    <CardDescription>Accounts with reconciliation balance issues</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Account</TableHead>
+                            <TableHead>Issue Type</TableHead>
+                            <TableHead className="text-right">Reconciliation Balance</TableHead>
+                            <TableHead className="text-center">Reconciliation Date</TableHead>
+                            <TableHead className="text-right">GL Balance</TableHead>
+                            <TableHead className="text-right">Outstanding Checks</TableHead>
+                            <TableHead className="text-right">Expected GL Balance</TableHead>
+                            <TableHead className="text-right">Difference</TableHead>
+                            <TableHead>Description</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bankRecAuditResults.discrepancies.map((discrepancy, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">
+                                <div>
+                                  <div>{discrepancy.account_number}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {discrepancy.account_name}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={
+                                  discrepancy.issue_type === 'balance_mismatch' ? 'destructive' :
+                                  discrepancy.issue_type === 'no_reconciliation_data' ? 'secondary' :
+                                  'outline'
+                                }>
+                                  {discrepancy.issue_type.replace('_', ' ')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {discrepancy.reconciliation_balance != null ? 
+                                  formatCurrency(discrepancy.reconciliation_balance) : 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-center font-mono text-sm">
+                                {discrepancy.reconciliation_date || 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {discrepancy.gl_balance != null ? 
+                                  formatCurrency(discrepancy.gl_balance) : 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {discrepancy.outstanding_checks != null ? 
+                                  formatCurrency(discrepancy.outstanding_checks) : 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {discrepancy.expected_gl_balance != null ? 
+                                  formatCurrency(discrepancy.expected_gl_balance) : 'N/A'}
+                              </TableCell>
+                              <TableCell className={`text-right font-mono ${
+                                discrepancy.difference > 0 ? 'text-green-600' : 
+                                discrepancy.difference < 0 ? 'text-red-600' : ''
+                              }`}>
+                                {discrepancy.difference != null ? 
+                                  formatCurrency(discrepancy.difference) : 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {discrepancy.description}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="text-center text-green-600">
+                      <CheckCircle className="w-12 h-12 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">All Bank Accounts Balanced!</h3>
+                      <p className="text-muted-foreground">
+                        All reconciliation balances match the calculated bank balances (GL + Outstanding Checks)
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Audit Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    Audit Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 text-sm">
+                    <p>Audit completed on: {new Date(bankRecAuditResults.audit_timestamp).toLocaleString()}</p>
+                    <p>Audited by: {bankRecAuditResults.audited_by}</p>
+                    <p className="text-muted-foreground mt-4">
+                      This audit verifies that the reconciliation balance from CHECKREC.dbf 
+                      minus outstanding checks equals the GL balance for each account.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {!bankRecAuditResults && !bankRecError && !bankRecLoading && (
+            <div className="text-center py-8">
+              <FileSearch className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-semibold mb-2">Bank Reconciliation Audit</h3>
+              <p className="text-muted-foreground mb-4">
+                Click "Run Bank Reconciliation Audit" to verify reconciliation balance minus outstanding checks equals GL balance
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This will analyze CHECKREC.dbf against cached balance data
               </p>
             </div>
           )}

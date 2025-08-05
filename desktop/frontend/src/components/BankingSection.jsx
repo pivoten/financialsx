@@ -235,7 +235,7 @@ export function BankingSection({ companyName, currentUser }) {
           return {
             ...account,
             balance: cachedBalance.gl_balance,
-            bank_balance: cachedBalance.bank_balance,
+            bank_balance: cachedBalance.gl_balance + cachedBalance.outstanding_total, // Calculate on-the-fly
             outstanding_total: cachedBalance.outstanding_total,
             outstanding_count: cachedBalance.outstanding_count,
             gl_freshness: cachedBalance.gl_freshness,
@@ -256,7 +256,7 @@ export function BankingSection({ companyName, currentUser }) {
           return {
             ...account,
             balance: 0,
-            bank_balance: 0,
+            bank_balance: 0, // 0 + 0 = 0
             outstanding_total: 0,
             outstanding_count: 0,
             gl_freshness: 'stale',
@@ -276,7 +276,7 @@ export function BankingSection({ companyName, currentUser }) {
       const fallbackAccounts = accountList.map(account => ({
         ...account,
         balance: 0,
-        bank_balance: 0,
+        bank_balance: 0, // 0 + 0 = 0
         outstanding_total: 0,
         outstanding_count: 0,
         gl_freshness: 'stale',
@@ -366,7 +366,7 @@ export function BankingSection({ companyName, currentUser }) {
             <div>
               <h3 className="text-lg font-semibold">Bank Accounts</h3>
               <p className="text-sm text-muted-foreground">
-                GL balances with actual bank balance after uncleared checks
+                Bank Balance = GL Balance + Uncleared Checks (checks written but not yet cleared)
               </p>
             </div>
             <Button
@@ -443,8 +443,8 @@ export function BankingSection({ companyName, currentUser }) {
                       {account.outstanding_total > 0 && (
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-muted-foreground">Uncleared Checks</span>
-                          <span className="text-red-600">
-                            -{formatCurrency(account.outstanding_total)} ({account.outstanding_count})
+                          <span className="text-amber-600">
+                            +{formatCurrency(account.outstanding_total)} ({account.outstanding_count})
                           </span>
                         </div>
                       )}

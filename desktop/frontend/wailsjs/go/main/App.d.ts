@@ -3,6 +3,8 @@
 import {auth} from '../models';
 import {company} from '../models';
 
+export function AuditBankReconciliation(arg1:string):Promise<Record<string, any>>;
+
 export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;

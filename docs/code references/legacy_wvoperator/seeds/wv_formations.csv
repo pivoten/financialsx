@@ -1,0 +1,99 @@
+FormationNumber,Formation
+01,Oriskany
+02,Huron, Rhinestreet
+03,Devonian Shale
+04,Huron
+05,Huron, Shales above Huron
+06,Huron, Berea
+07,Berea, Devonian Shale
+08,Berea
+09,Any formation not on list
+10,Unknown
+11,Gordon
+12,Alexander, Benson
+13,Alexander, Benson, Riley
+14,Benson
+15,Benson, Riley
+16,Benson, Balltown+
+17,Gordon +
+18,Big Injun
+19,Big Injun, Big Lime
+20,Benson +
+21,Benson, Fifth
+22,Big Lime
+23,Big Lime, Maxton
+24,Big Lime, Ravencliff
+25,Berea +
+26,Ravencliff
+27,Huron, Shales above Huron
+28,Weir
+29,Weir +
+30,Weir, Big Lime
+31,Devonian Shales +
+32,Brallier +
+33,Elk, Benson
+34,Elk, Benson, Riley
+35,Elk, Benson, Riley +
+36,Elk, Benson, Balltown
+37,Elk, Alexander, Benson
+38,Elk, Alexander, Benson +
+39,Hunterville
+40,Fox, Haverty
+42,Maxton, Ravencliff
+43,Berea, Big Lime
+44,Rhinestreet, Huron, Shallow Shale
+45,Devonian Shale, Pocono
+46,Pocono
+47,Alexander, Riley, (No Benson)
+48,Rhinestreet, Alexander, Benson, Riley
+49,Weir, Squaw, Big lnjun
+50,Rhinestreet
+51,Rhinestreet +
+52,All Upper Devonian (Undiv)
+53,Huron, Chemung
+54,Huron, Hampshire, Pocono
+55,Upper Devonian (Above Huron)
+56,Chemung Sands= Riley, Bradford, Balltown,Speechley, Warren (No Benson or Alexander)
+57,Alexander, Benson, Balltown
+58,Alexander
+59,Alexander +
+60,Alexander, Benson, Riley +
+61,Balltown
+62,Balltown, Speechley
+63,Balltown, Speechley +
+64,Benson, Balltown, Speechley
+65,Benson, Bradford
+66,Benson, Balltown
+67,Benson, Riley +
+68,Benson, Speechley
+69,Brallier, Elk
+70,Brallier
+71,Deeper/Onondaga or Oriskany/Helderberg
+72,Elk, Alexander
+73,Elk, Benson +
+74,Elk
+75,Elk, Riley
+76,Fox +
+77,Haverty, Elk, Benson (No Alexander)
+78,Haverty
+79,Riley
+80,Speechley
+81,Alexander, Benson, Speechley
+82,Haverty, Elk, Alexander
+83,Huron Oil
+84,Big lnjun, Oil
+85,Fifth, Oil
+87,Bayard All
+88,Fifth
+89,Fifth +
+90,Gordon, lnjun All
+91,Squaw
+92,lnjun +
+93,4th Sand
+94,50 Foot
+95,Injun/Weir
+96,Maxton
+97,Coalbed Methane (Vertical)
+98,Coalbed Methane (Horizontal)
+109,Trenton/Deeper
+110,Marcellus 

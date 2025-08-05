@@ -1,0 +1,46 @@
+PDF Field Name,PDF ID,FoxPro Source,Status,Notes
+producerName,89,VERSION.COMPNAME,✅ Implemented,Producer company name
+producerCode,345,VERSION.IDCOMP (resolved via lookup),✅ Implemented,Producer identification code - resolved through wv_producers.csv lookup
+address1,388,VERSION.ADDRESS1,✅ Implemented,Producer address line 1
+city,399,VERSION.CITY,✅ Implemented,Producer city
+state,410,VERSION.STATE,✅ Implemented,Producer state
+zipcode,421,VERSION.ZIPCODE,✅ Implemented,Producer zip code
+phone,443,VERSION.PHONENO,✅ Implemented,Producer phone number
+email,454,VERSION.EMAIL,✅ Implemented,Producer email address
+agent,432,VERSION.AGENTNAME,✅ Implemented,Agent name
+countyName,2246,WELLS.CCOUNTY (lookup),✅ Implemented,County name from lookup
+countyNumber,2257,WELLS.CCOUNTY,✅ Implemented,County number code
+nraNumber,2268,WELLS.CNRA,✅ Implemented,NRA number
+apiNumber,2279,WELLS.CAPI,✅ Implemented,API number
+wellName,2290,WELLS.CWELLNAME,✅ Implemented,Well name
+landAcreage,2301,WELLS.NLANDACRE,✅ Implemented,Land acreage
+leaseAcreage,2312,WELLS.NLEASEACRE,✅ Implemented,Lease acreage
+status_active,2354,WELLS.CWELLSTAT = "A",✅ Implemented,Active well status checkbox
+status_plugged,2425,WELLS.CWELLSTAT = "P",✅ Implemented,Plugged well status checkbox
+status_shutin,2436,WELLS.CWELLSTAT = "S",✅ Implemented,Shut-in well status checkbox
+gas_ethane,2745,WELLS.LETHANE,✅ Implemented,Ethane gas type checkbox
+gas_propane,2756,WELLS.LPROPANE,✅ Implemented,Propane gas type checkbox
+gas_butane,2767,WELLS.LBUTANE,✅ Implemented,Butane gas type checkbox
+gas_isobutane,2778,WELLS.LISOBUTANE,✅ Implemented,Isobutane gas type checkbox
+gas_pentane,2789,WELLS.LPENTANE,✅ Implemented,Pentane gas type checkbox
+intialProduction,2801,WELLS.DPRODDATE,✅ Implemented,Date of first production
+formations,2822,WELLS.CFORMATION,✅ Implemented,Production formation (raw DBF value)
+production_totalBBL,3003,WELLHIST.NGROSSBBL (summed),✅ Implemented,Total oil production in barrels
+production_totalGAS,3025,WELLHIST.NGROSSMCF (summed),✅ Implemented,Total gas production in MCF
+production_totalNGLS,3066,,❌ Not Implemented,Total NGL production (left blank for now)
+revenue_oil,3078,WELLHIST.NGROSSOIL (summed),✅ Implemented,Total oil revenue
+revenue_gas,3089,WELLHIST.NGROSSGAS (summed),✅ Implemented,Total gas revenue
+revenue_ngls,3100,WELLHIST.NOTHINC (summed),✅ Implemented,Total NGL revenue
+wi_oilRevenue,3111,OilRevenue * (WorkingOilInterest/100),✅ Implemented,Working interest oil revenue (from WELLINV interest groups)
+wi_gasRevenue,3122,GasRevenue * (WorkingGasInterest/100),✅ Implemented,Working interest gas revenue (from WELLINV interest groups)
+wi_nglsRevenue,3133,OtherRevenue * (WorkingOtherInterest/100),✅ Implemented,Working interest NGL revenue (from WELLINV interest groups)
+expenses_oil,3144,TotalExpenses * 0.33,✅ Implemented,Oil expenses (estimated 33%)
+expenses_gas,3155,TotalExpenses * 0.33,✅ Implemented,Gas expenses (estimated 33%)
+expenses_ngls,3166,TotalExpenses * 0.34,✅ Implemented,NGL expenses (estimated 34%)
+royalty_oilRevenue,3177,OilRevenue * ((RoyaltyOilInterest+OverridingOilInterest)/100),✅ Implemented,Royalty oil revenue (Royalty + Overriding Royalty from WELLINV)
+royalty_gasRevenue,3188,GasRevenue * ((RoyaltyGasInterest+OverridingGasInterest)/100),✅ Implemented,Royalty gas revenue (Royalty + Overriding Royalty from WELLINV)
+royalty_nglsRevenue,3199,OtherRevenue * ((RoyaltyOtherInterest+OverridingOtherInterest)/100),✅ Implemented,Royalty NGL revenue (Royalty + Overriding Royalty from WELLINV)
+wi_total,3210,Sum of WI oil+gas+NGL revenue,✅ Implemented,Total working interest revenue (calculated from WELLINV interest groups)
+wi_doiTotal,3221,TotalExpenses * (WorkingOil+Gas+Other Interest/100),✅ Implemented,Working interest total expenses (calculated from WELLINV interest groups)
+royalty_total,3232,Sum of Royalty oil+gas+NGL revenue,✅ Implemented,Total royalty revenue (Royalty + Overriding Royalty from WELLINV)
+royalty_doiTotal,3243,TotalExpenses * (Royalty+Overriding Oil+Gas+Other Interest/100),✅ Implemented,Royalty total expenses (calculated from WELLINV interest groups) 

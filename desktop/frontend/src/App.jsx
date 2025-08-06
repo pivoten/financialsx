@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Login, Register, GetCompanies, ValidateSession, GetDashboardData } from '../wailsjs/go/main/App'
 import { Button } from './components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card'
@@ -258,11 +258,23 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard')
   const [dashboardData, setDashboardData] = useState(null)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
+  const lastLoadedCompany = useRef(null)
 
   // Load dashboard data when company changes (not when user object changes)
   useEffect(() => {
-    console.log('Dashboard useEffect triggered, company_name:', currentUser?.company_name)
-    loadDashboardData()
+    console.log('🔄 UPDATED Dashboard useEffect triggered')
+    console.log('  currentUser exists:', !!currentUser)
+    console.log('  company_name:', currentUser?.company_name)
+    console.log('  lastLoadedCompany:', lastLoadedCompany.current)
+    
+    // Only load if company actually changed
+    if (currentUser?.company_name && currentUser.company_name !== lastLoadedCompany.current) {
+      console.log('  Company changed, loading dashboard data')
+      lastLoadedCompany.current = currentUser.company_name
+      loadDashboardData()
+    } else {
+      console.log('  No company change or already loaded, skipping')
+    }
   }, [currentUser?.company_name])
 
   const loadDashboardData = async () => {

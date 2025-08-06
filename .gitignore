@@ -1,3 +1,4 @@
+.idea
 # ===== macOS (consider moving these to a global ~/.gitignore_global) =====
 .DS_Store
 .AppleDouble

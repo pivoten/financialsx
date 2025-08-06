@@ -221,6 +221,37 @@ export function BankingSection({ companyName, currentUser }) {
       const cachedBalances = await GetCachedBalances(companyName)
       console.log('BankingSection: Retrieved cached balances:', cachedBalances)
       
+      // Handle null or undefined response
+      if (!cachedBalances || !Array.isArray(cachedBalances)) {
+        console.log('BankingSection: No cached balances found or invalid response, will refresh all accounts')
+        
+        // Trigger refresh for all accounts
+        for (const account of accountList) {
+          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+            console.error('Failed to refresh account balance for', account.accountNumber, ':', err)
+          })
+        }
+        
+        // Set accounts with zero balances for now
+        const fallbackAccounts = accountList.map(account => ({
+          ...account,
+          balance: 0,
+          bank_balance: 0,
+          outstanding_total: 0,
+          outstanding_count: 0,
+          uncleared_deposits: 0,
+          uncleared_checks: 0,
+          deposit_count: 0,
+          check_count: 0,
+          gl_freshness: 'stale',
+          checks_freshness: 'stale',
+          is_stale: true,
+          last_updated: 0
+        }))
+        setAccounts(fallbackAccounts)
+        return
+      }
+      
       // Create a map for fast lookup
       const balanceMap = new Map()
       cachedBalances.forEach(balance => {

@@ -189,6 +189,78 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_reconciliations_company_account ON reconciliations(company_name, account_number);
 	CREATE INDEX IF NOT EXISTS idx_reconciliations_status ON reconciliations(status);
 	CREATE INDEX IF NOT EXISTS idx_reconciliations_date ON reconciliations(reconcile_date);
+
+	-- Bank statements table for tracking import sessions
+	CREATE TABLE IF NOT EXISTS bank_statements (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		company_name TEXT NOT NULL,
+		account_number TEXT NOT NULL,
+		statement_date DATE NOT NULL,
+		import_batch_id TEXT UNIQUE NOT NULL,
+		import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		imported_by TEXT NOT NULL,
+		beginning_balance DECIMAL(15,2),
+		ending_balance DECIMAL(15,2),
+		transaction_count INTEGER DEFAULT 0,
+		matched_count INTEGER DEFAULT 0,
+		reconciliation_id INTEGER NULL,
+		is_active BOOLEAN DEFAULT TRUE,
+		metadata TEXT DEFAULT '{}',
+		FOREIGN KEY (reconciliation_id) REFERENCES reconciliations(id) ON DELETE SET NULL,
+		UNIQUE(company_name, account_number, statement_date)
+	);
+
+	-- Bank transactions table for imported CSV/statement data
+	CREATE TABLE IF NOT EXISTS bank_transactions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		company_name TEXT NOT NULL,
+		account_number TEXT NOT NULL,
+		statement_id INTEGER NOT NULL,
+		
+		-- Transaction details
+		transaction_date DATE NOT NULL,
+		check_number TEXT,
+		description TEXT NOT NULL,
+		amount DECIMAL(15,2) NOT NULL,
+		transaction_type TEXT NOT NULL, -- Check, Deposit, Debit, Credit
+		
+		-- Import metadata
+		import_batch_id TEXT NOT NULL, -- UUID for grouping imported transactions
+		import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		imported_by TEXT NOT NULL,
+		
+		-- Matching metadata
+		matched_check_id TEXT, -- CIDCHEC or composite ID from outstanding checks
+		matched_dbf_row_index INTEGER, -- Row index in CHECKS.dbf for updates
+		match_confidence DECIMAL(3,2), -- 0.00 to 1.00 confidence score
+		match_type TEXT, -- exact, amount_exact, high_confidence, fuzzy, manual
+		is_matched BOOLEAN DEFAULT FALSE,
+		manually_matched BOOLEAN DEFAULT FALSE,
+		
+		-- Reconciliation status
+		is_reconciled BOOLEAN DEFAULT FALSE,
+		reconciled_date TIMESTAMP NULL,
+		reconciliation_id INTEGER NULL,
+		
+		-- Additional data as JSON
+		extended_data TEXT DEFAULT '{}',
+		
+		FOREIGN KEY (statement_id) REFERENCES bank_statements(id) ON DELETE CASCADE,
+		FOREIGN KEY (reconciliation_id) REFERENCES reconciliations(id) ON DELETE SET NULL
+	);
+	
+	-- Indexes for bank_statements
+	CREATE INDEX IF NOT EXISTS idx_bank_statements_company_account ON bank_statements(company_name, account_number);
+	CREATE INDEX IF NOT EXISTS idx_bank_statements_batch ON bank_statements(import_batch_id);
+	CREATE INDEX IF NOT EXISTS idx_bank_statements_date ON bank_statements(statement_date);
+	
+	-- Indexes for bank_transactions
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_company_account ON bank_transactions(company_name, account_number);
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_statement ON bank_transactions(statement_id);
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_batch ON bank_transactions(import_batch_id);
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_date ON bank_transactions(transaction_date);
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_matched ON bank_transactions(is_matched);
+	CREATE INDEX IF NOT EXISTS idx_bank_transactions_reconciled ON bank_transactions(is_reconciled);
 	`
 
 	if _, err := db.conn.Exec(schema); err != nil {

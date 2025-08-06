@@ -14,12 +14,20 @@ export function AuditSingleBankAccount(arg1, arg2) {
   return window['go']['main']['App']['AuditSingleBankAccount'](arg1, arg2);
 }
 
+export function ClearMatchesAndRerun(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ClearMatchesAndRerun'](arg1, arg2, arg3);
+}
+
 export function CommitReconciliation(arg1, arg2) {
   return window['go']['main']['App']['CommitReconciliation'](arg1, arg2);
 }
 
 export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
+}
+
+export function DeleteBankStatement(arg1, arg2) {
+  return window['go']['main']['App']['DeleteBankStatement'](arg1, arg2);
 }
 
 export function DeleteReconciliationDraft(arg1, arg2) {
@@ -58,6 +66,10 @@ export function GetBankAccountsForAudit(arg1) {
   return window['go']['main']['App']['GetBankAccountsForAudit'](arg1);
 }
 
+export function GetBankTransactions(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetBankTransactions'](arg1, arg2, arg3);
+}
+
 export function GetCachedBalances(arg1) {
   return window['go']['main']['App']['GetCachedBalances'](arg1);
 }
@@ -94,12 +106,20 @@ export function GetLastReconciliation(arg1, arg2) {
   return window['go']['main']['App']['GetLastReconciliation'](arg1, arg2);
 }
 
+export function GetMatchedTransactions(arg1, arg2) {
+  return window['go']['main']['App']['GetMatchedTransactions'](arg1, arg2);
+}
+
 export function GetNetDistributionStatus(arg1, arg2) {
   return window['go']['main']['App']['GetNetDistributionStatus'](arg1, arg2);
 }
 
 export function GetOutstandingChecks(arg1, arg2) {
   return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
+}
+
+export function GetRecentBankStatements(arg1, arg2) {
+  return window['go']['main']['App']['GetRecentBankStatements'](arg1, arg2);
 }
 
 export function GetReconciliationDraft(arg1, arg2) {
@@ -114,12 +134,20 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function ImportBankStatement(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ImportBankStatement'](arg1, arg2, arg3);
+}
+
 export function Login(arg1, arg2, arg3) {
   return window['go']['main']['App']['Login'](arg1, arg2, arg3);
 }
 
 export function Logout(arg1) {
   return window['go']['main']['App']['Logout'](arg1);
+}
+
+export function ManualMatchTransaction(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ManualMatchTransaction'](arg1, arg2, arg3);
 }
 
 export function MigrateReconciliationData(arg1) {
@@ -142,8 +170,16 @@ export function ReopenPeriod(arg1, arg2) {
   return window['go']['main']['App']['ReopenPeriod'](arg1, arg2);
 }
 
+export function RetryMatching(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RetryMatching'](arg1, arg2, arg3);
+}
+
 export function RunClosingProcess(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RunClosingProcess'](arg1, arg2, arg3, arg4);
+}
+
+export function RunMatching(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RunMatching'](arg1, arg2, arg3);
 }
 
 export function RunNetDistribution(arg1, arg2, arg3, arg4) {
@@ -164,6 +200,10 @@ export function SetAPIKey(arg1, arg2) {
 
 export function TestAPIKey(arg1, arg2) {
   return window['go']['main']['App']['TestAPIKey'](arg1, arg2);
+}
+
+export function UnmatchTransaction(arg1) {
+  return window['go']['main']['App']['UnmatchTransaction'](arg1);
 }
 
 export function UpdateDBFRecord(arg1, arg2, arg3, arg4, arg5) {

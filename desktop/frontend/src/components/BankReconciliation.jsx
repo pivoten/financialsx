@@ -8,7 +8,16 @@ import {
   SaveReconciliationDraft,
   GetReconciliationDraft,
   DeleteReconciliationDraft,
-  CommitReconciliation
+  CommitReconciliation,
+  ImportBankStatement,
+  GetBankTransactions,
+  GetRecentBankStatements,
+  DeleteBankStatement,
+  GetMatchedTransactions,
+  UnmatchTransaction,
+  RunMatching,
+  ClearMatchesAndRerun,
+  ManualMatchTransaction
 } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
@@ -18,7 +27,7 @@ import { Badge } from './ui/badge'
 import { Checkbox } from './ui/checkbox'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog'
 import { 
   CheckCircle, 
   AlertCircle, 
@@ -38,7 +47,13 @@ import {
   ChevronUp,
   ChevronDown,
   Plus,
-  X
+  X,
+  FileSpreadsheet,
+  Loader2,
+  Check,
+  Eye,
+  History,
+  Trash2
 } from 'lucide-react'
 
 export function BankReconciliation({ companyName }) {
@@ -66,6 +81,26 @@ export function BankReconciliation({ companyName }) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [draftSelectedChecks, setDraftSelectedChecks] = useState(new Set()) // Separate from actual selectedChecks
 
+  // Bank Transactions state (imported via CSV or manual entry)
+  const [bankTransactions, setBankTransactions] = useState([])
+  const [loadingBankTransactions, setLoadingBankTransactions] = useState(false)
+  const [csvImportOpen, setCsvImportOpen] = useState(false)
+  const [csvUploading, setCsvUploading] = useState(false)
+  const [csvParseResult, setCsvParseResult] = useState(null)
+  const [csvMatches, setCsvMatches] = useState([])
+  const [csvError, setCsvError] = useState(null)
+  const [showSideBySide, setShowSideBySide] = useState(false)
+  const [showImportHistory, setShowImportHistory] = useState(false)
+  const [importHistory, setImportHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [importToDelete, setImportToDelete] = useState(null)
+  
+  // Manual matching state
+  const [selectedBankTxn, setSelectedBankTxn] = useState(null)
+  const [selectedCheckForMatch, setSelectedCheckForMatch] = useState(null)
+  const [isManualMatching, setIsManualMatching] = useState(false)
+
   // Filters
   const [showCleared, setShowCleared] = useState(false)
   const [showUncleared, setShowUncleared] = useState(true)
@@ -79,12 +114,36 @@ export function BankReconciliation({ companyName }) {
   // Sorting
   const [sortField, setSortField] = useState('checkDate')
   const [sortDirection, setSortDirection] = useState('asc')
+  
+  // Bank transactions sorting
+  const [bankSortField, setBankSortField] = useState('transaction_date')
+  const [bankSortDirection, setBankSortDirection] = useState('asc')
+  
+  // Outstanding checks sorting (for side-by-side view)
+  const [checkSortField, setCheckSortField] = useState('checkNumber')
+  const [checkSortDirection, setCheckSortDirection] = useState('asc')
+  
+  // Matched transactions state
+  const [matchedTransactions, setMatchedTransactions] = useState([])
+  const [loadingMatched, setLoadingMatched] = useState(false)
+  const [matchedSearchTerm, setMatchedSearchTerm] = useState('')
+  const [selectedMatchedTxns, setSelectedMatchedTxns] = useState(new Set())
+  const [isBulkUnmatching, setIsBulkUnmatching] = useState(false)
+  
+  // Matching operations state
+  const [isRunningMatch, setIsRunningMatch] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [matchResult, setMatchResult] = useState(null)
+  const [showMatchingOptions, setShowMatchingOptions] = useState(false)
+  const [matchingDateOption, setMatchingDateOption] = useState('all') // 'all' or 'statement'
 
   // Load data when component mounts
   useEffect(() => {
     if (companyName) {
       loadBankAccounts()
       loadChecksData()
+      loadBankTransactions()
+      loadMatchedTransactions()
     }
   }, [companyName])
 
@@ -95,6 +154,8 @@ export function BankReconciliation({ companyName }) {
       const loadAccountData = async () => {
         await loadLastReconciliation()
         await loadChecksData() 
+        await loadBankTransactions()
+        await loadMatchedTransactions()
         // Load draft AFTER everything else is loaded to avoid overwriting
         await loadDraftReconciliation()
       }
@@ -662,6 +723,26 @@ export function BankReconciliation({ companyName }) {
       setSortDirection('asc')
     }
   }
+  
+  // Handle bank transaction sorting
+  const handleBankSort = (field) => {
+    if (bankSortField === field) {
+      setBankSortDirection(bankSortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setBankSortField(field)
+      setBankSortDirection('asc')
+    }
+  }
+  
+  // Handle check sorting (for side-by-side view)
+  const handleCheckSort = (field) => {
+    if (checkSortField === field) {
+      setCheckSortDirection(checkSortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setCheckSortField(field)
+      setCheckSortDirection('asc')
+    }
+  }
 
   // Render sortable column header
   const renderSortableHeader = (field, label, className = '') => (
@@ -730,13 +811,19 @@ export function BankReconciliation({ companyName }) {
     const unclearedTotal = unclearedChecks.reduce((sum, check) => sum + check.amount, 0)
     const selectedTotal = selectedForReconciliation.reduce((sum, check) => sum + check.amount, 0)
     
-    // Separate selected items by type (Deposits vs Checks)
-    const selectedCredits = selectedForReconciliation
-      .filter(check => check.entryType?.toUpperCase() === 'D')
-      .reduce((sum, check) => sum + check.amount, 0)
-    const selectedDebits = selectedForReconciliation
-      .filter(check => check.entryType?.toUpperCase() === 'C')
-      .reduce((sum, check) => sum + check.amount, 0)
+    // Calculate credits and debits from matched checks
+    // Now using check data instead of bank transaction data
+    const matchedChecks = matchedTransactions.filter(check => 
+      selectedAccount ? check.account === selectedAccount : true
+    )
+    
+    // For now, all checks are debits (withdrawals)
+    // In the future, we might have deposits in the checks table too
+    const selectedCredits = 0  // No deposits in checks table currently
+    
+    // All matched checks are debits
+    const selectedDebits = matchedChecks
+      .reduce((sum, check) => sum + Math.abs(check.amount || 0), 0)
     
     const beginningBal = parseFloat(beginningBalance) || 0
     const statementBal = parseFloat(statementBalance) || 0
@@ -789,6 +876,130 @@ export function BankReconciliation({ companyName }) {
     setDraftSelectedChecks(newDraftSelected)
     setHasUnsavedChanges(true)
     console.log('Check selection updated:', Array.from(newDraftSelected))
+  }
+
+  // Manual match function for bank transactions
+  const handleManualMatch = async () => {
+    if (!selectedBankTxn || !selectedCheckForMatch) {
+      setError('Please select both a bank transaction and a check to match')
+      return
+    }
+    
+    setIsManualMatching(true)
+    try {
+      console.log('Manual matching bank txn:', selectedBankTxn.id, 'to check:', selectedCheckForMatch.id)
+      
+      // Call the backend to create the match
+      const result = await ManualMatchTransaction(
+        selectedBankTxn.id, 
+        selectedCheckForMatch.id, 
+        selectedCheckForMatch._rowIndex || 0
+      )
+      
+      if (result.status === 'success') {
+        console.log('✅ Manual match successful')
+        
+        // Clear selections
+        setSelectedBankTxn(null)
+        setSelectedCheckForMatch(null)
+        
+        // Reload data to reflect the match
+        await loadBankTransactions()
+        await loadMatchedTransactions()
+        await loadChecksData()
+      } else {
+        setError('Failed to create manual match')
+      }
+    } catch (err) {
+      console.error('Error creating manual match:', err)
+      setError('Failed to create manual match: ' + (err.message || err.toString()))
+    } finally {
+      setIsManualMatching(false)
+    }
+    // For now, reload to refresh the view
+    loadBankTransactions()
+  }
+
+  // Get unmatched bank transactions (not already matched to checks)
+  const getUnmatchedBankTransactions = () => {
+    const unmatched = bankTransactions.filter(transaction => !transaction.is_matched)
+    
+    // Apply sorting
+    return unmatched.sort((a, b) => {
+      let aVal, bVal
+      
+      switch(bankSortField) {
+        case 'transaction_date':
+          aVal = new Date(a.transaction_date)
+          bVal = new Date(b.transaction_date)
+          break
+        case 'description':
+          aVal = a.description || ''
+          bVal = b.description || ''
+          break
+        case 'check_number':
+          aVal = a.check_number || ''
+          bVal = b.check_number || ''
+          break
+        case 'amount':
+          aVal = a.amount
+          bVal = b.amount
+          break
+        default:
+          return 0
+      }
+      
+      if (bankSortDirection === 'asc') {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+      }
+    })
+  }
+
+  // Get available checks for matching (not already selected for reconciliation)
+  const getAvailableChecks = () => {
+    let available = checks.filter(check => !draftSelectedChecks.has(check.id) && !check.cleared)
+    
+    // Apply statement date filter if enabled
+    if (limitToStatementDate && statementDate) {
+      available = available.filter(check => {
+        if (!check.checkDate) return true // Include checks without dates
+        return check.checkDate <= statementDate
+      })
+    }
+    
+    // Apply sorting
+    return available.sort((a, b) => {
+      let aVal, bVal
+      
+      switch(checkSortField) {
+        case 'checkNumber':
+          aVal = a.checkNumber || ''
+          bVal = b.checkNumber || ''
+          break
+        case 'checkDate':
+          aVal = new Date(a.checkDate || 0)
+          bVal = new Date(b.checkDate || 0)
+          break
+        case 'payee':
+          aVal = a.payee || ''
+          bVal = b.payee || ''
+          break
+        case 'amount':
+          aVal = parseFloat(a.amount) || 0
+          bVal = parseFloat(b.amount) || 0
+          break
+        default:
+          return 0
+      }
+      
+      if (checkSortDirection === 'asc') {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+      }
+    })
   }
 
   // Commit reconciliation (final step - commits SQLite draft and updates DBF files)
@@ -855,6 +1066,346 @@ export function BankReconciliation({ companyName }) {
     setHasUnsavedChanges(true)
   }
 
+  // Load bank transactions from SQLite
+  const loadBankTransactions = async () => {
+    if (!companyName || !selectedAccount) return
+    
+    try {
+      setLoadingBankTransactions(true)
+      console.log('Loading bank transactions for account:', selectedAccount)
+      
+      const result = await GetBankTransactions(companyName, selectedAccount, '')
+      console.log('Bank transactions result:', result)
+      
+      if (result.status === 'success') {
+        setBankTransactions(result.transactions || [])
+        setShowSideBySide(result.transactions?.length > 0)
+      } else {
+        setBankTransactions([])
+        setShowSideBySide(false)
+      }
+    } catch (err) {
+      console.error('Error loading bank transactions:', err)
+      setBankTransactions([])
+      setShowSideBySide(false)
+    } finally {
+      setLoadingBankTransactions(false)
+    }
+  }
+
+  // Load matched transactions (returns check data with bank match info)
+  const loadMatchedTransactions = async () => {
+    if (!companyName || !selectedAccount) return
+    
+    try {
+      setLoadingMatched(true)
+      const result = await GetMatchedTransactions(companyName, selectedAccount)
+      if (result.status === 'success') {
+        setMatchedTransactions(result.checks || [])
+      } else {
+        setMatchedTransactions([])
+      }
+    } catch (err) {
+      console.error('Error loading matched transactions:', err)
+      setMatchedTransactions([])
+    } finally {
+      setLoadingMatched(false)
+    }
+  }
+  
+  // Unmatch a transaction (uses bank_txn_id from the check data)
+  const handleUnmatch = async (checkData) => {
+    try {
+      // Use the bank_txn_id from the matched check data
+      const bankTxnId = checkData.bank_txn_id
+      if (!bankTxnId) {
+        console.error('No bank transaction ID found for this check')
+        return
+      }
+      
+      const result = await UnmatchTransaction(bankTxnId)
+      if (result.status === 'success') {
+        // Reload both matched and unmatched transactions
+        await loadMatchedTransactions()
+        await loadBankTransactions()
+      }
+    } catch (err) {
+      console.error('Error unmatching transaction:', err)
+    }
+  }
+  
+  // Bulk unmatch selected transactions
+  const handleBulkUnmatch = async () => {
+    if (selectedMatchedTxns.size === 0) return
+    
+    setIsBulkUnmatching(true)
+    try {
+      // Get bank_txn_id for each selected check
+      const promises = Array.from(selectedMatchedTxns).map(checkId => {
+        const check = matchedTransactions.find(c => c.id === checkId)
+        if (check && check.bank_txn_id) {
+          return UnmatchTransaction(check.bank_txn_id)
+        }
+        return Promise.resolve()
+      })
+      
+      await Promise.all(promises)
+      
+      // Clear selections and reload
+      setSelectedMatchedTxns(new Set())
+      await loadMatchedTransactions()
+      await loadBankTransactions()
+      
+      console.log(`✅ Successfully unmatched ${selectedMatchedTxns.size} transactions`)
+    } catch (err) {
+      console.error('Error bulk unmatching transactions:', err)
+      setError('Failed to unmatch some transactions')
+    } finally {
+      setIsBulkUnmatching(false)
+    }
+  }
+  
+  // Toggle selection for a matched transaction
+  const toggleMatchedSelection = (transactionId) => {
+    const newSelection = new Set(selectedMatchedTxns)
+    if (newSelection.has(transactionId)) {
+      newSelection.delete(transactionId)
+    } else {
+      newSelection.add(transactionId)
+    }
+    setSelectedMatchedTxns(newSelection)
+  }
+  
+  // Select/deselect all visible matched transactions
+  const toggleSelectAllMatched = (checked) => {
+    if (checked) {
+      const visibleIds = matchedTransactions
+        .filter(check => 
+          !matchedSearchTerm || 
+          check.check_number?.includes(matchedSearchTerm) ||
+          check.payee?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
+          check.id?.includes(matchedSearchTerm)
+        )
+        .map(check => check.id)
+      setSelectedMatchedTxns(new Set(visibleIds))
+    } else {
+      setSelectedMatchedTxns(new Set())
+    }
+  }
+  
+  // Load import history
+  const loadImportHistory = async () => {
+    if (!companyName || !selectedAccount) return
+    
+    try {
+      setLoadingHistory(true)
+      const history = await GetRecentBankStatements(companyName, selectedAccount)
+      setImportHistory(history || [])
+    } catch (err) {
+      console.error('Error loading import history:', err)
+      setImportHistory([])
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  // Delete an import - opens confirmation dialog
+  const handleDeleteImport = (importBatchId) => {
+    console.log('Opening delete confirmation for:', importBatchId)
+    setImportToDelete(importBatchId)
+    setDeleteConfirmOpen(true)
+  }
+
+  // Confirm and execute deletion
+  const confirmDelete = async () => {
+    if (!importToDelete) return
+    
+    try {
+      console.log('Calling DeleteBankStatement with:', companyName, importToDelete)
+      await DeleteBankStatement(companyName, importToDelete)
+      console.log('Delete successful')
+      setDeleteConfirmOpen(false)
+      setImportToDelete(null)
+      await loadImportHistory()
+      await loadBankTransactions()
+    } catch (err) {
+      console.error('Error deleting import:', err)
+      setDeleteConfirmOpen(false)
+      setImportToDelete(null)
+    }
+  }
+
+  // Show import history when dialog opens
+  useEffect(() => {
+    if (showImportHistory) {
+      loadImportHistory()
+    }
+  }, [showImportHistory, selectedAccount])
+
+  // CSV Import functions
+  const handleCSVUpload = async (file) => {
+    if (!file || !selectedAccount) return
+    
+    setCsvUploading(true)
+    setCsvError(null)
+    
+    try {
+      const csvContent = await file.text()
+      console.log('📂 Processing CSV file:', file.name, 'Size:', csvContent.length, 'chars')
+      
+      // Use new ImportBankStatement function that persists to SQLite
+      const result = await ImportBankStatement(companyName, csvContent, selectedAccount)
+      console.log('🎯 Import Bank Statement Result:', result)
+      
+      if (result.status === 'success') {
+        setCsvParseResult(result)
+        setCsvMatches(result.matches || [])
+        console.log(`✅ Successfully imported ${result.totalTransactions} transactions. Click 'Run Matching' to match with checks.`)
+        
+        // Reload bank transactions to show imported data
+        await loadBankTransactions()
+      } else {
+        throw new Error(result.error || 'Failed to import bank statement')
+      }
+    } catch (err) {
+      console.error('❌ CSV Upload error:', err)
+      setCsvError('Failed to process CSV: ' + (err.message || err.toString()))
+    } finally {
+      setCsvUploading(false)
+    }
+  }
+  
+  // Handler for running matching algorithm
+  const handleRunMatching = async (skipDialog = false) => {
+    if (!selectedAccount) {
+      setError('Please select a bank account first')
+      return
+    }
+    
+    // Show options dialog if not skipping
+    if (!skipDialog) {
+      setShowMatchingOptions(true)
+      return
+    }
+    
+    setIsRunningMatch(true)
+    setError(null)
+    setShowMatchingOptions(false)
+    
+    try {
+      console.log('🔄 Running matching algorithm for account:', selectedAccount)
+      
+      // Prepare options based on user selection
+      const options = {
+        limitToStatementDate: matchingDateOption === 'statement',
+        statementDate: matchingDateOption === 'statement' ? statementDate : null
+      }
+      
+      const result = await RunMatching(companyName, selectedAccount, options)
+      console.log('✅ Matching complete:', result)
+      
+      setMatchResult(result)
+      
+      // Show success message
+      if (result.totalMatched > 0) {
+        console.log(`✅ Successfully matched ${result.totalMatched} out of ${result.totalProcessed} transactions`)
+      } else {
+        console.log('ℹ️ No transactions matched')
+      }
+      
+      // Reload data to show matched transactions
+      await loadBankTransactions()
+      await loadMatchedTransactions()
+    } catch (err) {
+      console.error('❌ Error running matching:', err)
+      setError('Failed to run matching: ' + (err.message || err.toString()))
+    } finally {
+      setIsRunningMatch(false)
+    }
+  }
+  
+  // Handler for clearing matches and re-running
+  const handleRefreshMatching = async (skipDialog = false) => {
+    if (!selectedAccount) {
+      setError('Please select a bank account first')
+      return
+    }
+    
+    // Show options dialog if not skipping
+    if (!skipDialog) {
+      setShowMatchingOptions(true)
+      return
+    }
+    
+    setIsRefreshing(true)
+    setError(null)
+    setShowMatchingOptions(false)
+    
+    try {
+      console.log('🔄 Clearing and re-running matches for account:', selectedAccount)
+      
+      // Prepare options based on user selection
+      const options = {
+        limitToStatementDate: matchingDateOption === 'statement',
+        statementDate: matchingDateOption === 'statement' ? statementDate : null
+      }
+      
+      const result = await ClearMatchesAndRerun(companyName, selectedAccount, options)
+      console.log('✅ Refresh complete:', result)
+      
+      setMatchResult(result)
+      
+      // Show success message
+      if (result.totalMatched > 0) {
+        console.log(`✅ Successfully re-matched ${result.totalMatched} out of ${result.totalProcessed} transactions`)
+      } else {
+        console.log('ℹ️ No transactions matched after refresh')
+      }
+      
+      // Reload data to show updated matches
+      await loadBankTransactions()
+      await loadMatchedTransactions()
+      
+      // Clear any draft reconciliation data
+      setDraftSelectedChecks(new Set())
+      setHasUnsavedChanges(false)
+    } catch (err) {
+      console.error('❌ Error refreshing matches:', err)
+      setError('Failed to refresh matches: ' + (err.message || err.toString()))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const handleConfirmCSVMatches = async () => {
+    const confirmedMatches = csvMatches.filter(match => match.confirmed && match.matchedCheck)
+    const confirmedCheckIds = new Set(confirmedMatches.map(match => match.matchedCheck.id))
+    
+    console.log('🔒 Confirming', confirmedCheckIds.size, 'CSV matches')
+    
+    // Add confirmed checks to draft selection
+    const newDraftSelected = new Set([...draftSelectedChecks, ...confirmedCheckIds])
+    setDraftSelectedChecks(newDraftSelected)
+    setSelectedChecks(confirmedCheckIds) // Also update checkbox state
+    setHasUnsavedChanges(true)
+    
+    // Close CSV import dialog
+    setCsvImportOpen(false)
+    setCsvParseResult(null)
+    setCsvMatches([])
+    
+    // Reload bank transactions to reflect updated match status
+    await loadBankTransactions()
+    
+    console.log('✅ Applied', confirmedCheckIds.size, 'matches to reconciliation')
+  }
+
+  const toggleCSVMatch = (matchIndex) => {
+    const updatedMatches = [...csvMatches]
+    updatedMatches[matchIndex].confirmed = !updatedMatches[matchIndex].confirmed
+    setCsvMatches(updatedMatches)
+  }
+
   // Format currency
   const formatCurrency = (amount) => {
     const numValue = parseFloat(amount) || 0
@@ -867,12 +1418,27 @@ export function BankReconciliation({ companyName }) {
   // Format date
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
-    try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString()
-    } catch {
+    
+    // Handle ISO date format (2025-01-02T00:00:00Z)
+    if (dateStr.includes('T')) {
+      const datePart = dateStr.split('T')[0]
+      const [year, month, day] = datePart.split('-')
+      return `${month}/${day}/${year}`
+    }
+    
+    // Handle MM/DD/YYYY format
+    if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
       return dateStr
     }
+    
+    // Handle YYYY-MM-DD format
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = dateStr.split('-')
+      return `${month}/${day}/${year}`
+    }
+    
+    // Return original if no match
+    return dateStr
   }
 
   // Format number for input display (preserves partial decimal entries)
@@ -966,10 +1532,20 @@ export function BankReconciliation({ companyName }) {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="reconcile" className="w-full">
+      <Tabs 
+        defaultValue="reconcile" 
+        className="w-full"
+        onValueChange={(value) => {
+          // Load matched transactions when the matched tab is selected
+          if (value === 'matched') {
+            loadMatchedTransactions()
+          }
+        }}
+      >
         <TabsList>
           <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
           <TabsTrigger value="outstanding">Outstanding Checks</TabsTrigger>
+          <TabsTrigger value="matched">Matched ({matchedTransactions.length})</TabsTrigger>
           <TabsTrigger value="cleared">Cleared Checks</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
@@ -1186,9 +1762,9 @@ export function BankReconciliation({ companyName }) {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Statement Credits</p>
+                    <p className="text-sm font-medium text-muted-foreground">Selected Credits</p>
                     <p className="text-xl font-bold text-green-600">{formatCurrency(totals.selectedCredits)}</p>
-                    <p className="text-xs text-muted-foreground">Deposits per bank</p>
+                    <p className="text-xs text-muted-foreground">Matched deposit transactions</p>
                   </div>
                   <ArrowDownLeft className="w-6 h-6 text-green-600" />
                 </div>
@@ -1199,9 +1775,9 @@ export function BankReconciliation({ companyName }) {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Statement Debits</p>
+                    <p className="text-sm font-medium text-muted-foreground">Selected Debits</p>
                     <p className="text-xl font-bold text-red-600">{formatCurrency(totals.selectedDebits)}</p>
-                    <p className="text-xs text-muted-foreground">Withdrawals per bank</p>
+                    <p className="text-xs text-muted-foreground">Matched check transactions</p>
                   </div>
                   <ArrowUpRight className="w-6 h-6 text-red-600" />
                 </div>
@@ -1255,6 +1831,236 @@ export function BankReconciliation({ companyName }) {
             </Card>
           </div>
           )}
+
+          {/* CSV Statement Import */}
+          {selectedAccount && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-5 h-5" />
+                    Import Bank Statement
+                  </CardTitle>
+                  <CardDescription>Upload CSV file to auto-match and select transactions</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={() => setShowImportHistory(true)} variant="outline" size="sm">
+                    <History className="w-4 h-4 mr-2" />
+                    Manage
+                  </Button>
+                  <Button onClick={() => setCsvImportOpen(true)} variant="outline">
+                    <Upload className="w-4 h-4 mr-2" />
+                    Import CSV
+                  </Button>
+                  <Button 
+                    onClick={handleRunMatching} 
+                    variant="outline"
+                    disabled={isRunningMatch || !selectedAccount}
+                  >
+                    {isRunningMatch ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Matching...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Run Matching
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={handleRefreshMatching} 
+                    variant="outline"
+                    disabled={isRefreshing || !selectedAccount}
+                  >
+                    {isRefreshing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Refreshing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Clear & Re-match
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            
+            {/* Match Result Status */}
+            {matchResult && (
+              <CardContent className="pt-0">
+                <div className={`p-3 rounded-lg border ${
+                  matchResult.totalMatched > 0 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-blue-50 border-blue-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {matchResult.totalMatched > 0 ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span className="text-sm text-green-800">
+                          Successfully matched {matchResult.totalMatched} out of {matchResult.totalProcessed} transactions
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-blue-800">
+                          No matching transactions found. Import bank transactions and try again.
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+          )}
+
+          {/* CSV Import Dialog */}
+          <Dialog open={csvImportOpen} onOpenChange={setCsvImportOpen}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Import Bank Statement CSV</DialogTitle>
+                <DialogDescription>
+                  Upload your bank statement CSV file to import transactions for reconciliation.
+                </DialogDescription>
+              </DialogHeader>
+              
+              {!csvParseResult ? (
+                <div className="space-y-4">
+                  {csvError && (
+                    <div className="p-4 border border-red-200 bg-red-50 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-800">
+                        <AlertCircle className="w-4 h-4" />
+                        <span className="font-medium">Import Error</span>
+                      </div>
+                      <p className="text-sm text-red-700 mt-1">{csvError}</p>
+                    </div>
+                  )}
+                  
+                  <div 
+                    className="border-dashed border-2 rounded-lg p-8 text-center"
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const files = e.dataTransfer.files
+                      if (files && files[0]) {
+                        handleCSVUpload(files[0])
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                  >
+                    <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => handleCSVUpload(e.target.files[0])}
+                      className="hidden"
+                      id="csv-upload-input"
+                      disabled={csvUploading}
+                    />
+                    <Button 
+                      variant="outline" 
+                      disabled={csvUploading}
+                      onClick={() => document.getElementById('csv-upload-input').click()}
+                    >
+                      {csvUploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Processing & Importing CSV...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Import CSV Bank Statement
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Drop CSV file here or click to browse
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      CSV file will be imported to SQLite database and automatically matched with outstanding checks
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Import Success Message */}
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <div>
+                        <p className="font-medium text-green-800">
+                          Successfully imported {csvParseResult.totalTransactions} transactions
+                        </p>
+                        <p className="text-sm text-green-700 mt-1">
+                          Close this dialog and click "Run Matching" to match transactions with checks
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Close and Run Matching Button */}
+                  <div className="flex justify-end gap-2">
+                    <Button 
+                      onClick={() => {
+                        setCsvImportOpen(false)
+                        setCsvParseResult(null)
+                      }} 
+                      variant="outline"
+                    >
+                      Close
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        setCsvImportOpen(false)
+                        setCsvParseResult(null)
+                        handleRunMatching() // This will show the dialog
+                      }}
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Close & Run Matching
+                    </Button>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex justify-between items-center pt-4">
+                    <div className="text-sm text-muted-foreground">
+                      {csvMatches.filter(m => m.confirmed).length} of {csvMatches.length} matches selected
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => {
+                        setCsvImportOpen(false)
+                        setCsvParseResult(null)
+                        setCsvMatches([])
+                        setCsvError(null)
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleConfirmCSVMatches}
+                        disabled={csvMatches.filter(m => m.confirmed).length === 0}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Check className="w-4 h-4 mr-2" />
+                        Apply {csvMatches.filter(m => m.confirmed).length} Matches
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Draft Status and Commit Actions */}
           {selectedAccount && draftSelectedChecks.size > 0 && totals.isInBalance && (
@@ -1315,8 +2121,310 @@ export function BankReconciliation({ companyName }) {
             </Card>
           )}
 
+          {/* Side-by-Side Reconciliation View */}
+          {selectedAccount && showSideBySide && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Side-by-Side Reconciliation</span>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowSideBySide(false)}
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Manual Mode
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={loadBankTransactions}
+                    disabled={loadingBankTransactions}
+                  >
+                    {loadingBankTransactions ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                    )}
+                    Refresh
+                  </Button>
+                </div>
+              </CardTitle>
+              <CardDescription>
+                Match bank transactions with outstanding checks. Matched transactions are automatically removed from this view.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-6">
+                {/* Bank Transactions (Left Side) */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Bank Statement Transactions ({getUnmatchedBankTransactions().length})</h3>
+                  <div className="max-h-96 overflow-y-auto border rounded-lg">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white">
+                        <TableRow>
+                          <TableHead className="w-12">Select</TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleBankSort('transaction_date')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Date
+                              {bankSortField === 'transaction_date' && (
+                                bankSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleBankSort('description')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Description
+                              {bankSortField === 'description' && (
+                                bankSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleBankSort('check_number')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Check #
+                              {bankSortField === 'check_number' && (
+                                bankSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50 text-right"
+                            onClick={() => handleBankSort('amount')}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Amount
+                              {bankSortField === 'amount' && (
+                                bankSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {getUnmatchedBankTransactions().map((transaction) => (
+                          <TableRow 
+                            key={transaction.id}
+                            className={selectedBankTxn?.id === transaction.id ? 'bg-blue-50' : ''}
+                          >
+                            <TableCell>
+                              <input
+                                type="radio"
+                                name="bankTxnSelect"
+                                checked={selectedBankTxn?.id === transaction.id}
+                                onChange={() => setSelectedBankTxn(transaction)}
+                                className="cursor-pointer"
+                              />
+                            </TableCell>
+                            <TableCell>{formatDate(transaction.transaction_date)}</TableCell>
+                            <TableCell className="max-w-32 truncate">{transaction.description}</TableCell>
+                            <TableCell className="font-mono">{transaction.check_number || '-'}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              <span className={transaction.amount < 0 ? 'text-red-600' : 'text-green-600'}>
+                                {formatCurrency(Math.abs(transaction.amount))}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              {transaction.matched_check_id ? (
+                                <Badge variant="default" className="bg-green-100 text-green-800">
+                                  <Check className="w-3 h-3 mr-1" />
+                                  Matched
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-blue-100 text-blue-800">
+                                  Available
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Outstanding Checks (Right Side) */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-lg">Outstanding Checks ({getAvailableChecks().length})</h3>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={limitToStatementDate ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setLimitToStatementDate(!limitToStatementDate)}
+                        disabled={!statementDate}
+                        title={!statementDate ? "Set a statement date first" : "Toggle date filter"}
+                      >
+                        <Calendar className="w-4 h-4 mr-1" />
+                        {limitToStatementDate ? `≤ ${statementDate || 'Statement Date'}` : 'All Dates'}
+                      </Button>
+                    </div>
+                  </div>
+                  {limitToStatementDate && statementDate && (
+                    <div className="text-sm text-muted-foreground">
+                      Showing checks dated on or before {formatDate(statementDate)}
+                    </div>
+                  )}
+                  <div className="max-h-96 overflow-y-auto border rounded-lg">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white">
+                        <TableRow>
+                          <TableHead className="w-12">Select</TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleCheckSort('checkNumber')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Check #
+                              {checkSortField === 'checkNumber' && (
+                                checkSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleCheckSort('checkDate')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Date
+                              {checkSortField === 'checkDate' && (
+                                checkSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50"
+                            onClick={() => handleCheckSort('payee')}
+                          >
+                            <div className="flex items-center gap-1">
+                              Payee
+                              {checkSortField === 'payee' && (
+                                checkSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                          <TableHead 
+                            className="cursor-pointer hover:bg-gray-50 text-right"
+                            onClick={() => handleCheckSort('amount')}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Amount
+                              {checkSortField === 'amount' && (
+                                checkSortDirection === 'asc' ? 
+                                  <ChevronUp className="w-4 h-4" /> : 
+                                  <ChevronDown className="w-4 h-4" />
+                              )}
+                            </div>
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {getAvailableChecks().map((check) => (
+                          <TableRow 
+                            key={check.id}
+                            className={selectedCheckForMatch?.id === check.id ? 'bg-blue-50' : ''}
+                          >
+                            <TableCell>
+                              <input
+                                type="radio"
+                                name="checkSelect"
+                                checked={selectedCheckForMatch?.id === check.id}
+                                onChange={() => setSelectedCheckForMatch(check)}
+                                className="cursor-pointer"
+                              />
+                            </TableCell>
+                            <TableCell className="font-mono">{check.checkNumber}</TableCell>
+                            <TableCell>{formatDate(check.checkDate)}</TableCell>
+                            <TableCell>{check.payee}</TableCell>
+                            <TableCell className="text-right font-mono">{formatCurrency(check.amount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Match Button */}
+              <div className="mt-6 flex justify-center">
+                <Button 
+                  onClick={handleManualMatch}
+                  disabled={!selectedBankTxn || !selectedCheckForMatch || isManualMatching}
+                  className="px-6"
+                >
+                  {isManualMatching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Matching...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4 mr-2" />
+                      Match Selected Items
+                    </>
+                  )}
+                </Button>
+                {selectedBankTxn && selectedCheckForMatch && (
+                  <div className="ml-4 text-sm text-muted-foreground">
+                    Ready to match: Bank transaction from {formatDate(selectedBankTxn.transaction_date)} 
+                    ({formatCurrency(Math.abs(selectedBankTxn.amount))}) with Check #{selectedCheckForMatch.checkNumber}
+                  </div>
+                )}
+              </div>
+              
+            </CardContent>
+          </Card>
+          )}
+
+          {/* Toggle Button for Manual Mode */}
+          {selectedAccount && !showSideBySide && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Manual Reconciliation Mode</span>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowSideBySide(true)}
+                  disabled={loadingBankTransactions}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Show Side-by-Side View
+                </Button>
+              </CardTitle>
+              <CardDescription>
+                Manual mode allows you to select checks without imported bank transactions.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          )}
+
           {/* Filters and Checks Table */}
-          {selectedAccount && (
+          {selectedAccount && !showSideBySide && (
           <>
           <Card>
             <CardHeader>
@@ -1581,6 +2689,186 @@ export function BankReconciliation({ companyName }) {
           </Card>
         </TabsContent>
 
+        {/* Matched Transactions Tab */}
+        <TabsContent value="matched" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Matched Transactions</span>
+                <div className="flex gap-2">
+                  {selectedMatchedTxns.size > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBulkUnmatch}
+                      disabled={isBulkUnmatching}
+                    >
+                      {isBulkUnmatching ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Unmatching...
+                        </>
+                      ) : (
+                        <>
+                          <X className="w-4 h-4 mr-2" />
+                          Unmatch {selectedMatchedTxns.size} Selected
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  <Input
+                    placeholder="Search matched transactions..."
+                    value={matchedSearchTerm}
+                    onChange={(e) => setMatchedSearchTerm(e.target.value)}
+                    className="max-w-xs"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={loadMatchedTransactions}
+                    disabled={loadingMatched}
+                  >
+                    {loadingMatched ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardTitle>
+              <CardDescription>
+                Bank transactions that have been matched to checks ({matchedTransactions.length} total)
+                {selectedMatchedTxns.size > 0 && (
+                  <span className="ml-2 text-blue-600">
+                    • {selectedMatchedTxns.size} selected
+                  </span>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingMatched ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : matchedTransactions.length === 0 ? (
+                <div className="text-center p-8 text-muted-foreground">
+                  No matched transactions found
+                </div>
+              ) : (
+                <div className="max-h-[600px] overflow-y-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-white">
+                      <TableRow>
+                        <TableHead className="w-12">
+                          <Checkbox
+                            checked={
+                              matchedTransactions.filter(txn => 
+                                !matchedSearchTerm || 
+                                txn.check_number?.includes(matchedSearchTerm) ||
+                                txn.description?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
+                                txn.matched_check_id?.includes(matchedSearchTerm)
+                              ).length > 0 &&
+                              matchedTransactions.filter(txn => 
+                                !matchedSearchTerm || 
+                                txn.check_number?.includes(matchedSearchTerm) ||
+                                txn.description?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
+                                txn.matched_check_id?.includes(matchedSearchTerm)
+                              ).every(txn => selectedMatchedTxns.has(txn.id))
+                            }
+                            onCheckedChange={toggleSelectAllMatched}
+                          />
+                        </TableHead>
+                        <TableHead>Check Date</TableHead>
+                        <TableHead>Check #</TableHead>
+                        <TableHead>Payee</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Bank Confirmation</TableHead>
+                        <TableHead>Confidence</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {matchedTransactions
+                        .filter(check => 
+                          !matchedSearchTerm || 
+                          check.check_number?.includes(matchedSearchTerm) ||
+                          check.payee?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
+                          check.id?.includes(matchedSearchTerm)
+                        )
+                        .map((check) => (
+                        <TableRow 
+                          key={check.id}
+                          className={selectedMatchedTxns.has(check.id) ? 'bg-blue-50' : ''}
+                        >
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedMatchedTxns.has(check.id)}
+                              onCheckedChange={() => toggleMatchedSelection(check.id)}
+                            />
+                          </TableCell>
+                          <TableCell>{formatDate(check.check_date)}</TableCell>
+                          <TableCell className="font-mono">
+                            {check.check_number || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {check.payee || 'No payee'}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            <span className="text-red-600">
+                              {formatCurrency(Math.abs(check.amount))}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {check.bank_match && (
+                              <div className="text-xs">
+                                <p className="text-muted-foreground">
+                                  Bank: {formatCurrency(Math.abs(check.bank_match.bank_amount))}
+                                </p>
+                                <p className="text-muted-foreground truncate max-w-[200px]" title={check.bank_match.bank_description}>
+                                  {check.bank_match.bank_description || 'No description'}
+                                </p>
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <div 
+                                className="w-full bg-gray-200 rounded-full h-2"
+                                title={`${(check.match_confidence * 100).toFixed(0)}% confidence`}
+                              >
+                                <div 
+                                  className={`h-2 rounded-full ${
+                                    check.match_confidence >= 0.8 ? 'bg-green-500' :
+                                    check.match_confidence >= 0.6 ? 'bg-yellow-500' :
+                                    'bg-red-500'
+                                  }`}
+                                  style={{ width: `${check.match_confidence * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {(check.match_confidence * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleUnmatch(check)}
+                            >
+                              Unmatch
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Cleared Checks Tab */}
         <TabsContent value="cleared" className="space-y-4">
           <Card>
@@ -1665,6 +2953,213 @@ export function BankReconciliation({ companyName }) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Import History Dialog */}
+      <Dialog open={showImportHistory} onOpenChange={setShowImportHistory}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>Import History</DialogTitle>
+            <DialogDescription>
+              View and manage your previously imported bank statements.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto">
+            {loadingHistory ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+            ) : importHistory.length === 0 ? (
+              <div className="text-center p-8 text-muted-foreground">
+                No imports found for this account
+              </div>
+            ) : (
+              <div className="pr-2">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[120px]">Import Date</TableHead>
+                      <TableHead className="w-[120px]">Statement</TableHead>
+                      <TableHead className="w-[100px] text-center">Transactions</TableHead>
+                      <TableHead className="w-[100px] text-center">Matched</TableHead>
+                      <TableHead className="w-[120px]">Imported By</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importHistory.map((imp) => {
+                      console.log('Import record:', imp);
+                      return (
+                        <TableRow key={imp.import_batch_id}>
+                          <TableCell className="font-mono text-sm">
+                            {new Date(imp.import_date).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {imp.statement_date ? new Date(imp.statement_date).toLocaleDateString() : '-'}
+                          </TableCell>
+                          <TableCell className="text-center">{imp.transaction_count}</TableCell>
+                          <TableCell className="text-center">{imp.matched_count}</TableCell>
+                          <TableCell>{imp.imported_by}</TableCell>
+                          <TableCell>
+                            <span 
+                              onClick={() => {
+                                console.log('Delete clicked for:', imp.import_batch_id);
+                                handleDeleteImport(imp.import_batch_id);
+                              }}
+                              style={{
+                                display: 'inline-block',
+                                padding: '6px 16px',
+                                backgroundColor: '#dc2626',
+                                color: '#ffffff',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                textAlign: 'center',
+                                border: '1px solid #b91c1c',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                              }}
+                              onMouseOver={(e) => {
+                                e.target.style.backgroundColor = '#b91c1c';
+                              }}
+                              onMouseOut={(e) => {
+                                e.target.style.backgroundColor = '#dc2626';
+                              }}
+                            >
+                              🗑️ Delete
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. All transactions from this import will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete this import and all its transactions?
+            </p>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteConfirmOpen(false)
+                setImportToDelete(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+            >
+              Delete Import
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Matching Options Dialog */}
+      <Dialog open={showMatchingOptions} onOpenChange={setShowMatchingOptions}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transaction Matching Options</DialogTitle>
+            <DialogDescription>
+              Choose how to match bank transactions with checks
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <label 
+                className="flex items-start space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+                onClick={() => setMatchingDateOption('all')}
+              >
+                <input
+                  type="radio"
+                  name="matchOption"
+                  value="all"
+                  checked={matchingDateOption === 'all'}
+                  onChange={() => setMatchingDateOption('all')}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium">
+                    Match all available checks
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Include all checks regardless of date, including future-dated checks
+                  </p>
+                </div>
+              </label>
+              
+              <label 
+                className="flex items-start space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+                onClick={() => setMatchingDateOption('statement')}
+              >
+                <input
+                  type="radio"
+                  name="matchOption"
+                  value="statement"
+                  checked={matchingDateOption === 'statement'}
+                  onChange={() => setMatchingDateOption('statement')}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-medium">
+                    Match only up to statement date
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Only match checks dated on or before {statementDate || 'the statement date'}
+                  </p>
+                </div>
+              </label>
+            </div>
+            
+            {matchingDateOption === 'statement' && !statementDate && (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <p className="text-sm text-yellow-800">
+                  Please set a statement date in the form above before proceeding
+                </p>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowMatchingOptions(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (isRefreshing) {
+                  handleRefreshMatching(true)
+                } else {
+                  handleRunMatching(true)
+                }
+              }}
+              disabled={matchingDateOption === 'statement' && !statementDate}
+            >
+              <Check className="w-4 h-4 mr-2" />
+              Run Matching
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -268,6 +268,33 @@ type SelectedCheck struct {
 - Advanced reporting and analytics
 - Conflict resolution for multi-user scenarios
 
+### Transaction Matching System (Enhanced)
+
+#### Intelligent Matching Algorithm
+- **Date Proximity Weighting**: 40% of match score based on date closeness
+- **Recurring Transaction Support**: Handles same-amount transactions by closest date matching
+- **Double-Match Prevention**: Tracks already matched check IDs to prevent duplicates
+- **Confidence Scoring**: Multi-factor scoring including amount, date, check number, and payee
+
+#### Matching Options Dialog
+When running matching or refresh operations, users can choose:
+1. **Match All Available Checks**: Include all checks regardless of date
+2. **Match Only to Statement Date**: Limit matching to checks dated on or before statement date
+
+Backend implementation in `RunMatching()` accepts options parameter:
+```go
+options := map[string]interface{}{
+    "limitToStatementDate": true/false,
+    "statementDate": "2025-01-31"
+}
+```
+
+#### Outstanding Checks Date Filter
+- **Toggle Button**: Filter outstanding checks list by statement date
+- **Visual Indicator**: Button shows `≤ [date]` when active, "All Dates" when inactive
+- **Default Behavior**: Filter enabled by default to focus on relevant period
+- **Dynamic Count**: Check count updates based on active filters
+
 ### Check Batch Audit Feature (Admin/Root Only)
 1. **Function**: `AuditCheckBatches()` in `main.go:651-777` (updated line numbers)
 2. **UI Component**: `CheckAudit.jsx` - Full audit interface with results display
@@ -282,15 +309,21 @@ type SelectedCheck struct {
 - **Go**: `GetBankAccounts()` in `main.go:484-585`
 - **Go**: `GetAccountBalance()` in `main.go:587-649` - Fetches GL balance for specific account
 - **Go**: `GetOutstandingChecks(companyName, accountNumber)` in `main.go:587-722` - Enhanced with account filtering
+- **Go**: `RunMatching(companyName, accountNumber, options)` in `main.go:991-1112` - Intelligent transaction matching with date filtering
+- **Go**: `ClearMatchesAndRerun(companyName, accountNumber, options)` in `main.go:1115-1149` - Clear and re-run matching with options
+- **Go**: `autoMatchBankTransactions()` in `main.go:1394-1500` - Core matching algorithm with date proximity scoring
 - **Go**: `AuditCheckBatches()` in `main.go:651-777`
 - **Go**: `SaveReconciliationDraft()` in `main.go:2023-2110` - SQLite-based draft persistence
 - **Go**: `GetReconciliationDraft()` in `main.go:2113-2144` - Retrieve draft from SQLite
 - **Go**: `CommitReconciliation()` in `main.go:2175-2210` - Commit draft to permanent status
 - **React**: `loadBankAccounts()` in `BankingSection.jsx:105-210`
 - **React**: `loadAccountBalances()` in `BankingSection.jsx:212-237` - Loads GL balances for all bank accounts
+- **React**: `handleRunMatching()` in `BankReconciliation.jsx:1271-1316` - Handles matching with date options dialog
+- **React**: `handleRefreshMatching()` in `BankReconciliation.jsx:1320-1366` - Clear and re-match with options
+- **React**: `getAvailableChecks()` in `BankReconciliation.jsx:961-1000` - Filters checks by statement date
 - **React**: `OutstandingChecks.jsx` - Enhanced outstanding checks with full data management
 - **React**: `CheckAudit.jsx` - Complete audit component
-- **React**: `BankReconciliation.jsx` - SQLite-based reconciliation with CIDCHEC tracking
+- **React**: `BankReconciliation.jsx` - SQLite-based reconciliation with CIDCHEC tracking, date filtering, and matching options
 - **DBF Reader**: `ReadDBFFile()` in `company.go:225-443`
 - **Reconciliation Service**: `internal/reconciliation/reconciliation.go` - Complete CRUD service layer
 

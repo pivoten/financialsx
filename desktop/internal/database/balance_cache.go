@@ -304,17 +304,21 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		}
 	}
 	
-	// Update the cached balance
-	if currentBalance == nil {
-		// Insert new record
-		_, err = db.Exec(`
-			INSERT INTO account_balances 
-			(company_name, account_number, account_name, account_type, 
-			 gl_balance, gl_record_count, gl_last_updated)
-			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		`, companyName, accountNumber, "", 1, totalBalance, recordCount)
-	} else {
-		// Update existing record
+	// Update the cached balance - use UPSERT to handle race conditions
+	_, err = db.Exec(`
+		INSERT INTO account_balances 
+		(company_name, account_number, account_name, account_type, 
+		 gl_balance, gl_record_count, gl_last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(company_name, account_number) 
+		DO UPDATE SET 
+			gl_balance = excluded.gl_balance, 
+			gl_record_count = excluded.gl_record_count, 
+			gl_last_updated = CURRENT_TIMESTAMP
+	`, companyName, accountNumber, "", 1, totalBalance, recordCount)
+	
+	if err != nil {
+		// Fallback to simple UPDATE if INSERT OR REPLACE is not working
 		_, err = db.Exec(`
 			UPDATE account_balances 
 			SET gl_balance = ?, gl_record_count = ?, gl_last_updated = CURRENT_TIMESTAMP
@@ -508,16 +512,22 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 	metadata := fmt.Sprintf(`{"uncleared_deposits": %f, "uncleared_checks": %f, "deposit_count": %d, "check_count": %d}`,
 		unclearedDeposits, unclearedChecks, depositCount, checkCount)
 	
-	if currentBalance == nil {
-		// Insert new record with reconciliation adjustment and metadata
-		_, err = db.Exec(`
-			INSERT INTO account_balances 
-			(company_name, account_number, account_name, account_type, 
-			 outstanding_checks_total, outstanding_checks_count, outstanding_checks_last_updated, metadata)
-			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-		`, companyName, accountNumber, "", 1, totalReconciliationAdjustment, totalItemCount, metadata)
-	} else {
-		// Update existing record
+	// Use UPSERT to handle race conditions
+	_, err = db.Exec(`
+		INSERT INTO account_balances 
+		(company_name, account_number, account_name, account_type, 
+		 outstanding_checks_total, outstanding_checks_count, outstanding_checks_last_updated, metadata)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+		ON CONFLICT(company_name, account_number) 
+		DO UPDATE SET 
+			outstanding_checks_total = excluded.outstanding_checks_total, 
+			outstanding_checks_count = excluded.outstanding_checks_count, 
+			outstanding_checks_last_updated = CURRENT_TIMESTAMP,
+			metadata = excluded.metadata
+	`, companyName, accountNumber, "", 1, totalReconciliationAdjustment, totalItemCount, metadata)
+	
+	if err != nil {
+		// Fallback to simple UPDATE if UPSERT fails
 		_, err = db.Exec(`
 			UPDATE account_balances 
 			SET outstanding_checks_total = ?, outstanding_checks_count = ?, 

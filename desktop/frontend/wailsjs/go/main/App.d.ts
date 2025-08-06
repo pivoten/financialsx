@@ -9,9 +9,13 @@ export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
 export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function ClearMatchesAndRerun(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
+
 export function CommitReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;
+
+export function DeleteBankStatement(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -31,6 +35,8 @@ export function GetBankAccounts(arg1:string):Promise<Array<Record<string, any>>>
 
 export function GetBankAccountsForAudit(arg1:string):Promise<Array<Record<string, any>>>;
 
+export function GetBankTransactions(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
 export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetClosingStatus(arg1:string):Promise<string>;
@@ -49,9 +55,13 @@ export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
 export function GetLastReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function GetMatchedTransactions(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetRecentBankStatements(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 
 export function GetReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -59,9 +69,13 @@ export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record
 
 export function Greet(arg1:string):Promise<string>;
 
+export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function Logout(arg1:string):Promise<void>;
+
+export function ManualMatchTransaction(arg1:number,arg2:string,arg3:number):Promise<Record<string, any>>;
 
 export function MigrateReconciliationData(arg1:string):Promise<Record<string, any>>;
 
@@ -73,7 +87,11 @@ export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promis
 
 export function ReopenPeriod(arg1:string,arg2:string):Promise<void>;
 
+export function RetryMatching(arg1:string,arg2:string,arg3:number):Promise<Record<string, any>>;
+
 export function RunClosingProcess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
+
+export function RunMatching(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 
 export function RunNetDistribution(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
 
@@ -84,6 +102,8 @@ export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Reco
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
+
+export function UnmatchTransaction(arg1:number):Promise<Record<string, any>>;
 
 export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;
 

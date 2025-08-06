@@ -12,6 +12,7 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
 	"github.com/pivoten/financialsx/desktop/internal/database"
+	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -26,6 +27,7 @@ type App struct {
 	db       *database.DB
 	auth     *auth.Auth
 	currentUser *auth.User
+	reconciliationService *reconciliation.Service
 }
 
 // NewApp creates a new App application struct
@@ -70,6 +72,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.reconciliationService = reconciliation.NewService(db)
 	}
 
 	user, session, err := a.auth.Login(username, password)
@@ -111,6 +114,7 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.reconciliationService = reconciliation.NewService(db)
 	}
 
 	user, err := a.auth.Register(username, password, email) // Remove companyName parameter
@@ -161,6 +165,7 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.reconciliationService = reconciliation.NewService(db)
 	}
 	
 	user, err := a.auth.ValidateSession(token) // Remove companyName parameter
@@ -1875,6 +1880,389 @@ func (a *App) AuditSingleBankAccount(companyName, accountNumber string) (map[str
 		"difference": difference,
 		"audit_timestamp": time.Now().Format(time.RFC3339),
 		"audited_by": a.currentUser.Username,
+	}, nil
+}
+
+// GetLastReconciliation returns the last reconciliation record for a specific bank account
+func (a *App) GetLastReconciliation(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("GetLastReconciliation called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	// Read CHECKREC.dbf
+	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("GetLastReconciliation: Failed to read CHECKREC.dbf: %v\n", err)
+		return map[string]interface{}{
+			"status": "no_data",
+			"message": "No reconciliation history found",
+		}, nil
+	}
+	
+	// Get column indices
+	columns, ok := checkrecData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid CHECKREC.dbf structure")
+	}
+	
+	// Find relevant columns
+	var accountIdx, dateIdx, endBalIdx, begBalIdx, clearedCountIdx, clearedAmtIdx int = -1, -1, -1, -1, -1, -1
+	for i, col := range columns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CACCTNO":
+			accountIdx = i
+		case "DRECDATE":
+			dateIdx = i
+		case "NENDBAL":
+			endBalIdx = i
+		case "NBEGBAL":
+			begBalIdx = i
+		case "NCLEARED":
+			clearedCountIdx = i
+		case "NCLEAREDAMT":
+			clearedAmtIdx = i
+		}
+	}
+	
+	if accountIdx == -1 || dateIdx == -1 || endBalIdx == -1 {
+		return nil, fmt.Errorf("required columns not found in CHECKREC.dbf")
+	}
+	
+	// Process rows to find records for this account
+	rows, _ := checkrecData["rows"].([][]interface{})
+	var accountRecords []map[string]interface{}
+	
+	for _, row := range rows {
+		if len(row) <= accountIdx {
+			continue
+		}
+		
+		rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		if rowAccount != accountNumber {
+			continue
+		}
+		
+		record := map[string]interface{}{
+			"account_number": rowAccount,
+		}
+		
+		// Get date
+		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
+			if t, ok := row[dateIdx].(time.Time); ok {
+				record["date"] = t
+				record["date_string"] = t.Format("2006-01-02")
+			} else {
+				dateStr := fmt.Sprintf("%v", row[dateIdx])
+				record["date_string"] = dateStr
+				// Try to parse the date
+				for _, format := range []string{"2006-01-02", "01/02/2006", "1/2/2006"} {
+					if parsedDate, err := time.Parse(format, dateStr); err == nil {
+						record["date"] = parsedDate
+						record["date_string"] = parsedDate.Format("2006-01-02")
+						break
+					}
+				}
+			}
+		}
+		
+		// Get balances
+		if endBalIdx != -1 && len(row) > endBalIdx {
+			record["ending_balance"] = parseFloat(row[endBalIdx])
+		}
+		if begBalIdx != -1 && len(row) > begBalIdx {
+			record["beginning_balance"] = parseFloat(row[begBalIdx])
+		}
+		if clearedCountIdx != -1 && len(row) > clearedCountIdx {
+			record["cleared_count"] = int(parseFloat(row[clearedCountIdx]))
+		}
+		if clearedAmtIdx != -1 && len(row) > clearedAmtIdx {
+			record["cleared_amount"] = parseFloat(row[clearedAmtIdx])
+		}
+		
+		// Only add if we have a valid date
+		if _, hasDate := record["date"]; hasDate {
+			accountRecords = append(accountRecords, record)
+		}
+	}
+	
+	if len(accountRecords) == 0 {
+		return map[string]interface{}{
+			"status": "no_data",
+			"message": "No reconciliation history found for this account",
+		}, nil
+	}
+	
+	// Sort by date (most recent first)
+	for i := 0; i < len(accountRecords)-1; i++ {
+		for j := i + 1; j < len(accountRecords); j++ {
+			date1, _ := accountRecords[i]["date"].(time.Time)
+			date2, _ := accountRecords[j]["date"].(time.Time)
+			if date2.After(date1) {
+				accountRecords[i], accountRecords[j] = accountRecords[j], accountRecords[i]
+			}
+		}
+	}
+	
+	// Return the most recent reconciliation
+	lastRec := accountRecords[0]
+	lastRec["status"] = "success"
+	lastRec["total_records"] = len(accountRecords)
+	
+	return lastRec, nil
+}
+
+// SaveReconciliationDraft saves or updates a draft reconciliation in SQLite
+func (a *App) SaveReconciliationDraft(companyName string, draftData map[string]interface{}) (map[string]interface{}, error) {
+	fmt.Printf("SaveReconciliationDraft called for company: %s\n", companyName)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("dbf.write") {
+		return nil, fmt.Errorf("insufficient permissions to save reconciliation draft")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	// Parse the request
+	var req reconciliation.SaveDraftRequest
+	req.CompanyName = companyName
+	req.CreatedBy = a.currentUser.Username
+	
+	// Extract data from map
+	if accountNumber, ok := draftData["account_number"].(string); ok {
+		req.AccountNumber = accountNumber
+	} else {
+		return nil, fmt.Errorf("account_number is required")
+	}
+	
+	if statementDate, ok := draftData["statement_date"].(string); ok {
+		req.StatementDate = statementDate
+	} else {
+		return nil, fmt.Errorf("statement_date is required")
+	}
+	
+	if balance, ok := draftData["statement_balance"].(float64); ok {
+		req.StatementBalance = balance
+	}
+	if credits, ok := draftData["statement_credits"].(float64); ok {
+		req.StatementCredits = credits
+	}
+	if debits, ok := draftData["statement_debits"].(float64); ok {
+		req.StatementDebits = debits
+	}
+	if begBalance, ok := draftData["beginning_balance"].(float64); ok {
+		req.BeginningBalance = begBalance
+	}
+	
+	// Parse selected checks
+	if checksData, ok := draftData["selected_checks"].([]interface{}); ok {
+		for _, checkData := range checksData {
+			if checkMap, ok := checkData.(map[string]interface{}); ok {
+				var check reconciliation.SelectedCheck
+				if cidchec, ok := checkMap["cidchec"].(string); ok {
+					check.CIDCHEC = cidchec
+				}
+				if checkNumber, ok := checkMap["checkNumber"].(string); ok {
+					check.CheckNumber = checkNumber
+				}
+				if amount, ok := checkMap["amount"].(float64); ok {
+					check.Amount = amount
+				}
+				if payee, ok := checkMap["payee"].(string); ok {
+					check.Payee = payee
+				}
+				if checkDate, ok := checkMap["checkDate"].(string); ok {
+					check.CheckDate = checkDate
+				}
+				if rowIndex, ok := checkMap["rowIndex"].(float64); ok {
+					check.RowIndex = int(rowIndex)
+				}
+				req.SelectedChecks = append(req.SelectedChecks, check)
+			}
+		}
+	}
+	
+	// Save the draft
+	result, err := a.reconciliationService.SaveDraft(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save draft: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"id": result.ID,
+		"message": "Draft saved successfully",
+		"reconciliation": result,
+	}, nil
+}
+
+// GetReconciliationDraft retrieves the current draft reconciliation for an account
+func (a *App) GetReconciliationDraft(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("GetReconciliationDraft called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	draft, err := a.reconciliationService.GetDraft(companyName, accountNumber)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return map[string]interface{}{
+				"status": "no_draft",
+				"message": "No draft reconciliation found",
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to get draft: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"draft": draft,
+	}, nil
+}
+
+// DeleteReconciliationDraft deletes the current draft reconciliation for an account
+func (a *App) DeleteReconciliationDraft(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("DeleteReconciliationDraft called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("dbf.write") {
+		return nil, fmt.Errorf("insufficient permissions to delete reconciliation draft")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	err := a.reconciliationService.DeleteDraft(companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete draft: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"message": "Draft deleted successfully",
+	}, nil
+}
+
+// CommitReconciliation commits a draft reconciliation
+func (a *App) CommitReconciliation(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("CommitReconciliation called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("dbf.write") {
+		return nil, fmt.Errorf("insufficient permissions to commit reconciliation")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	// Get the draft first
+	draft, err := a.reconciliationService.GetDraft(companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("no draft found to commit: %w", err)
+	}
+	
+	// TODO: Update DBF files here (CHECKS.dbf and CHECKREC.dbf)
+	// For now, just commit the draft in SQLite
+	
+	err = a.reconciliationService.CommitReconciliation(draft.ID, a.currentUser.Username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit reconciliation: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"message": "Reconciliation committed successfully",
+		"id": draft.ID,
+	}, nil
+}
+
+// GetReconciliationHistory retrieves reconciliation history for an account
+func (a *App) GetReconciliationHistory(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("GetReconciliationHistory called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.read") {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	history, err := a.reconciliationService.GetHistory(companyName, accountNumber, 50)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reconciliation history: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"history": history,
+		"count": len(history),
+	}, nil
+}
+
+// MigrateReconciliationData migrates existing CHECKREC.DBF data to SQLite
+func (a *App) MigrateReconciliationData(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("MigrateReconciliationData called for company: %s\n", companyName)
+	
+	// Check permissions - only admin/root can migrate
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.HasPermission("database.maintain") {
+		return nil, fmt.Errorf("insufficient permissions to migrate data")
+	}
+	
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
+	}
+	
+	result, err := a.reconciliationService.MigrateFromDBF(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to migrate reconciliation data: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"migration_result": result,
 	}, nil
 }
 

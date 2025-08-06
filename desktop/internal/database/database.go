@@ -146,6 +146,39 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id)
 	);
 
+	-- Mirror of CHECKREC.DBF with JSON extensions for reconciliation data
+	CREATE TABLE IF NOT EXISTS reconciliations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		company_name TEXT NOT NULL,
+		account_number TEXT NOT NULL,
+		reconcile_date DATE NOT NULL,
+		statement_date DATE NOT NULL,
+		beginning_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+		ending_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+		statement_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+		statement_credits DECIMAL(15,2) DEFAULT 0,
+		statement_debits DECIMAL(15,2) DEFAULT 0,
+		
+		-- JSON field for extended data and future fields
+		extended_data TEXT DEFAULT '{}',
+		
+		-- Selected checks as JSON array with CIDCHEC details
+		selected_checks_json TEXT DEFAULT '[]',
+		
+		-- Status and metadata
+		status TEXT DEFAULT 'draft', -- draft, committed, archived
+		created_by TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		committed_at TIMESTAMP NULL,
+		
+		-- DBF sync metadata for bidirectional sync
+		dbf_row_index INTEGER NULL, -- Row position in CHECKREC.DBF (if synced)
+		dbf_last_sync TIMESTAMP NULL,
+		
+		UNIQUE(company_name, account_number, reconcile_date, status)
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
@@ -153,6 +186,9 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_users_role_id ON users(role_id);
 	CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON role_permissions(role_id);
 	CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_id ON role_permissions(permission_id);
+	CREATE INDEX IF NOT EXISTS idx_reconciliations_company_account ON reconciliations(company_name, account_number);
+	CREATE INDEX IF NOT EXISTS idx_reconciliations_status ON reconciliations(status);
+	CREATE INDEX IF NOT EXISTS idx_reconciliations_date ON reconciliations(reconcile_date);
 	`
 
 	if _, err := db.conn.Exec(schema); err != nil {

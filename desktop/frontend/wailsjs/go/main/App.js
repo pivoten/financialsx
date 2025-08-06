@@ -14,8 +14,16 @@ export function AuditSingleBankAccount(arg1, arg2) {
   return window['go']['main']['App']['AuditSingleBankAccount'](arg1, arg2);
 }
 
+export function CommitReconciliation(arg1, arg2) {
+  return window['go']['main']['App']['CommitReconciliation'](arg1, arg2);
+}
+
 export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
+}
+
+export function DeleteReconciliationDraft(arg1, arg2) {
+  return window['go']['main']['App']['DeleteReconciliationDraft'](arg1, arg2);
 }
 
 export function ExportNetDistribution(arg1, arg2, arg3) {
@@ -82,12 +90,24 @@ export function GetDashboardData(arg1) {
   return window['go']['main']['App']['GetDashboardData'](arg1);
 }
 
+export function GetLastReconciliation(arg1, arg2) {
+  return window['go']['main']['App']['GetLastReconciliation'](arg1, arg2);
+}
+
 export function GetNetDistributionStatus(arg1, arg2) {
   return window['go']['main']['App']['GetNetDistributionStatus'](arg1, arg2);
 }
 
 export function GetOutstandingChecks(arg1, arg2) {
   return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
+}
+
+export function GetReconciliationDraft(arg1, arg2) {
+  return window['go']['main']['App']['GetReconciliationDraft'](arg1, arg2);
+}
+
+export function GetReconciliationHistory(arg1, arg2) {
+  return window['go']['main']['App']['GetReconciliationHistory'](arg1, arg2);
 }
 
 export function Greet(arg1) {
@@ -100,6 +120,10 @@ export function Login(arg1, arg2, arg3) {
 
 export function Logout(arg1) {
   return window['go']['main']['App']['Logout'](arg1);
+}
+
+export function MigrateReconciliationData(arg1) {
+  return window['go']['main']['App']['MigrateReconciliationData'](arg1);
 }
 
 export function RefreshAccountBalance(arg1, arg2) {
@@ -124,6 +148,10 @@ export function RunClosingProcess(arg1, arg2, arg3, arg4) {
 
 export function RunNetDistribution(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RunNetDistribution'](arg1, arg2, arg3, arg4);
+}
+
+export function SaveReconciliationDraft(arg1, arg2) {
+  return window['go']['main']['App']['SaveReconciliationDraft'](arg1, arg2);
 }
 
 export function SearchDBFTable(arg1, arg2, arg3) {

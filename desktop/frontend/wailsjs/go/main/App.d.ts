@@ -9,7 +9,11 @@ export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
 export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function CommitReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;
+
+export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -43,15 +47,23 @@ export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:nu
 
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
+export function GetLastReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function Logout(arg1:string):Promise<void>;
+
+export function MigrateReconciliationData(arg1:string):Promise<Record<string, any>>;
 
 export function RefreshAccountBalance(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -64,6 +76,8 @@ export function ReopenPeriod(arg1:string,arg2:string):Promise<void>;
 export function RunClosingProcess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
 
 export function RunNetDistribution(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
+
+export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Promise<Record<string, any>>;
 
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 

@@ -648,8 +648,8 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 	// Debug: Print all available columns
 	fmt.Printf("GetOutstandingChecks: Available columns in checks.dbf: %v\n", checksColumns)
 	
-	// Find relevant check columns based on actual CHECKS.dbf structure (including CENTRYTYPE)
-	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx, entryTypeIdx int = -1, -1, -1, -1, -1, -1, -1, -1
+	// Find relevant check columns based on actual CHECKS.dbf structure (including CENTRYTYPE and CIDCHEC)
+	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx, entryTypeIdx, cidchecIdx int = -1, -1, -1, -1, -1, -1, -1, -1, -1
 	for i, col := range checksColumns {
 		colUpper := strings.ToUpper(col)
 		if colUpper == "CCHECKNO" {
@@ -676,6 +676,9 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 		} else if colUpper == "CENTRYTYPE" {
 			entryTypeIdx = i
 			fmt.Printf("GetOutstandingChecks: Found entry type column at index %d: %s\n", i, col)
+		} else if colUpper == "CIDCHEC" {
+			cidchecIdx = i
+			fmt.Printf("GetOutstandingChecks: Found CIDCHEC column at index %d: %s\n", i, col)
 		}
 	}
 	
@@ -811,6 +814,13 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 				"amount": parseFloat(row[amountIdx]),
 				"account": checkAccount,
 				"entryType": entryType, // D = Deposit, C = Check
+			}
+			
+			// Add CIDCHEC field for unique identification
+			if cidchecIdx != -1 && len(row) > cidchecIdx && row[cidchecIdx] != nil {
+				check["cidchec"] = fmt.Sprintf("%v", row[cidchecIdx])
+			} else {
+				check["cidchec"] = "" // Empty string if not available
 			}
 			
 			// Add optional fields if available

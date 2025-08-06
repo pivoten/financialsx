@@ -69,6 +69,8 @@ export function BankReconciliation({ companyName }) {
   // Filters
   const [showCleared, setShowCleared] = useState(false)
   const [showUncleared, setShowUncleared] = useState(true)
+  const [showTransactionType, setShowTransactionType] = useState('all') // 'all', 'debits', 'credits'
+  const [limitToStatementDate, setLimitToStatementDate] = useState(true) // New filter for statement date
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [amountFrom, setAmountFrom] = useState('')
@@ -102,15 +104,25 @@ export function BankReconciliation({ companyName }) {
 
   // Auto-save functionality when form values or selected checks change
   useEffect(() => {
+    console.log('🔍 Auto-save useEffect triggered:', {
+      hasUnsavedChanges,
+      selectedAccount,
+      companyName,
+      draftSelectedChecksSize: draftSelectedChecks.size,
+      condition: hasUnsavedChanges && selectedAccount && companyName
+    })
+    
     if (hasUnsavedChanges && selectedAccount && companyName) {
+      console.log('🔄 Auto-save timer started - will save in 10 seconds. Selected checks:', draftSelectedChecks.size)
       // Debounce auto-save to avoid too many saves
       const timeoutId = setTimeout(() => {
+        console.log('💾 Auto-save triggered with', draftSelectedChecks.size, 'selected checks')
         saveDraftReconciliation()
       }, 10000) // Auto-save after 10 seconds of inactivity
 
       return () => clearTimeout(timeoutId)
     }
-  }, [hasUnsavedChanges, selectedAccount, companyName]) // Removed individual field dependencies to reduce re-renders
+  }, [hasUnsavedChanges, selectedAccount, companyName, Array.from(draftSelectedChecks).join(',')]) // Use actual selected check IDs to trigger auto-save
 
   // Load bank accounts from COA.dbf
   const loadBankAccounts = async () => {
@@ -220,23 +232,30 @@ export function BankReconciliation({ companyName }) {
         
         // The GetOutstandingChecks function returns properly structured data
         // Use CIDCHEC as the unique identifier for reliable tracking
-        const processedChecks = checksData.map((check, index) => ({
-          id: check.cidchec || check._rowIndex || index, // Use CIDCHEC as primary ID
-          cidchec: check.cidchec || '', // Store CIDCHEC separately for explicit access
-          checkNumber: check.checkNumber || '',
-          payee: check.payee || '',
-          amount: check.amount || 0,
-          checkDate: check.date || '',
-          accountNumber: check.account || selectedAccount,
-          cleared: check.cleared || false,
-          reconcileDate: check.reconcileDate || '',
-          memo: check.memo || '',
-          voidFlag: check.voidFlag || false,
-          daysOutstanding: check.daysOutstanding || 0,
-          entryType: check.entryType || '', // D = Deposit, C = Check
-          rowIndex: check._rowIndex || index, // Keep row index for DBF updates
-          originalCheck: check // Keep original data for updates
-        }))
+        const processedChecks = checksData.map((check, index) => {
+          // Create a unique ID: prefer CIDCHEC, fallback to composite key
+          const uniqueId = check.cidchec && check.cidchec.trim() !== '' 
+            ? check.cidchec 
+            : `${check.account || 'unknown'}-${check.checkNumber || 'unknown'}-${check.amount || 0}-${index}`
+          
+          return {
+            id: uniqueId,
+            cidchec: check.cidchec || '', // Store CIDCHEC separately for explicit access
+            checkNumber: check.checkNumber || '',
+            payee: check.payee || '',
+            amount: check.amount || 0,
+            checkDate: check.date || '',
+            accountNumber: check.account || selectedAccount,
+            cleared: check.cleared || false,
+            reconcileDate: check.reconcileDate || '',
+            memo: check.memo || '',
+            voidFlag: check.voidFlag || false,
+            daysOutstanding: check.daysOutstanding || 0,
+            entryType: check.entryType || '', // D = Deposit, C = Check
+            rowIndex: check._rowIndex || index, // Keep row index for DBF updates
+            originalCheck: check // Keep original data for updates
+          }
+        })
         
         console.log('BankReconciliation: Sample check CIDCHEC IDs:', processedChecks.slice(0, 3).map(c => ({id: c.id, cidchec: c.cidchec})))
         
@@ -335,11 +354,20 @@ export function BankReconciliation({ companyName }) {
       return
     }
     
-    // Create detailed check selections with CIDCHEC IDs
+    // Create detailed check selections with CIDCHEC IDs or composite IDs as fallback
     const selectedChecksDetails = Array.from(draftSelectedChecks).map(checkId => {
       const check = checks.find(c => c.id === checkId)
+      if (check) {
+        console.log('💾 Saving check with ID:', {
+          checkId: check.id,
+          checkNumber: check.checkNumber,
+          cidchec: check.cidchec,
+          cidchecType: typeof check.cidchec,
+          usingCompositeId: !check.cidchec || check.cidchec.trim() === ''
+        })
+      }
       return check ? {
-        cidchec: check.cidchec,
+        cidchec: check.cidchec || check.id, // Use composite ID if CIDCHEC is empty
         checkNumber: check.checkNumber,
         amount: check.amount,
         payee: check.payee,
@@ -359,17 +387,19 @@ export function BankReconciliation({ companyName }) {
     }
     
     try {
-      console.log('Saving draft reconciliation to SQLite:', {
+      console.log('💾 Saving draft reconciliation to SQLite:', {
         account: selectedAccount,
         checksSelected: selectedChecksDetails.length,
-        cidchecIds: selectedChecksDetails.map(c => c.cidchec)
+        cidchecIds: selectedChecksDetails.map(c => c.cidchec),
+        draftSelectedChecksSize: draftSelectedChecks.size,
+        selectedChecksDetails: selectedChecksDetails
       })
       
       const result = await SaveReconciliationDraft(companyName, draftData)
       
       if (result.status === 'success') {
         setHasUnsavedChanges(false)
-        console.log('Draft reconciliation saved successfully:', result)
+        console.log('✅ Draft reconciliation saved successfully with', selectedChecksDetails.length, 'selected checks')
       } else {
         console.error('Failed to save draft:', result)
         setError('Failed to save draft reconciliation')
@@ -394,7 +424,13 @@ export function BankReconciliation({ companyName }) {
       
       if (result.status === 'success' && result.draft) {
         const draftData = result.draft
-        console.log('Loading draft reconciliation from SQLite:', draftData)
+        console.log('📋 Loading draft reconciliation from SQLite:', {
+          account: draftData.account_number,
+          selectedChecks: draftData.selected_checks?.length || 0,
+          cidchecs: draftData.selected_checks?.map(c => c.cidchec) || [],
+          rawSelectedChecks: draftData.selected_checks,
+          firstCheck: draftData.selected_checks?.[0]
+        })
         
         // Restore form data
         if (draftData.statement_date) setStatementDate(draftData.statement_date)
@@ -403,32 +439,49 @@ export function BankReconciliation({ companyName }) {
         if (draftData.statement_debits) setStatementDebits(draftData.statement_debits.toString())
         if (draftData.beginning_balance) setBeginningBalance(draftData.beginning_balance.toString())
         
-        // Restore selected checks by matching CIDCHEC IDs
+        // Restore selected checks by matching CIDCHEC or composite IDs
         const selectedCIDCHECs = new Set()
         if (draftData.selected_checks && Array.isArray(draftData.selected_checks)) {
-          draftData.selected_checks.forEach(check => {
+          draftData.selected_checks.forEach((check, index) => {
+            console.log(`🔍 Processing saved check ${index}:`, {
+              cidchec: check.cidchec,
+              checkNumber: check.checkNumber || check.check_number,
+              amount: check.amount,
+              hasValidCidchec: !!(check.cidchec && check.cidchec.trim() !== '')
+            })
             if (check.cidchec) {
               selectedCIDCHECs.add(check.cidchec)
             }
           })
         }
+        console.log('🎯 Extracted saved IDs from draft:', Array.from(selectedCIDCHECs))
         
-        // Wait for checks to be loaded, then match by CIDCHEC
+        // Wait for checks to be loaded, then match by CIDCHEC or composite ID
         const matchSelectedChecks = () => {
           const matchedCheckIds = new Set()
           checks.forEach(check => {
-            if (check.cidchec && selectedCIDCHECs.has(check.cidchec)) {
+            // Match by CIDCHEC (if both have valid CIDCHEC) or by composite ID
+            const shouldMatch = (check.cidchec && check.cidchec.trim() !== '' && selectedCIDCHECs.has(check.cidchec)) ||
+                                selectedCIDCHECs.has(check.id)
+            
+            if (shouldMatch) {
               matchedCheckIds.add(check.id)
             }
           })
           
-          console.log('Matched CIDCHEC IDs to current checks:', {
-            savedCIDCHECs: Array.from(selectedCIDCHECs),
+          console.log('🔗 Matched saved IDs to current checks:', {
+            savedIDs: Array.from(selectedCIDCHECs),
             matchedIds: Array.from(matchedCheckIds),
             totalChecksLoaded: checks.length
           })
           
-          setDraftSelectedChecks(matchedCheckIds)
+          if (matchedCheckIds.size > 0) {
+            setDraftSelectedChecks(matchedCheckIds)
+            setSelectedChecks(matchedCheckIds) // Also update checkbox state
+            console.log('✅ Restored', matchedCheckIds.size, 'selected checks from draft')
+          } else {
+            console.log('⚠️ No ID matches found - selected checks not restored')
+          }
         }
         
         if (checks.length > 0) {
@@ -496,16 +549,16 @@ export function BankReconciliation({ companyName }) {
     }
   }
 
-  // Auto-save draft when changes are made
-  useEffect(() => {
-    if (hasUnsavedChanges && selectedAccount) {
-      const timeoutId = setTimeout(() => {
-        saveDraftReconciliation()
-      }, 2000) // Auto-save after 2 seconds of inactivity
-      
-      return () => clearTimeout(timeoutId)
-    }
-  }, [hasUnsavedChanges, selectedAccount, statementDate, statementBalance, statementCredits, statementDebits, draftSelectedChecks])
+  // Secondary auto-save for form fields only (disabled to avoid conflicts with main auto-save)
+  // useEffect(() => {
+  //   if (hasUnsavedChanges && selectedAccount) {
+  //     const timeoutId = setTimeout(() => {
+  //       saveDraftReconciliation()
+  //     }, 2000) // Auto-save after 2 seconds of inactivity
+  //     
+  //     return () => clearTimeout(timeoutId)
+  //   }
+  // }, [hasUnsavedChanges, selectedAccount, statementDate, statementBalance, statementCredits, statementDebits, draftSelectedChecks])
 
   // Load draft when account changes
   useEffect(() => {
@@ -514,28 +567,45 @@ export function BankReconciliation({ companyName }) {
     }
   }, [companyName, selectedAccount])
 
-  // Handle CIDCHEC matching when checks are loaded
+  // Handle ID matching when checks are loaded (supports both CIDCHEC and composite IDs)
   useEffect(() => {
     if (checks.length > 0 && draftReconciliation?.selectedCIDCHECs) {
-      console.log('Matching CIDCHEC IDs after checks loaded...')
+      console.log('🔄 Matching saved IDs after checks loaded...', {
+        checksLoaded: checks.length,
+        savedIDs: draftReconciliation.selectedCIDCHECs?.length || 0
+      })
       const selectedCIDCHECs = new Set(draftReconciliation.selectedCIDCHECs)
       const matchedCheckIds = new Set()
       
       checks.forEach(check => {
-        if (check.cidchec && selectedCIDCHECs.has(check.cidchec)) {
+        // Match by CIDCHEC (if both have valid CIDCHEC) or by composite ID
+        const shouldMatch = (check.cidchec && check.cidchec.trim() !== '' && selectedCIDCHECs.has(check.cidchec)) ||
+                            selectedCIDCHECs.has(check.id)
+        
+        console.log('🔍 Checking ID match:', {
+          checkId: check.id,
+          checkNumber: check.checkNumber,
+          currentCidchec: check.cidchec,
+          cidchecType: typeof check.cidchec,
+          shouldMatch: shouldMatch,
+          matchType: shouldMatch ? (selectedCIDCHECs.has(check.cidchec) ? 'CIDCHEC' : 'composite') : 'none'
+        })
+        
+        if (shouldMatch) {
           matchedCheckIds.add(check.id)
         }
       })
       
-      console.log('Post-load CIDCHEC matching:', {
-        savedCIDCHECs: Array.from(selectedCIDCHECs),
+      console.log('Post-load ID matching:', {
+        savedIDs: Array.from(selectedCIDCHECs),
         matchedIds: Array.from(matchedCheckIds),
         matchedCount: matchedCheckIds.size
       })
       
       setDraftSelectedChecks(matchedCheckIds)
+      setSelectedChecks(matchedCheckIds) // Also update checkbox state
       
-      // Clear the temporary CIDCHEC data
+      // Clear the temporary ID data
       setDraftReconciliation(prev => prev ? {...prev, selectedCIDCHECs: undefined} : null)
     }
   }, [checks, draftReconciliation])
@@ -627,6 +697,16 @@ export function BankReconciliation({ companyName }) {
       // Amount range filter
       if (amountFrom && check.amount < parseFloat(amountFrom)) return false
       if (amountTo && check.amount > parseFloat(amountTo)) return false
+      
+      // Transaction type filter
+      if (showTransactionType !== 'all') {
+        const entryType = check.entryType?.toUpperCase()
+        if (showTransactionType === 'debits' && entryType !== 'C') return false
+        if (showTransactionType === 'credits' && entryType !== 'D') return false
+      }
+      
+      // Statement date filter - only show transactions through statement date
+      if (limitToStatementDate && statementDate && check.checkDate > statementDate) return false
       
       return true
     })
@@ -1261,6 +1341,26 @@ export function BankReconciliation({ companyName }) {
                   <Label htmlFor="show-uncleared">Show Outstanding</Label>
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-xs">Transaction Type</Label>
+                  <select
+                    value={showTransactionType}
+                    onChange={(e) => setShowTransactionType(e.target.value)}
+                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="debits">Checks Only</option>
+                    <option value="credits">Deposits Only</option>
+                  </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="limit-statement-date"
+                    checked={limitToStatementDate}
+                    onCheckedChange={setLimitToStatementDate}
+                  />
+                  <Label htmlFor="limit-statement-date" className="text-xs">Through Statement Date</Label>
+                </div>
+                <div className="space-y-1">
                   <Label htmlFor="date-from" className="text-xs">Date From</Label>
                   <Input 
                     id="date-from"
@@ -1306,12 +1406,12 @@ export function BankReconciliation({ companyName }) {
             </CardContent>
           </Card>
 
-          {/* Checks Table */}
+          {/* Transactions Table */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Checks ({filteredChecks.length})</CardTitle>
+                  <CardTitle>Transactions ({filteredChecks.length})</CardTitle>
                   <CardDescription>Click checkbox to select, click status to toggle cleared</CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -1321,10 +1421,12 @@ export function BankReconciliation({ companyName }) {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader className="sticky top-0 bg-white z-10">
-                  <TableRow>
+            <CardContent className="p-0">
+              <div className="relative">
+                <div className="overflow-hidden border-b bg-white">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
                     <TableHead className="w-12">
                       <Checkbox 
                         checked={selectedChecks.size === filteredChecks.length && filteredChecks.length > 0}
@@ -1355,7 +1457,11 @@ export function BankReconciliation({ companyName }) {
                     <TableHead>Reconciled</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                  </Table>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  <Table>
+                    <TableBody>
                   {filteredChecks.map((check) => {
                     const isDraftSelected = draftSelectedChecks.has(check.id)
                     const isUISelected = selectedChecks.has(check.id)
@@ -1384,6 +1490,7 @@ export function BankReconciliation({ companyName }) {
                             setSelectedChecks(newSelected)
                             setDraftSelectedChecks(newDraftSelected)
                             setHasUnsavedChanges(true)
+                            console.log('✅ CHECKBOX CLICKED - Draft selected checks now:', newDraftSelected.size)
                           }}
                         />
                       </TableCell>
@@ -1414,8 +1521,10 @@ export function BankReconciliation({ companyName }) {
                     </TableRow>
                     )
                   })}
-                </TableBody>
-              </Table>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </CardContent>
           </Card>
           </>

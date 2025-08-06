@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -34,6 +35,12 @@ type CachedBalance struct {
 	ChecksAgeHours  float64 `json:"checks_age_hours" db:"checks_age_hours"`
 	GLFreshness     string  `json:"gl_freshness" db:"gl_freshness"`
 	ChecksFreshness string  `json:"checks_freshness" db:"checks_freshness"`
+	
+	// New fields for detailed breakdown (calculated from metadata or separate columns)
+	UnclearedDeposits   float64 `json:"uncleared_deposits"`
+	UnclearedChecks     float64 `json:"uncleared_checks"`
+	DepositCount        int     `json:"deposit_count"`
+	CheckCount          int     `json:"check_count"`
 }
 
 type BalanceHistory struct {
@@ -154,7 +161,30 @@ func GetCachedBalance(db *DB, companyName, accountNumber string) (*CachedBalance
 		return nil, nil // No cached balance found
 	}
 	
-	return &balance, err
+	if err != nil {
+		return nil, err
+	}
+	
+	// Parse metadata JSON to populate detailed breakdown fields
+	if balance.Metadata != "" {
+		var metadataMap map[string]interface{}
+		if err := json.Unmarshal([]byte(balance.Metadata), &metadataMap); err == nil {
+			if val, ok := metadataMap["uncleared_deposits"].(float64); ok {
+				balance.UnclearedDeposits = val
+			}
+			if val, ok := metadataMap["uncleared_checks"].(float64); ok {
+				balance.UnclearedChecks = val
+			}
+			if val, ok := metadataMap["deposit_count"].(float64); ok {
+				balance.DepositCount = int(val)
+			}
+			if val, ok := metadataMap["check_count"].(float64); ok {
+				balance.CheckCount = int(val)
+			}
+		}
+	}
+	
+	return &balance, nil
 }
 
 // GetAllCachedBalances retrieves all cached balances for a company
@@ -185,6 +215,26 @@ func GetAllCachedBalances(db *DB, companyName string) ([]CachedBalance, error) {
 		if err != nil {
 			return nil, err
 		}
+		
+		// Parse metadata JSON to populate detailed breakdown fields
+		if balance.Metadata != "" {
+			var metadataMap map[string]interface{}
+			if err := json.Unmarshal([]byte(balance.Metadata), &metadataMap); err == nil {
+				if val, ok := metadataMap["uncleared_deposits"].(float64); ok {
+					balance.UnclearedDeposits = val
+				}
+				if val, ok := metadataMap["uncleared_checks"].(float64); ok {
+					balance.UnclearedChecks = val
+				}
+				if val, ok := metadataMap["deposit_count"].(float64); ok {
+					balance.DepositCount = int(val)
+				}
+				if val, ok := metadataMap["check_count"].(float64); ok {
+					balance.CheckCount = int(val)
+				}
+			}
+		}
+		
 		balances = append(balances, balance)
 	}
 	
@@ -289,10 +339,11 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 	return err
 }
 
-// RefreshOutstandingChecks updates the outstanding checks total
+// RefreshOutstandingChecks updates the outstanding checks/deposits total for proper bank reconciliation
+// Bank Reconciliation Formula: GL Balance + Uncleared Deposits - Uncleared Checks = Bank Balance
 func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username string) error {
-	// Calculate outstanding checks total by reading CHECKS.dbf directly
-	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 10000, "", "")
+	// Read CHECKS.dbf which contains both checks (CENTRYTYPE=C) and deposits (CENTRYTYPE=D)
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
 	if err != nil {
 		return fmt.Errorf("failed to read checks.dbf: %w", err)
 	}
@@ -303,61 +354,65 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		return fmt.Errorf("invalid checks.dbf structure")
 	}
 	
-	// Find relevant check columns
-	var checkNumIdx, amountIdx, accountIdx, clearedIdx, voidIdx int = -1, -1, -1, -1, -1
+	// Find relevant columns including CENTRYTYPE
+	var checkNumIdx, amountIdx, accountIdx, clearedIdx, voidIdx, entryTypeIdx int = -1, -1, -1, -1, -1, -1
 	for i, col := range checksColumns {
 		colUpper := strings.ToUpper(col)
-		if colUpper == "CCHECKNO" {
+		switch colUpper {
+		case "CCHECKNO":
 			checkNumIdx = i
-		} else if colUpper == "NAMOUNT" {
+		case "NAMOUNT":
 			amountIdx = i
-		} else if colUpper == "CACCTNO" {
+		case "CACCTNO":
 			accountIdx = i
-		} else if colUpper == "LCLEARED" {
+		case "LCLEARED":
 			clearedIdx = i
-		} else if colUpper == "LVOID" {
+		case "LVOID":
 			voidIdx = i
+		case "CENTRYTYPE":
+			entryTypeIdx = i
 		}
 	}
 	
-	if checkNumIdx == -1 || amountIdx == -1 {
-		return fmt.Errorf("required columns not found in checks.dbf")
+	if checkNumIdx == -1 || amountIdx == -1 || entryTypeIdx == -1 {
+		return fmt.Errorf("required columns not found in checks.dbf (need CCHECKNO, NAMOUNT, CENTRYTYPE)")
 	}
 	
-	// Process check rows to find outstanding checks
-	var totalOutstanding float64
-	var checkCount int
+	// Process rows to calculate reconciliation amount
+	var unclearedDeposits, unclearedChecks float64
+	var depositCount, checkCount int
 	checksRows, _ := checksData["rows"].([][]interface{})
 	
-	fmt.Printf("RefreshOutstandingChecks: Processing %d rows for account %s\n", len(checksRows), accountNumber)
+	fmt.Printf("RefreshOutstandingChecks: Processing %d rows for account %s (with CENTRYTYPE logic)\n", len(checksRows), accountNumber)
 	
 	// Debug: Show first few rows to see what data we're actually reading
 	for i := 0; i < 5 && i < len(checksRows); i++ {
 		row := checksRows[i]
-		if len(row) > accountIdx && len(row) > checkNumIdx && len(row) > amountIdx {
+		if len(row) > accountIdx && len(row) > checkNumIdx && len(row) > amountIdx && len(row) > entryTypeIdx {
 			checkNum := fmt.Sprintf("%v", row[checkNumIdx])
 			checkAccount := ""
 			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
 				checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
 			}
 			amount := parseFloat(row[amountIdx])
-			fmt.Printf("RefreshOutstandingChecks: Sample row %d - Check: %s, Account: %s, Amount: $%.2f\n", 
-				i+1, checkNum, checkAccount, amount)
+			entryType := strings.TrimSpace(fmt.Sprintf("%v", row[entryTypeIdx]))
+			fmt.Printf("RefreshOutstandingChecks: Sample row %d - Entry: %s, Type: %s, Account: %s, Amount: $%.2f\n", 
+				i+1, checkNum, entryType, checkAccount, amount)
 		}
 	}
 	
 	for _, row := range checksRows {
-		if len(row) <= checkNumIdx || len(row) <= amountIdx {
+		if len(row) <= checkNumIdx || len(row) <= amountIdx || len(row) <= entryTypeIdx {
 			continue
 		}
 		
-		// Get account for this check
+		// Get account for this entry
 		checkAccount := ""
 		if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
 			checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
 		}
 		
-		// If account filter is provided, only include checks for that account
+		// If account filter is provided, only include entries for that account
 		if accountNumber != "" && checkAccount != accountNumber {
 			continue
 		}
@@ -372,7 +427,12 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 					isCleared = v
 				case string:
 					lowerVal := strings.ToLower(strings.TrimSpace(v))
-					isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					// CRITICAL FIX: Empty string should be FALSE (not cleared)
+					if lowerVal == "" {
+						isCleared = false
+					} else {
+						isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					}
 				}
 			}
 		}
@@ -387,7 +447,12 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 					isVoided = v
 				case string:
 					lowerVal := strings.ToLower(strings.TrimSpace(v))
-					isVoided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					// CRITICAL FIX: Empty string should be FALSE (not voided)
+					if lowerVal == "" {
+						isVoided = false
+					} else {
+						isVoided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					}
 				}
 			}
 		}
@@ -395,28 +460,43 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		// Only include if not cleared and not voided
 		if !isCleared && !isVoided {
 			amount := parseFloat(row[amountIdx])
-			totalOutstanding += amount
-			checkCount++
+			entryType := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", row[entryTypeIdx])))
 			
-			// Debug logging for first few outstanding checks
-			if checkCount <= 5 {
-				checkNum := fmt.Sprintf("%v", row[checkNumIdx])
-				fmt.Printf("RefreshOutstandingChecks: Outstanding check #%d: %s, Amount: $%.2f, Account: %s\n", 
-					checkCount, checkNum, amount, checkAccount)
-			}
-		} else {
-			// Debug logging for first few cleared/voided checks
-			if len(fmt.Sprintf("%v", row[checkNumIdx])) > 0 && (checkCount + 1) <= 10 {
-				checkNum := fmt.Sprintf("%v", row[checkNumIdx])
-				amount := parseFloat(row[amountIdx])
-				fmt.Printf("RefreshOutstandingChecks: Skipped check %s (Amount: $%.2f, Cleared: %t, Voided: %t, Account: %s)\n", 
-					checkNum, amount, isCleared, isVoided, checkAccount)
+			if entryType == "D" {
+				// Deposit - adds to bank balance
+				unclearedDeposits += amount
+				depositCount++
+				
+				// Debug logging for first few uncleared deposits
+				if depositCount <= 3 {
+					checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+					fmt.Printf("RefreshOutstandingChecks: Uncleared Deposit #%d: %s, Amount: $%.2f, Account: %s\n", 
+						depositCount, checkNum, amount, checkAccount)
+				}
+			} else if entryType == "C" {
+				// Check - subtracts from bank balance
+				unclearedChecks += amount
+				checkCount++
+				
+				// Debug logging for first few uncleared checks
+				if checkCount <= 3 {
+					checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+					fmt.Printf("RefreshOutstandingChecks: Uncleared Check #%d: %s, Amount: $%.2f, Account: %s\n", 
+						checkCount, checkNum, amount, checkAccount)
+				}
 			}
 		}
 	}
 	
-	fmt.Printf("RefreshOutstandingChecks: Final totals for account %s: %d checks, $%.2f total outstanding\n", 
-		accountNumber, checkCount, totalOutstanding)
+	// Calculate the net reconciliation adjustment: Deposits - Checks
+	// This represents the adjustment needed to get from GL Balance to Bank Balance
+	totalReconciliationAdjustment := unclearedDeposits - unclearedChecks
+	totalItemCount := depositCount + checkCount
+	
+	fmt.Printf("RefreshOutstandingChecks: Account %s reconciliation summary:\n", accountNumber)
+	fmt.Printf("  - Uncleared Deposits: %d items, $%.2f total\n", depositCount, unclearedDeposits)
+	fmt.Printf("  - Uncleared Checks: %d items, $%.2f total\n", checkCount, unclearedChecks)
+	fmt.Printf("  - Net Reconciliation Adjustment: $%.2f (GL Balance + this = Bank Balance)\n", totalReconciliationAdjustment)
 	
 	// Get current cached balance
 	currentBalance, err := GetCachedBalance(db, companyName, accountNumber)
@@ -424,22 +504,26 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		return err
 	}
 	
+	// Create detailed metadata for frontend display
+	metadata := fmt.Sprintf(`{"uncleared_deposits": %f, "uncleared_checks": %f, "deposit_count": %d, "check_count": %d}`,
+		unclearedDeposits, unclearedChecks, depositCount, checkCount)
+	
 	if currentBalance == nil {
-		// Insert new record with outstanding checks only
+		// Insert new record with reconciliation adjustment and metadata
 		_, err = db.Exec(`
 			INSERT INTO account_balances 
 			(company_name, account_number, account_name, account_type, 
-			 outstanding_checks_total, outstanding_checks_count, outstanding_checks_last_updated)
-			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		`, companyName, accountNumber, "", 1, totalOutstanding, checkCount)
+			 outstanding_checks_total, outstanding_checks_count, outstanding_checks_last_updated, metadata)
+			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+		`, companyName, accountNumber, "", 1, totalReconciliationAdjustment, totalItemCount, metadata)
 	} else {
 		// Update existing record
 		_, err = db.Exec(`
 			UPDATE account_balances 
 			SET outstanding_checks_total = ?, outstanding_checks_count = ?, 
-			    outstanding_checks_last_updated = CURRENT_TIMESTAMP
+			    outstanding_checks_last_updated = CURRENT_TIMESTAMP, metadata = ?
 			WHERE company_name = ? AND account_number = ?
-		`, totalOutstanding, checkCount, companyName, accountNumber)
+		`, totalReconciliationAdjustment, totalItemCount, metadata, companyName, accountNumber)
 		
 		// Record the change in history
 		if err == nil {
@@ -449,10 +533,10 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 				 old_outstanding_total, new_outstanding_total, 
 				 old_available_balance, new_available_balance,
 				 change_reason, changed_by)
-				VALUES (?, ?, ?, 'checks_refresh', ?, ?, ?, ?, 'Outstanding checks refresh', ?)
+				VALUES (?, ?, ?, 'checks_refresh', ?, ?, ?, ?, 'Bank reconciliation refresh (deposits-checks)', ?)
 			`, currentBalance.ID, companyName, accountNumber,
-				currentBalance.OutstandingTotal, totalOutstanding,
-				currentBalance.BankBalance, currentBalance.GLBalance+totalOutstanding,
+				currentBalance.OutstandingTotal, totalReconciliationAdjustment,
+				currentBalance.BankBalance, currentBalance.GLBalance+totalReconciliationAdjustment,
 				username)
 		}
 	}

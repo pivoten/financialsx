@@ -643,8 +643,8 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 	// Debug: Print all available columns
 	fmt.Printf("GetOutstandingChecks: Available columns in checks.dbf: %v\n", checksColumns)
 	
-	// Find relevant check columns based on actual CHECKS.dbf structure
-	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx int = -1, -1, -1, -1, -1, -1, -1
+	// Find relevant check columns based on actual CHECKS.dbf structure (including CENTRYTYPE)
+	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx, entryTypeIdx int = -1, -1, -1, -1, -1, -1, -1, -1
 	for i, col := range checksColumns {
 		colUpper := strings.ToUpper(col)
 		if colUpper == "CCHECKNO" {
@@ -668,6 +668,9 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 		} else if colUpper == "LVOID" {
 			voidIdx = i
 			fmt.Printf("GetOutstandingChecks: Found void column at index %d: %s\n", i, col)
+		} else if colUpper == "CENTRYTYPE" {
+			entryTypeIdx = i
+			fmt.Printf("GetOutstandingChecks: Found entry type column at index %d: %s\n", i, col)
 		}
 	}
 	
@@ -758,6 +761,10 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 		if isAccountMatch && accountNumber == "100000" && accountMatches <= 20 {
 			checkNum := fmt.Sprintf("%v", row[checkNumIdx])
 			amount := parseFloat(row[amountIdx])
+			entryType := ""
+			if entryTypeIdx != -1 && len(row) > entryTypeIdx {
+				entryType = strings.TrimSpace(fmt.Sprintf("%v", row[entryTypeIdx]))
+			}
 			
 			// Show raw values from DBF
 			clearedRaw := "nil"
@@ -769,7 +776,7 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 				voidRaw = fmt.Sprintf("%v (type: %T)", row[voidIdx], row[voidIdx])
 			}
 			
-			fmt.Printf("GetOutstandingChecks: Check %s, Account %s, Amount $%.2f\n", checkNum, checkAccount, amount)
+			fmt.Printf("GetOutstandingChecks: Entry %s, Type: %s, Account %s, Amount $%.2f\n", checkNum, entryType, checkAccount, amount)
 			fmt.Printf("  Raw LCLEARED: %s -> Parsed: %t\n", clearedRaw, isCleared)
 			fmt.Printf("  Raw LVOID: %s -> Parsed: %t\n", voidRaw, isVoided)
 		}
@@ -788,10 +795,17 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 				continue
 			}
 			
+			// Get entry type for better display
+			entryType := ""
+			if entryTypeIdx != -1 && len(row) > entryTypeIdx {
+				entryType = strings.TrimSpace(fmt.Sprintf("%v", row[entryTypeIdx]))
+			}
+			
 			check := map[string]interface{}{
 				"checkNumber": fmt.Sprintf("%v", row[checkNumIdx]),
 				"amount": parseFloat(row[amountIdx]),
 				"account": checkAccount,
+				"entryType": entryType, // D = Deposit, C = Check
 			}
 			
 			// Add optional fields if available
@@ -953,6 +967,11 @@ func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, e
 			"gl_freshness":          balance.GLFreshness,
 			"checks_freshness":      balance.ChecksFreshness,
 			"is_stale":             balance.GLFreshness == "stale" || balance.ChecksFreshness == "stale",
+			// New detailed breakdown fields
+			"uncleared_deposits":    balance.UnclearedDeposits,
+			"uncleared_checks":      balance.UnclearedChecks,
+			"deposit_count":         balance.DepositCount,
+			"check_count":           balance.CheckCount,
 		})
 	}
 	

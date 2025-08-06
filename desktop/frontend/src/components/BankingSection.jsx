@@ -238,6 +238,11 @@ export function BankingSection({ companyName, currentUser }) {
             bank_balance: cachedBalance.gl_balance + cachedBalance.outstanding_total, // Calculate on-the-fly
             outstanding_total: cachedBalance.outstanding_total,
             outstanding_count: cachedBalance.outstanding_count,
+            // New detailed breakdown fields
+            uncleared_deposits: cachedBalance.uncleared_deposits || 0,
+            uncleared_checks: cachedBalance.uncleared_checks || 0,
+            deposit_count: cachedBalance.deposit_count || 0,
+            check_count: cachedBalance.check_count || 0,
             gl_freshness: cachedBalance.gl_freshness,
             checks_freshness: cachedBalance.checks_freshness,
             is_stale: cachedBalance.is_stale,
@@ -259,6 +264,11 @@ export function BankingSection({ companyName, currentUser }) {
             bank_balance: 0, // 0 + 0 = 0
             outstanding_total: 0,
             outstanding_count: 0,
+            // New detailed breakdown fields (empty)
+            uncleared_deposits: 0,
+            uncleared_checks: 0,
+            deposit_count: 0,
+            check_count: 0,
             gl_freshness: 'stale',
             checks_freshness: 'stale',
             is_stale: true,
@@ -366,7 +376,7 @@ export function BankingSection({ companyName, currentUser }) {
             <div>
               <h3 className="text-lg font-semibold">Bank Accounts</h3>
               <p className="text-sm text-muted-foreground">
-                Bank Balance = GL Balance + Uncleared Checks (checks written but not yet cleared)
+                Bank Balance = GL Balance + Uncleared Deposits - Uncleared Checks
               </p>
             </div>
             <Button
@@ -440,12 +450,39 @@ export function BankingSection({ companyName, currentUser }) {
                         </span>
                       </div>
                       
-                      {account.outstanding_total > 0 && (
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-muted-foreground">Uncleared Checks</span>
-                          <span className="text-amber-600">
-                            +{formatCurrency(account.outstanding_total)} ({account.outstanding_count})
-                          </span>
+                      {/* Show detailed breakdown when available */}
+                      {(account.uncleared_deposits > 0 || account.uncleared_checks > 0) && (
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Uncleared Deposits</span>
+                            <span className="text-green-600">
+                              {formatCurrency(account.uncleared_deposits || 0)} ({account.deposit_count || 0})
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Uncleared Checks</span>
+                            <span className="text-red-600">
+                              {formatCurrency(account.uncleared_checks || 0)} ({account.check_count || 0})
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Show breakdown structure even for old data - needs refresh to get details */}
+                      {!(account.uncleared_deposits > 0 || account.uncleared_checks > 0) && account.outstanding_total !== 0 && (
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Uncleared Deposits</span>
+                            <span className="text-gray-400">
+                              Refresh for details
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Uncleared Checks</span>
+                            <span className="text-gray-400">
+                              Refresh for details
+                            </span>
+                          </div>
                         </div>
                       )}
                       

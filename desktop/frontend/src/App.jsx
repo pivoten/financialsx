@@ -54,22 +54,35 @@ function App() {
 
   useEffect(() => {
     checkSession()
-    loadCompanies()
   }, [])
+
+  // Load companies only when login screen is shown
+  useEffect(() => {
+    if (!isAuthenticated && !loading) {
+      loadCompanies()
+    }
+  }, [isAuthenticated, loading])
 
   const checkSession = async () => {
     const token = localStorage.getItem('session_token')
     const companyName = localStorage.getItem('company_name')
     
+    console.log('checkSession: Found stored session?', { hasToken: !!token, companyName })
+    
     if (token && companyName) {
       try {
+        console.log('checkSession: Validating session for company:', companyName)
         const user = await ValidateSession(token, companyName)
+        console.log('checkSession: Session valid, user:', user)
         setCurrentUser(user)
         setIsAuthenticated(true)
       } catch (error) {
+        console.log('checkSession: Session validation failed:', error)
         localStorage.removeItem('session_token')
         localStorage.removeItem('company_name')
       }
+    } else {
+      console.log('checkSession: No stored session found')
     }
     setLoading(false)
   }
@@ -246,17 +259,24 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   const [dashboardData, setDashboardData] = useState(null)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
 
-  // Load dashboard data on component mount
+  // Load dashboard data when company changes (not when user object changes)
   useEffect(() => {
+    console.log('Dashboard useEffect triggered, company_name:', currentUser?.company_name)
     loadDashboardData()
-  }, [currentUser])
+  }, [currentUser?.company_name])
 
   const loadDashboardData = async () => {
     if (!currentUser?.company_name) return
     
+    // Skip if we already have data for this company and it's not stale
+    if (dashboardData && dashboardData.company === currentUser.company_name) {
+      console.log('Dashboard data already loaded for company:', currentUser.company_name)
+      return
+    }
+    
+    console.log('Loading dashboard data for company:', currentUser.company_name)
     setLoadingDashboard(true)
     try {
-      console.log('Loading dashboard data for:', currentUser.company_name)
       const data = await GetDashboardData(currentUser.company_name)
       console.log('Dashboard data loaded:', data)
       setDashboardData(data)
@@ -267,76 +287,34 @@ function AdvancedDashboard({ currentUser, onLogout }) {
     }
   }
 
-  // Generate stats from real data
+  // Generate well type stats from WELLS.DBF
   const generateStats = () => {
     if (!dashboardData) {
       return [
-        { title: 'Loading...', value: '-', change: '-', icon: DollarSign, trend: 'up' },
         { title: 'Loading...', value: '-', change: '-', icon: Activity, trend: 'up' },
-        { title: 'Loading...', value: '-', change: '-', icon: TrendingUp, trend: 'up' },
-        { title: 'Loading...', value: '-', change: '-', icon: BarChart3, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: Activity, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: Activity, trend: 'up' },
+        { title: 'Loading...', value: '-', change: '-', icon: Activity, trend: 'up' },
       ]
     }
 
     const stats = []
     
-    // DBF Files stat
-    if (dashboardData.fileStats) {
-      stats.push({
-        title: 'DBF Files',
-        value: dashboardData.fileStats.totalFiles.toString(),
-        change: 'files available',
-        icon: FileText,
-        trend: 'up'
+    // Show well types from WELLS.DBF
+    if (dashboardData.wellTypes && dashboardData.wellTypes.length > 0) {
+      dashboardData.wellTypes.forEach(wellType => {
+        stats.push({
+          title: `${wellType.type} Wells`,
+          value: wellType.count.toString(),
+          change: `${wellType.type.toLowerCase()} wells active`,
+          icon: Activity,
+          trend: 'up'
+        })
       })
     }
 
-    // Wells stat
-    if (dashboardData.wells && dashboardData.wells.hasData) {
-      stats.push({
-        title: 'Active Wells',
-        value: dashboardData.wells.totalWells.toString(),
-        change: 'wells in database',
-        icon: Activity,
-        trend: 'up'
-      })
-    }
-
-    // Checks stat
-    if (dashboardData.checks && dashboardData.checks.hasData) {
-      stats.push({
-        title: 'Check Records',
-        value: dashboardData.checks.totalChecks.toLocaleString(),
-        change: 'payment records',
-        icon: DollarSign,
-        trend: 'up'
-      })
-    }
-
-    // Financial records stat
-    if (dashboardData.financials && dashboardData.financials.hasData) {
-      const totalRecords = (dashboardData.financials.incomeRecords || 0) + (dashboardData.financials.expenseRecords || 0)
-      stats.push({
-        title: 'Financial Records',
-        value: totalRecords.toLocaleString(),
-        change: 'income + expense records',
-        icon: TrendingUp,
-        trend: 'up'
-      })
-    }
-
-    // Fill remaining slots if needed
-    while (stats.length < 4) {
-      stats.push({
-        title: 'Data Available',
-        value: 'Ready',
-        change: 'system operational',
-        icon: BarChart3,
-        trend: 'up'
-      })
-    }
-
-    return stats.slice(0, 4)
+    // Only show actual well status data - no fallback cards
+    return stats
   }
 
   const stats = generateStats()
@@ -490,64 +468,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                 ))}
               </div>
 
-              {/* Real Data Summary */}
-              {dashboardData && !loadingDashboard && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Data Summary for {currentUser?.company_name}</CardTitle>
-                    <CardDescription>Overview of available data in your DBF files</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <h4 className="font-semibold mb-2">Available Files</h4>
-                        <div className="space-y-1 text-sm">
-                          {dashboardData.fileStats?.files?.slice(0, 8).map(file => (
-                            <div key={file} className="flex items-center gap-2">
-                              <FileText className="w-3 h-3 text-muted-foreground" />
-                              {file}
-                            </div>
-                          ))}
-                          {dashboardData.fileStats?.files?.length > 8 && (
-                            <div className="text-muted-foreground text-xs">
-                              ...and {dashboardData.fileStats.files.length - 8} more files
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="font-semibold mb-2">Data Status</h4>
-                        <div className="space-y-2 text-sm">
-                          {dashboardData.wells?.hasData && (
-                            <div className="flex items-center gap-2 text-green-600">
-                              <Activity className="w-3 h-3" />
-                              Wells data available ({dashboardData.wells.totalWells} records)
-                            </div>
-                          )}
-                          {dashboardData.checks?.hasData && (
-                            <div className="flex items-center gap-2 text-green-600">
-                              <DollarSign className="w-3 h-3" />
-                              Check data available ({dashboardData.checks.totalChecks.toLocaleString()} records)
-                            </div>
-                          )}
-                          {dashboardData.financials?.hasIncomeData && (
-                            <div className="flex items-center gap-2 text-green-600">
-                              <TrendingUp className="w-3 h-3" />
-                              Income data available ({dashboardData.financials.incomeRecords} records)
-                            </div>
-                          )}
-                          {dashboardData.financials?.hasExpenseData && (
-                            <div className="flex items-center gap-2 text-green-600">
-                              <BarChart3 className="w-3 h-3" />
-                              Expense data available ({dashboardData.financials.expenseRecords} records)
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              {/* Data Summary section removed per user request */}
 
               {/* Charts */}
               <div className="grid gap-4 md:grid-cols-2">

@@ -10,6 +10,10 @@ export function AuditCheckBatches(arg1) {
   return window['go']['main']['App']['AuditCheckBatches'](arg1);
 }
 
+export function AuditSingleBankAccount(arg1, arg2) {
+  return window['go']['main']['App']['AuditSingleBankAccount'](arg1, arg2);
+}
+
 export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
 }
@@ -40,6 +44,10 @@ export function GetBalanceHistory(arg1, arg2, arg3) {
 
 export function GetBankAccounts(arg1) {
   return window['go']['main']['App']['GetBankAccounts'](arg1);
+}
+
+export function GetBankAccountsForAudit(arg1) {
+  return window['go']['main']['App']['GetBankAccountsForAudit'](arg1);
 }
 
 export function GetCachedBalances(arg1) {

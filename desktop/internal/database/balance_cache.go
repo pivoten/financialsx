@@ -46,8 +46,8 @@ type BalanceHistory struct {
 	NewGLBalance          *float64  `json:"new_gl_balance" db:"new_gl_balance"`
 	OldOutstandingTotal   *float64  `json:"old_outstanding_total" db:"old_outstanding_total"`
 	NewOutstandingTotal   *float64  `json:"new_outstanding_total" db:"new_outstanding_total"`
-	OldBankBalance        *float64  `json:"old_bank_balance" db:"old_bank_balance"`
-	NewBankBalance        *float64  `json:"new_bank_balance" db:"new_bank_balance"`
+	OldAvailableBalance   *float64  `json:"old_available_balance" db:"old_available_balance"`
+	NewAvailableBalance   *float64  `json:"new_available_balance" db:"new_available_balance"`
 	ChangeReason          string    `json:"change_reason" db:"change_reason"`
 	ChangedBy             string    `json:"changed_by" db:"changed_by"`
 	ChangeTimestamp       time.Time `json:"change_timestamp" db:"change_timestamp"`
@@ -90,8 +90,8 @@ func InitializeBalanceCache(db *DB) error {
 		new_gl_balance DECIMAL(15,2),
 		old_outstanding_total DECIMAL(15,2),
 		new_outstanding_total DECIMAL(15,2),
-		old_bank_balance DECIMAL(15,2),
-		new_bank_balance DECIMAL(15,2),
+		old_available_balance DECIMAL(15,2),
+		new_available_balance DECIMAL(15,2),
 		change_reason TEXT,
 		changed_by TEXT,
 		change_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -276,7 +276,7 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 			_, err = db.Exec(`
 				INSERT INTO balance_history 
 				(account_balance_id, company_name, account_number, change_type,
-				 old_gl_balance, new_gl_balance, old_bank_balance, new_bank_balance,
+				 old_gl_balance, new_gl_balance, old_available_balance, new_available_balance,
 				 change_reason, changed_by)
 				VALUES (?, ?, ?, 'gl_refresh', ?, ?, ?, ?, 'GL balance refresh', ?)
 			`, currentBalance.ID, companyName, accountNumber, 
@@ -329,6 +329,23 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 	var checkCount int
 	checksRows, _ := checksData["rows"].([][]interface{})
 	
+	fmt.Printf("RefreshOutstandingChecks: Processing %d rows for account %s\n", len(checksRows), accountNumber)
+	
+	// Debug: Show first few rows to see what data we're actually reading
+	for i := 0; i < 5 && i < len(checksRows); i++ {
+		row := checksRows[i]
+		if len(row) > accountIdx && len(row) > checkNumIdx && len(row) > amountIdx {
+			checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+			checkAccount := ""
+			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
+				checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+			}
+			amount := parseFloat(row[amountIdx])
+			fmt.Printf("RefreshOutstandingChecks: Sample row %d - Check: %s, Account: %s, Amount: $%.2f\n", 
+				i+1, checkNum, checkAccount, amount)
+		}
+	}
+	
 	for _, row := range checksRows {
 		if len(row) <= checkNumIdx || len(row) <= amountIdx {
 			continue
@@ -377,10 +394,29 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		
 		// Only include if not cleared and not voided
 		if !isCleared && !isVoided {
-			totalOutstanding += parseFloat(row[amountIdx])
+			amount := parseFloat(row[amountIdx])
+			totalOutstanding += amount
 			checkCount++
+			
+			// Debug logging for first few outstanding checks
+			if checkCount <= 5 {
+				checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+				fmt.Printf("RefreshOutstandingChecks: Outstanding check #%d: %s, Amount: $%.2f, Account: %s\n", 
+					checkCount, checkNum, amount, checkAccount)
+			}
+		} else {
+			// Debug logging for first few cleared/voided checks
+			if len(fmt.Sprintf("%v", row[checkNumIdx])) > 0 && (checkCount + 1) <= 10 {
+				checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+				amount := parseFloat(row[amountIdx])
+				fmt.Printf("RefreshOutstandingChecks: Skipped check %s (Amount: $%.2f, Cleared: %t, Voided: %t, Account: %s)\n", 
+					checkNum, amount, isCleared, isVoided, checkAccount)
+			}
 		}
 	}
+	
+	fmt.Printf("RefreshOutstandingChecks: Final totals for account %s: %d checks, $%.2f total outstanding\n", 
+		accountNumber, checkCount, totalOutstanding)
 	
 	// Get current cached balance
 	currentBalance, err := GetCachedBalance(db, companyName, accountNumber)
@@ -411,7 +447,7 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 				INSERT INTO balance_history 
 				(account_balance_id, company_name, account_number, change_type,
 				 old_outstanding_total, new_outstanding_total, 
-				 old_bank_balance, new_bank_balance,
+				 old_available_balance, new_available_balance,
 				 change_reason, changed_by)
 				VALUES (?, ?, ?, 'checks_refresh', ?, ?, ?, ?, 'Outstanding checks refresh', ?)
 			`, currentBalance.ID, companyName, accountNumber,

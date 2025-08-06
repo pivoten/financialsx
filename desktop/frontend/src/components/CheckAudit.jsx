@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { AuditCheckBatches, AuditBankReconciliation } from '../../wailsjs/go/main/App'
+import { useState, useEffect } from 'react'
+import { AuditCheckBatches, AuditBankReconciliation, AuditSingleBankAccount, GetBankAccountsForAudit } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
@@ -7,6 +7,7 @@ import { Input } from './ui/input'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { 
   AlertTriangle,
   CheckCircle,
@@ -21,16 +22,27 @@ import {
   ArrowDown,
   Eye,
   EyeOff,
-  Settings
+  Settings,
+  RefreshCw
 } from 'lucide-react'
 
 export function CheckAudit({ companyName, currentUser }) {
   const [auditResults, setAuditResults] = useState(null)
+  
+  // Legacy bank reconciliation audit (keep for now)
   const [bankRecAuditResults, setBankRecAuditResults] = useState(null)
-  const [loading, setLoading] = useState(false)
   const [bankRecLoading, setBankRecLoading] = useState(false)
-  const [error, setError] = useState(null)
   const [bankRecError, setBankRecError] = useState(null)
+  
+  // New account-by-account bank reconciliation audit
+  const [availableAccounts, setAvailableAccounts] = useState([])
+  const [auditResults_v2, setAuditResults_v2] = useState(new Map()) // accountNumber -> audit result
+  const [selectedAccount, setSelectedAccount] = useState('')
+  const [auditingAccount, setAuditingAccount] = useState(null) // currently auditing account
+  const [loadingAccounts, setLoadingAccounts] = useState(false)
+  
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
   const [missingPage, setMissingPage] = useState(1)
@@ -106,6 +118,63 @@ export function CheckAudit({ companyName, currentUser }) {
       setBankRecLoading(false)
     }
   }
+
+  // New account-by-account audit functions
+  const loadBankAccountsForAudit = async () => {
+    try {
+      setLoadingAccounts(true)
+      setBankRecError(null)
+      
+      const accounts = await GetBankAccountsForAudit(companyName)
+      setAvailableAccounts(accounts)
+      
+      // Set first account as selected if none selected
+      if (accounts.length > 0 && !selectedAccount) {
+        setSelectedAccount(accounts[0].account_number)
+      }
+    } catch (err) {
+      setBankRecError('Failed to load bank accounts: ' + err.message)
+    } finally {
+      setLoadingAccounts(false)
+    }
+  }
+
+  const auditSingleAccount = async (accountNumber) => {
+    try {
+      setAuditingAccount(accountNumber)
+      setBankRecError(null)
+      
+      const result = await AuditSingleBankAccount(companyName, accountNumber)
+      
+      if (result.status === 'error') {
+        setBankRecError(result.message || result.error)
+      } else {
+        // Store result in map
+        const newResults = new Map(auditResults_v2)
+        newResults.set(accountNumber, result)
+        setAuditResults_v2(newResults)
+      }
+    } catch (err) {
+      setBankRecError(`Failed to audit account ${accountNumber}: ${err.message}`)
+    } finally {
+      setAuditingAccount(null)
+    }
+  }
+
+  const refreshAccountAudit = async (accountNumber) => {
+    // Remove existing result and re-audit
+    const newResults = new Map(auditResults_v2)
+    newResults.delete(accountNumber)
+    setAuditResults_v2(newResults)
+    await auditSingleAccount(accountNumber)
+  }
+
+  // Load accounts when component mounts or company changes
+  useEffect(() => {
+    if (companyName && canAudit) {
+      loadBankAccountsForAudit()
+    }
+  }, [companyName, canAudit])
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
@@ -761,74 +830,71 @@ export function CheckAudit({ companyName, currentUser }) {
         </CardContent>
       </Card>
 
-      {/* Bank Reconciliation Audit Section */}
+      {/* Bank Reconciliation Audit Section - Account by Account */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Bank Reconciliation Audit</CardTitle>
               <CardDescription>
-                Verify that Reconciliation Balance - Outstanding Checks = GL Balance
+                Select and audit individual bank accounts. Results are saved until refreshed.
               </CardDescription>
             </div>
-            <div className="flex gap-2">
-              {bankRecAuditResults && (
+            <div className="flex items-center gap-3">
+              {/* Account Selector */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium">Account:</label>
+                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="Select account to audit..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableAccounts?.map((account) => (
+                      <SelectItem key={account.account_number} value={account.account_number}>
+                        {account.account_number} - {account.account_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
                 <Button 
-                  variant="outline" 
+                  onClick={() => selectedAccount && auditSingleAccount(selectedAccount)}
+                  disabled={!selectedAccount || auditingAccount === selectedAccount || loadingAccounts}
                   size="sm"
-                  onClick={() => {
-                    // Export bank reconciliation results to CSV
-                    const csvData = bankRecAuditResults.discrepancies.map(item => ({
-                      account_number: item.account_number,
-                      account_name: item.account_name,
-                      issue_type: item.issue_type,
-                      reconciliation_balance: item.reconciliation_balance || 'N/A',
-                      reconciliation_date: item.reconciliation_date || 'N/A',
-                      gl_balance: item.gl_balance || 'N/A',
-                      outstanding_checks: item.outstanding_checks || 'N/A',
-                      expected_gl_balance: item.expected_gl_balance || 'N/A',
-                      difference: item.difference || 'N/A',
-                      description: item.description
-                    }))
-                    
-                    const csv = [
-                      Object.keys(csvData[0] || {}).join(','),
-                      ...csvData.map(row => Object.values(row).join(','))
-                    ].join('\n')
-                    
-                    const blob = new Blob([csv], { type: 'text/csv' })
-                    const url = window.URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `bank-reconciliation-audit-${companyName}-${new Date().toISOString().split('T')[0]}.csv`
-                    a.click()
-                    window.URL.revokeObjectURL(url)
-                  }}
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export CSV
+                  {auditingAccount === selectedAccount ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Auditing...
+                    </>
+                  ) : (
+                    <>
+                      <FileSearch className="w-4 h-4 mr-2" />
+                      Audit Account
+                    </>
+                  )}
                 </Button>
-              )}
-              <Button 
-                onClick={runBankReconciliationAudit}
-                disabled={bankRecLoading}
-              >
-                {bankRecLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Running Audit...
-                  </>
-                ) : (
-                  <>
-                    <FileSearch className="w-4 h-4 mr-2" />
-                    Run Bank Reconciliation Audit
-                  </>
+
+                {selectedAccount && auditResults_v2.has(selectedAccount) && (
+                  <Button 
+                    onClick={() => refreshAccountAudit(selectedAccount)}
+                    disabled={auditingAccount === selectedAccount}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh
+                  </Button>
                 )}
-              </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
+          {/* Error Display */}
           {bankRecError && (
             <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 mb-4">
               <div className="flex items-center gap-2">
@@ -839,166 +905,216 @@ export function CheckAudit({ companyName, currentUser }) {
             </div>
           )}
 
-          {bankRecAuditResults && (
-            <div className="space-y-6">
-              {/* Summary Cards */}
-              <div className="grid gap-4 md:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold">{bankRecAuditResults.accounts_audited}</div>
-                    <p className="text-sm text-muted-foreground">Bank Accounts Audited</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold text-green-600">
-                      {bankRecAuditResults.accounts_audited - bankRecAuditResults.total_discrepancies}
-                    </div>
-                    <p className="text-sm text-muted-foreground">Balanced</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold text-red-600">
-                      {bankRecAuditResults.total_discrepancies}
-                    </div>
-                    <p className="text-sm text-muted-foreground">Discrepancies</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {bankRecAuditResults.discrepancies.filter(d => d.issue_type === 'balance_mismatch').length}
-                    </div>
-                    <p className="text-sm text-muted-foreground">Balance Mismatches</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Results Table */}
-              {bankRecAuditResults.discrepancies.length > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Discrepancies Found</CardTitle>
-                    <CardDescription>Accounts with reconciliation balance issues</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Account</TableHead>
-                            <TableHead>Issue Type</TableHead>
-                            <TableHead className="text-right">Reconciliation Balance</TableHead>
-                            <TableHead className="text-center">Reconciliation Date</TableHead>
-                            <TableHead className="text-right">GL Balance</TableHead>
-                            <TableHead className="text-right">Outstanding Checks</TableHead>
-                            <TableHead className="text-right">Expected GL Balance</TableHead>
-                            <TableHead className="text-right">Difference</TableHead>
-                            <TableHead>Description</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {bankRecAuditResults.discrepancies.map((discrepancy, index) => (
-                            <TableRow key={index}>
-                              <TableCell className="font-medium">
-                                <div>
-                                  <div>{discrepancy.account_number}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {discrepancy.account_name}
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant={
-                                  discrepancy.issue_type === 'balance_mismatch' ? 'destructive' :
-                                  discrepancy.issue_type === 'no_reconciliation_data' ? 'secondary' :
-                                  'outline'
-                                }>
-                                  {discrepancy.issue_type.replace('_', ' ')}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {discrepancy.reconciliation_balance != null ? 
-                                  formatCurrency(discrepancy.reconciliation_balance) : 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-center font-mono text-sm">
-                                {discrepancy.reconciliation_date || 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {discrepancy.gl_balance != null ? 
-                                  formatCurrency(discrepancy.gl_balance) : 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {discrepancy.outstanding_checks != null ? 
-                                  formatCurrency(discrepancy.outstanding_checks) : 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {discrepancy.expected_gl_balance != null ? 
-                                  formatCurrency(discrepancy.expected_gl_balance) : 'N/A'}
-                              </TableCell>
-                              <TableCell className={`text-right font-mono ${
-                                discrepancy.difference > 0 ? 'text-green-600' : 
-                                discrepancy.difference < 0 ? 'text-red-600' : ''
-                              }`}>
-                                {discrepancy.difference != null ? 
-                                  formatCurrency(discrepancy.difference) : 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-sm">
-                                {discrepancy.description}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="text-center text-green-600">
-                      <CheckCircle className="w-12 h-12 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">All Bank Accounts Balanced!</h3>
-                      <p className="text-muted-foreground">
-                        All reconciliation balances match the calculated bank balances (GL + Outstanding Checks)
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Audit Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    Audit Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 text-sm">
-                    <p>Audit completed on: {new Date(bankRecAuditResults.audit_timestamp).toLocaleString()}</p>
-                    <p>Audited by: {bankRecAuditResults.audited_by}</p>
-                    <p className="text-muted-foreground mt-4">
-                      This audit verifies that the reconciliation balance from CHECKREC.dbf 
-                      minus outstanding checks equals the GL balance for each account.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+          {/* Loading State */}
+          {loadingAccounts && (
+            <div className="text-center py-8">
+              <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Loading bank accounts...</p>
             </div>
           )}
 
-          {!bankRecAuditResults && !bankRecError && !bankRecLoading && (
+          {/* Account List and Results */}
+          {!loadingAccounts && availableAccounts.length > 0 && (
+            <div className="space-y-6">
+              {/* Accounts Table */}
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Account</TableHead>
+                      <TableHead className="text-right">GL Balance</TableHead>
+                      <TableHead className="text-right">Outstanding Checks</TableHead>
+                      <TableHead className="text-center">Last Audited</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {availableAccounts.map((account) => {
+                      const result = auditResults_v2.get(account.account_number)
+                      const isAuditing = auditingAccount === account.account_number
+                      
+                      let statusBadge
+                      if (isAuditing) {
+                        statusBadge = <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          Auditing
+                        </Badge>
+                      } else if (result) {
+                        if (result.issue_type === 'balanced') {
+                          statusBadge = <Badge variant="default" className="bg-green-100 text-green-800">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Balanced
+                          </Badge>
+                        } else if (result.issue_type === 'discrepancy_found') {
+                          statusBadge = <Badge variant="destructive">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            Discrepancy
+                          </Badge>
+                        } else {
+                          statusBadge = <Badge variant="outline">
+                            <AlertCircle className="w-3 h-3 mr-1" />
+                            No Reconciliation
+                          </Badge>
+                        }
+                      } else {
+                        statusBadge = <Badge variant="outline">Not Audited</Badge>
+                      }
+
+                      return (
+                        <TableRow key={account.account_number} className={selectedAccount === account.account_number ? 'bg-blue-50' : ''}>
+                          <TableCell className="font-medium">
+                            <div>
+                              <div>{account.account_number}</div>
+                              <div className="text-sm text-muted-foreground">{account.account_name}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(account.gl_balance)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {account.outstanding_checks > 0 ? (
+                              <span className="text-amber-600">
+                                {formatCurrency(account.outstanding_checks)} ({account.outstanding_count})
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">None</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {result ? (
+                              <span className="text-sm text-muted-foreground">
+                                {new Date(result.audit_timestamp).toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Never</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {statusBadge}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex gap-1 justify-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedAccount(account.account_number)
+                                  auditSingleAccount(account.account_number)
+                                }}
+                                disabled={isAuditing}
+                              >
+                                <FileSearch className="w-3 h-3" />
+                              </Button>
+                              {result && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => refreshAccountAudit(account.account_number)}
+                                  disabled={isAuditing}
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Selected Account Details */}
+              {selectedAccount && auditResults_v2.has(selectedAccount) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Audit Results: {selectedAccount}</CardTitle>
+                    <CardDescription>
+                      Detailed reconciliation information for the selected account
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const result = auditResults_v2.get(selectedAccount)
+                      
+                      return (
+                        <div className="space-y-4">
+                          {/* Summary */}
+                          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <div className="text-sm text-muted-foreground">GL Balance</div>
+                              <div className="text-xl font-bold">{formatCurrency(result.gl_balance)}</div>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <div className="text-sm text-muted-foreground">Outstanding Checks</div>
+                              <div className="text-xl font-bold text-amber-600">
+                                {formatCurrency(result.outstanding_checks)}
+                                {result.outstanding_count > 0 && (
+                                  <span className="text-sm ml-2">({result.outstanding_count})</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <div className="text-sm text-muted-foreground">Reconciliation Balance</div>
+                              <div className="text-xl font-bold">
+                                {result.reconciliation_balance ? formatCurrency(result.reconciliation_balance) : 'N/A'}
+                              </div>
+                              {result.reconciliation_date && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  Date: {result.reconciliation_date}
+                                </div>
+                              )}
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <div className="text-sm text-muted-foreground">Difference</div>
+                              <div className={`text-xl font-bold ${
+                                result.difference === null ? 'text-muted-foreground' :
+                                Math.abs(result.difference) < 0.01 ? 'text-green-600' : 'text-red-600'
+                              }`}>
+                                {result.difference !== null ? formatCurrency(result.difference) : 'N/A'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Formula Explanation */}
+                          <div className="bg-blue-50 p-4 rounded-lg">
+                            <div className="text-sm font-medium text-blue-800 mb-2">Reconciliation Formula</div>
+                            <div className="text-sm text-blue-700">
+                              Bank Statement Balance - Outstanding Checks = GL Balance
+                            </div>
+                            {result.reconciliation_balance !== null && (
+                              <div className="text-sm text-blue-600 mt-2 font-mono">
+                                {formatCurrency(result.reconciliation_balance)} - {formatCurrency(result.outstanding_checks)} = {formatCurrency(result.expected_gl_balance || 0)}
+                                {result.difference !== null && (
+                                  <span className="ml-2">
+                                    (Actual GL: {formatCurrency(result.gl_balance)}, Difference: {formatCurrency(result.difference)})
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Audit Info */}
+                          <div className="text-sm text-muted-foreground">
+                            Audited on {new Date(result.audit_timestamp).toLocaleString()} by {result.audited_by}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* No Accounts State */}
+          {!loadingAccounts && availableAccounts.length === 0 && !bankRecError && (
             <div className="text-center py-8">
-              <FileSearch className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">Bank Reconciliation Audit</h3>
-              <p className="text-muted-foreground mb-4">
-                Click "Run Bank Reconciliation Audit" to verify reconciliation balance minus outstanding checks equals GL balance
-              </p>
-              <p className="text-sm text-muted-foreground">
-                This will analyze CHECKREC.dbf against cached balance data
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-medium mb-2">No Bank Accounts Found</h3>
+              <p className="text-muted-foreground">
+                No bank accounts found in Chart of Accounts. Make sure LBANKACCT is set to true for bank accounts in COA.dbf.
               </p>
             </div>
           )}
@@ -1017,15 +1133,19 @@ export function CheckAudit({ companyName, currentUser }) {
           {selectedEntry && (
             <div className="space-y-4">
               <div>
-                <h4 className="font-medium mb-2">Check Information</h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                <h4 className="font-medium mb-2">Summary</h4>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Check ID:</span>
                     <span className="font-mono">{selectedEntry.check_id}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Amount:</span>
-                    <span className="font-mono">{formatCurrency(selectedEntry.amount || selectedEntry.check_amount)}</span>
+                    <span className="font-mono">{formatCurrency(selectedEntry.amount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-muted-foreground">Issue Type:</span>
+                    <span className="font-mono">{selectedEntry.issue_type}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Row Index:</span>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { GetOutstandingChecks, GetBankAccounts, UpdateDBFRecord } from '../../wailsjs/go/main/App'
+import { GetOutstandingChecks, GetBankAccounts, UpdateDBFRecord, GetDBFTableData } from '../../wailsjs/go/main/App'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
@@ -27,6 +27,8 @@ import {
 } from 'lucide-react'
 
 const OutstandingChecks = ({ companyName, currentUser }) => {
+  console.log('OutstandingChecks component rendered with:', { companyName, currentUser })
+  
   // State Management
   const [outstandingChecks, setOutstandingChecks] = useState([])
   const [bankAccounts, setBankAccounts] = useState([])
@@ -93,18 +95,84 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
     }
   }
 
-  // Load bank accounts
+  // Load bank accounts - robust version with fallback like BankingSection
   const loadBankAccounts = async () => {
-    if (!companyName) return
+    console.log('OutstandingChecks: loadBankAccounts called with companyName:', companyName)
+    console.log('OutstandingChecks: currentUser object:', currentUser)
+    
+    if (!companyName) {
+      console.log('OutstandingChecks: No company name provided, companyName is:', companyName)
+      console.log('OutstandingChecks: currentUser.company_name is:', currentUser?.company_name)
+      return
+    }
     
     try {
-      const accounts = await GetBankAccounts(companyName)
-      if (accounts && Array.isArray(accounts)) {
-        setBankAccounts(accounts)
+      let bankAccountsData = []
+      
+      // Method 1: Try GetBankAccounts first
+      if (typeof GetBankAccounts === 'function') {
+        console.log('OutstandingChecks: GetBankAccounts function is available, calling it...')
+        try {
+          bankAccountsData = await GetBankAccounts(companyName)
+          console.log('OutstandingChecks: GetBankAccounts response:', bankAccountsData)
+          console.log('OutstandingChecks: GetBankAccounts response type:', typeof bankAccountsData)
+          console.log('OutstandingChecks: GetBankAccounts response length:', bankAccountsData?.length)
+          
+          if (!bankAccountsData || !Array.isArray(bankAccountsData)) {
+            console.log('OutstandingChecks: GetBankAccounts returned invalid data, using fallback')
+            throw new Error('GetBankAccounts returned invalid data: ' + typeof bankAccountsData)
+          }
+        } catch (getBankAccountsErr) {
+          console.error('OutstandingChecks: GetBankAccounts call failed:', getBankAccountsErr)
+          throw getBankAccountsErr // Fall through to fallback
+        }
+      } else {
+        console.log('OutstandingChecks: GetBankAccounts function not available')
+        throw new Error('GetBankAccounts function not available')
       }
+      
+      // Success with primary method
+      setBankAccounts(bankAccountsData)
+      console.log('OutstandingChecks: Successfully set', bankAccountsData.length, 'bank accounts via GetBankAccounts')
+      
     } catch (err) {
-      console.error('Failed to load bank accounts:', err)
-      setBankAccounts([])
+      console.log('OutstandingChecks: Primary method failed, trying fallback...')
+      // Fallback: Try to read COA.dbf directly using GetDBFTableData
+      try {
+        console.log('OutstandingChecks: Using GetDBFTableData fallback...')
+        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
+        console.log('OutstandingChecks: COA.dbf data loaded:', coaData)
+        
+        if (coaData && coaData.rows) {
+          const bankAccounts = coaData.rows
+            .filter((row, index) => {
+              // Check if LBANKACCT is true (column 6 based on COA structure)
+              const bankFlag = row[6]
+              if (index < 5) { // Only log first 5 rows to avoid spam
+                console.log('OutstandingChecks - Row', index, 'Account:', row[0], 'LBANKACCT flag:', bankFlag, 'type:', typeof bankFlag)
+              }
+              return bankFlag === true || bankFlag === 'T' || bankFlag === '.T.' || bankFlag === 'true'
+            })
+            .map(row => ({
+              account_number: row[0] || '',     // Cacctno
+              account_name: row[2] || '',       // Cacctdesc (Account description)
+              account_type: row[1] || 'Checking', // Caccttype
+              balance: 0,                       // Balance not in COA
+              description: row[2] || '',        // Cacctdesc
+              is_bank_account: true
+            }))
+          
+          console.log('OutstandingChecks: Filtered bank accounts via fallback:', bankAccounts)
+          setBankAccounts(bankAccounts)
+          console.log('OutstandingChecks: Successfully set', bankAccounts.length, 'bank accounts via fallback')
+        } else {
+          console.error('OutstandingChecks: No data in COA.dbf')
+          setBankAccounts([])
+        }
+      } catch (fallbackErr) {
+        console.error('OutstandingChecks: Fallback method also failed:', fallbackErr)
+        setBankAccounts([])
+      }
     }
   }
 
@@ -298,19 +366,34 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
         {/* Account Filter */}
         <div className="flex-1 max-w-xs">
           <Label htmlFor="account-filter">Bank Account</Label>
-          <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-            <SelectTrigger id="account-filter">
-              <SelectValue placeholder="Select account" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Accounts</SelectItem>
-              {bankAccounts.map((account, idx) => (
-                <SelectItem key={idx} value={account.account_number}>
-                  {account.account_number} - {account.account_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Temporary debugging with basic HTML select */}
+          <div>
+            <select 
+              id="account-filter" 
+              value={selectedAccount} 
+              onChange={(e) => {
+                console.log('OutstandingChecks: Account selected via HTML select:', e.target.value)
+                setSelectedAccount(e.target.value)
+              }}
+              className="w-full p-2 border rounded-md"
+            >
+              <option value="all">All Accounts (Debug: {bankAccounts.length} loaded)</option>
+              {bankAccounts.map((account, idx) => {
+                console.log(`OutstandingChecks: Rendering HTML option ${idx}:`, account)
+                const accountNumber = account.account_number || account.accountNumber || ''
+                const accountName = account.account_name || account.accountName || ''
+                
+                return (
+                  <option key={`${idx}-${accountNumber}`} value={accountNumber}>
+                    {accountNumber} - {accountName}
+                  </option>
+                )
+              })}
+            </select>
+            <div className="text-xs text-gray-500 mt-1">
+              Debug Info: {bankAccounts.length} accounts loaded, selected: '{selectedAccount}'
+            </div>
+          </div>
         </div>
 
         {/* Search */}

@@ -185,8 +185,8 @@ func (a *App) GetDBFFiles(companyName string) ([]string, error) {
 func (a *App) GetDBFTableData(companyName, fileName string) (map[string]interface{}, error) {
 	fmt.Printf("GetDBFTableData called: company=%s, file=%s\n", companyName, fileName)
 	
-	// Call the real DBF reading function without search
-	return company.ReadDBFFile(companyName, fileName, "", 0, 1000, "", "")
+	// Call the real DBF reading function without search - NO RECORD LIMIT
+	return company.ReadDBFFile(companyName, fileName, "", 0, 0, "", "")
 }
 
 // GetDBFTableDataPaged returns paginated and sorted data from a DBF file
@@ -201,8 +201,8 @@ func (a *App) GetDBFTableDataPaged(companyName, fileName string, offset, limit i
 func (a *App) SearchDBFTable(companyName, fileName, searchTerm string) (map[string]interface{}, error) {
 	fmt.Printf("SearchDBFTable called: company=%s, file=%s, search=%s\n", companyName, fileName, searchTerm)
 	
-	// Call the DBF reading function with search term
-	return company.ReadDBFFile(companyName, fileName, searchTerm, 0, 1000, "", "")
+	// Call the DBF reading function with search term (no limit - get all matching records)
+	return company.ReadDBFFile(companyName, fileName, searchTerm, 0, 0, "", "")
 }
 
 // UpdateDBFRecord updates a specific record in a DBF file
@@ -217,6 +217,15 @@ func (a *App) UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex i
 // GetDashboardData returns aggregated data for the dashboard
 func (a *App) GetDashboardData(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("GetDashboardData called for company: %s\n", companyName)
+	
+	// Security check: ensure user can only access their own company data
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if a.currentUser.CompanyName != companyName {
+		return nil, fmt.Errorf("access denied: user can only access data for company '%s'", a.currentUser.CompanyName)
+	}
 	
 	return company.GetDashboardData(companyName)
 }
@@ -521,9 +530,9 @@ func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, err
 	
 	fmt.Printf("GetBankAccounts: permissions OK, reading COA.dbf\n")
 
-	// Read COA.dbf file
+	// Read COA.dbf file (no limit - get all records for financial accuracy)
 	fmt.Printf("GetBankAccounts: About to read COA.dbf for company: %s\n", companyName)
-	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 10000, "", "")
+	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 0, "", "")
 	if err != nil {
 		fmt.Printf("GetBankAccounts: failed to read COA.dbf: %v\n", err)
 		return []map[string]interface{}{}, fmt.Errorf("failed to read COA.dbf: %w", err)
@@ -619,8 +628,8 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Read checks.dbf
-	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 10000, "", "")
+	// Read checks.dbf - increase limit to get all records instead of just 10,000
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 50000, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
 	}
@@ -674,9 +683,27 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 	var outstandingChecks []map[string]interface{}
 	checksRows, _ := checksData["rows"].([][]interface{})
 	
+	fmt.Printf("GetOutstandingChecks: Processing %d rows, filtering by account: '%s'\n", len(checksRows), accountNumber)
+	
+	var totalProcessed, accountMatches, clearedCount, voidCount int
+	
 	for _, row := range checksRows {
 		if len(row) <= checkNumIdx || len(row) <= amountIdx {
 			continue
+		}
+		
+		totalProcessed++
+		
+		// Get account for this check first for debugging
+		checkAccount := ""
+		if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
+			checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		}
+		
+		// Track account matches for debugging
+		isAccountMatch := (accountNumber == "" || checkAccount == accountNumber)
+		if isAccountMatch {
+			accountMatches++
 		}
 		
 		// Check if cleared (default to false if no cleared column)
@@ -690,7 +717,15 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 					isCleared = v
 				case string:
 					lowerVal := strings.ToLower(strings.TrimSpace(v))
-					isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					// CRITICAL FIX: Empty string should be FALSE (not cleared)
+					if lowerVal == "" {
+						isCleared = false
+					} else {
+						isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					}
+				default:
+					// For any other type, treat as false
+					isCleared = false
 				}
 			}
 		}
@@ -706,19 +741,48 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 					isVoided = v
 				case string:
 					lowerVal := strings.ToLower(strings.TrimSpace(v))
-					isVoided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					// CRITICAL FIX: Empty string should be FALSE (not voided)
+					if lowerVal == "" {
+						isVoided = false
+					} else {
+						isVoided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					}
+				default:
+					// For any other type, treat as false
+					isVoided = false
 				}
 			}
 		}
 		
-		// Only include if not cleared and not voided
-		if !isCleared && !isVoided {
-			// Get account for this check
-			checkAccount := ""
-			if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
-				checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		// Debug logging for account 100000 specifically
+		if isAccountMatch && accountNumber == "100000" && accountMatches <= 20 {
+			checkNum := fmt.Sprintf("%v", row[checkNumIdx])
+			amount := parseFloat(row[amountIdx])
+			
+			// Show raw values from DBF
+			clearedRaw := "nil"
+			voidRaw := "nil"
+			if clearedIdx != -1 && len(row) > clearedIdx {
+				clearedRaw = fmt.Sprintf("%v (type: %T)", row[clearedIdx], row[clearedIdx])
+			}
+			if voidIdx != -1 && len(row) > voidIdx {
+				voidRaw = fmt.Sprintf("%v (type: %T)", row[voidIdx], row[voidIdx])
 			}
 			
+			fmt.Printf("GetOutstandingChecks: Check %s, Account %s, Amount $%.2f\n", checkNum, checkAccount, amount)
+			fmt.Printf("  Raw LCLEARED: %s -> Parsed: %t\n", clearedRaw, isCleared)
+			fmt.Printf("  Raw LVOID: %s -> Parsed: %t\n", voidRaw, isVoided)
+		}
+		
+		if isCleared {
+			clearedCount++
+		}
+		if isVoided {
+			voidCount++
+		}
+		
+		// Only include if not cleared and not voided
+		if !isCleared && !isVoided {			
 			// If account filter is provided, only include checks for that account
 			if accountNumber != "" && checkAccount != accountNumber {
 				continue
@@ -732,7 +796,14 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 			
 			// Add optional fields if available
 			if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
-				check["date"] = fmt.Sprintf("%v", row[dateIdx])
+				// Properly handle DBF date fields - they can be time.Time or strings
+				if t, ok := row[dateIdx].(time.Time); ok {
+					// DBF library returns time.Time directly
+					check["date"] = t.Format("2006-01-02")
+				} else {
+					// Fallback to string representation
+					check["date"] = fmt.Sprintf("%v", row[dateIdx])
+				}
 			}
 			if payeeIdx != -1 && len(row) > payeeIdx && row[payeeIdx] != nil {
 				check["payee"] = fmt.Sprintf("%v", row[payeeIdx])
@@ -747,6 +818,8 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 	}
 	
 	fmt.Printf("GetOutstandingChecks: Found %d outstanding checks\n", len(outstandingChecks))
+	fmt.Printf("GetOutstandingChecks: Summary - Processed: %d, Account matches: %d, Cleared: %d, Voided: %d, Outstanding: %d\n", 
+		totalProcessed, accountMatches, clearedCount, voidCount, len(outstandingChecks))
 	
 	return map[string]interface{}{
 		"status": "success",
@@ -902,16 +975,22 @@ func (a *App) RefreshAccountBalance(companyName, accountNumber string) (map[stri
 	username := a.currentUser.Username
 	
 	// Refresh GL balance
+	fmt.Printf("RefreshAccountBalance: Starting GL balance refresh for account %s\n", accountNumber)
 	err := database.RefreshGLBalance(a.db, companyName, accountNumber, username)
 	if err != nil {
+		fmt.Printf("RefreshAccountBalance: GL balance refresh failed: %v\n", err)
 		return nil, fmt.Errorf("failed to refresh GL balance: %w", err)
 	}
+	fmt.Printf("RefreshAccountBalance: GL balance refresh completed for account %s\n", accountNumber)
 	
 	// Refresh outstanding checks
+	fmt.Printf("RefreshAccountBalance: Starting outstanding checks refresh for account %s\n", accountNumber)
 	err = database.RefreshOutstandingChecks(a.db, companyName, accountNumber, username)
 	if err != nil {
+		fmt.Printf("RefreshAccountBalance: Outstanding checks refresh failed: %v\n", err)
 		return nil, fmt.Errorf("failed to refresh outstanding checks: %w", err)
 	}
+	fmt.Printf("RefreshAccountBalance: Outstanding checks refresh completed for account %s\n", accountNumber)
 	
 	// Get the updated cached balance
 	balance, err := database.GetCachedBalance(a.db, companyName, accountNumber)
@@ -1022,7 +1101,7 @@ func (a *App) GetBalanceHistory(companyName, accountNumber string, limit int) ([
 			&h.ID, &h.AccountBalanceID, &h.CompanyName, &h.AccountNumber,
 			&h.ChangeType, &h.OldGLBalance, &h.NewGLBalance,
 			&h.OldOutstandingTotal, &h.NewOutstandingTotal,
-			&h.OldBankBalance, &h.NewBankBalance,
+			&h.OldAvailableBalance, &h.NewAvailableBalance,
 			&h.ChangeReason, &h.ChangedBy, &h.ChangeTimestamp, &h.Metadata,
 			&accountName,
 		)
@@ -1038,8 +1117,8 @@ func (a *App) GetBalanceHistory(companyName, accountNumber string, limit int) ([
 			"new_gl_balance":         h.NewGLBalance,
 			"old_outstanding_total":  h.OldOutstandingTotal,
 			"new_outstanding_total":  h.NewOutstandingTotal,
-			"old_bank_balance":       h.OldBankBalance,
-			"new_bank_balance":       h.NewBankBalance,
+			"old_available_balance":  h.OldAvailableBalance,
+			"new_available_balance":  h.NewAvailableBalance,
 			"change_reason":          h.ChangeReason,
 			"changed_by":             h.ChangedBy,
 			"change_timestamp":       h.ChangeTimestamp,
@@ -1062,8 +1141,8 @@ func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, err
 		return nil, fmt.Errorf("insufficient permissions - admin or root required")
 	}
 	
-	// Read checks.dbf
-	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 10000, "", "")
+	// Read checks.dbf (no limit - get all check records for complete audit)
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
 	}
@@ -1275,12 +1354,22 @@ func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{
 		return nil, fmt.Errorf("insufficient permissions - admin or root required")
 	}
 
-	// Force refresh of all cached balances before audit (as requested by user)
-	fmt.Printf("AuditBankReconciliation: Refreshing all cached balances...\n")
-	_, err := a.RefreshAllBalances(companyName)
-	if err != nil {
-		fmt.Printf("AuditBankReconciliation: Warning - failed to refresh balances: %v\n", err)
-		// Continue with audit even if refresh fails
+	// Force refresh of cached balances for each bank account before audit (as requested by user)
+	fmt.Printf("AuditBankReconciliation: Getting bank accounts first to refresh individually...\n")
+	tempBankAccounts, err := a.GetBankAccounts(companyName)
+	if err == nil && len(tempBankAccounts) > 0 {
+		fmt.Printf("AuditBankReconciliation: Refreshing cached balances for %d bank accounts...\n", len(tempBankAccounts))
+		for _, account := range tempBankAccounts {
+			if accountNum, ok := account["account_number"].(string); ok && accountNum != "" {
+				fmt.Printf("AuditBankReconciliation: Refreshing balance for account %s\n", accountNum)
+				_, err := a.RefreshAccountBalance(companyName, accountNum)
+				if err != nil {
+					fmt.Printf("AuditBankReconciliation: Warning - failed to refresh balance for account %s: %v\n", accountNum, err)
+				}
+			}
+		}
+	} else {
+		fmt.Printf("AuditBankReconciliation: Warning - could not get bank accounts for refresh: %v\n", err)
 	}
 
 	// Get bank accounts from COA.dbf
@@ -1299,9 +1388,9 @@ func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{
 		}, nil
 	}
 
-	// Read CHECKREC.dbf for reconciliation data
+	// Read CHECKREC.dbf for reconciliation data (no limit - get all reconciliation records)
 	fmt.Printf("AuditBankReconciliation: Reading CHECKREC.dbf for company: %s\n", companyName)
-	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 10000, "", "")
+	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 0, "", "")
 	if err != nil {
 		fmt.Printf("AuditBankReconciliation: Error reading CHECKREC.dbf: %v\n", err)
 		return map[string]interface{}{
@@ -1373,16 +1462,28 @@ func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{
 		// Parse date (required for proper logic)
 		var recDate time.Time
 		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
-			if dateStr := fmt.Sprintf("%v", row[dateIdx]); dateStr != "" {
+			// Check if it's already a time.Time object from DBF
+			if t, ok := row[dateIdx].(time.Time); ok {
+				recDate = t
+				if i < 5 { // Debug first few rows
+					fmt.Printf("AuditBankReconciliation: Row %d - Got time.Time directly: %s\n", i, recDate.Format("2006-01-02"))
+				}
+			} else if dateStr := fmt.Sprintf("%v", row[dateIdx]); dateStr != "" {
 				if i < 5 { // Debug first few rows
 					fmt.Printf("AuditBankReconciliation: Row %d - Date string: %s\n", i, dateStr)
 				}
-				// Handle ISO format like "2025-06-27T00:00:00Z"
-				for _, format := range []string{"2006-01-02T15:04:05Z", "2006-01-02T15:04:05", "2006-01-02", "01/02/2006", "1/2/2006"} {
+				// Handle various string formats
+				for _, format := range []string{
+					"2006-01-02 15:04:05 -0700 MST", // Go time.Time string format
+					"2006-01-02T15:04:05Z", 
+					"2006-01-02T15:04:05", 
+					"2006-01-02", 
+					"01/02/2006", 
+					"1/2/2006"} {
 					if parsedDate, err := time.Parse(format, dateStr); err == nil {
 						recDate = parsedDate
 						if i < 5 { // Debug first few rows
-							fmt.Printf("AuditBankReconciliation: Row %d - Parsed date: %s\n", i, recDate.Format("2006-01-02"))
+							fmt.Printf("AuditBankReconciliation: Row %d - Parsed date from string: %s\n", i, recDate.Format("2006-01-02"))
 						}
 						break
 					}
@@ -1555,6 +1656,265 @@ func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{
 		"audit_timestamp": time.Now().Format(time.RFC3339),
 		"audited_by": a.currentUser.Username,
 	}, nil
+}
+
+// AuditSingleBankAccount performs bank reconciliation audit for a single account
+func (a *App) AuditSingleBankAccount(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("AuditSingleBankAccount called for company: %s, account: %s\n", companyName, accountNumber)
+	
+	// Check permissions - only admin/root can audit
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.IsRoot && a.currentUser.RoleName != "Admin" {
+		return nil, fmt.Errorf("insufficient permissions - admin or root required")
+	}
+
+	// Refresh balance for this specific account
+	fmt.Printf("AuditSingleBankAccount: Refreshing balance for account %s\n", accountNumber)
+	_, err := a.RefreshAccountBalance(companyName, accountNumber)
+	if err != nil {
+		fmt.Printf("AuditSingleBankAccount: Warning - failed to refresh balance for account %s: %v\n", accountNumber, err)
+	}
+
+	// Get the specific bank account info
+	bankAccounts, err := a.GetBankAccounts(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+	
+	var targetAccount map[string]interface{}
+	for _, account := range bankAccounts {
+		if accNum, ok := account["account_number"].(string); ok && accNum == accountNumber {
+			targetAccount = account
+			break
+		}
+	}
+	
+	if targetAccount == nil {
+		return map[string]interface{}{
+			"status": "error",
+			"error": "account_not_found",
+			"message": fmt.Sprintf("Bank account %s not found in Chart of Accounts", accountNumber),
+		}, nil
+	}
+
+	// Get cached balance data
+	cachedBalances, err := a.GetCachedBalances(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+	
+	var glBalance, outstandingChecks float64
+	var outstandingCount int
+	for _, balance := range cachedBalances {
+		if balance["account_number"].(string) == accountNumber {
+			glBalance = parseFloat(balance["gl_balance"])
+			outstandingChecks = parseFloat(balance["outstanding_total"])
+			outstandingCount = int(parseFloat(balance["outstanding_count"]))
+			break
+		}
+	}
+
+	// Read CHECKREC.dbf for reconciliation data (no limit - get all reconciliation records)
+	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return map[string]interface{}{
+			"status": "error",
+			"error": "CHECKREC.dbf not found",
+			"message": "The CHECKREC.dbf file is required for bank reconciliation audit",
+		}, nil
+	}
+
+	// Get column indices for CHECKREC.dbf
+	checkrecColumns, ok := checkrecData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid CHECKREC.dbf structure")
+	}
+
+	// Find relevant columns
+	var accountIdx, endingBalanceIdx, dateIdx int = -1, -1, -1
+	for i, col := range checkrecColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CACCTNO" {
+			accountIdx = i
+		} else if colUpper == "NENDBAL" {
+			endingBalanceIdx = i
+		} else if colUpper == "DRECDATE" {
+			dateIdx = i
+		}
+	}
+
+	if accountIdx == -1 || endingBalanceIdx == -1 {
+		return nil, fmt.Errorf("required columns not found in CHECKREC.dbf")
+	}
+
+	// Find reconciliation records for this account
+	checkrecRows, _ := checkrecData["rows"].([][]interface{})
+	
+	type ReconciliationRecord struct {
+		Date    time.Time
+		Balance float64
+	}
+	
+	var accountRecords []ReconciliationRecord
+	
+	for _, row := range checkrecRows {
+		if len(row) <= accountIdx || len(row) <= endingBalanceIdx {
+			continue
+		}
+
+		rowAccountNum := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		if rowAccountNum != accountNumber {
+			continue // Skip records for other accounts
+		}
+
+		endingBalance := parseFloat(row[endingBalanceIdx])
+		
+		var recDate time.Time
+		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
+			if t, ok := row[dateIdx].(time.Time); ok {
+				recDate = t
+			}
+		}
+		
+		if !recDate.IsZero() {
+			accountRecords = append(accountRecords, ReconciliationRecord{
+				Date:    recDate,
+				Balance: endingBalance,
+			})
+		}
+	}
+
+	// Process reconciliation records
+	if len(accountRecords) == 0 {
+		return map[string]interface{}{
+			"status": "success",
+			"account_number": accountNumber,
+			"account_name": targetAccount["account_name"],
+			"issue_type": "no_reconciliation_data",
+			"gl_balance": glBalance,
+			"outstanding_checks": outstandingChecks,
+			"outstanding_count": outstandingCount,
+			"reconciliation_balance": nil,
+			"reconciliation_date": nil,
+			"expected_gl_balance": nil,
+			"difference": nil,
+			"audit_timestamp": time.Now().Format(time.RFC3339),
+			"audited_by": a.currentUser.Username,
+		}, nil
+	}
+
+	// Sort by date (latest first)
+	for i := 0; i < len(accountRecords)-1; i++ {
+		for j := i + 1; j < len(accountRecords); j++ {
+			if accountRecords[j].Date.After(accountRecords[i].Date) {
+				accountRecords[i], accountRecords[j] = accountRecords[j], accountRecords[i]
+			}
+		}
+	}
+
+	// Apply reconciliation logic
+	latestRecord := accountRecords[0]
+	reconciliationBalance := latestRecord.Balance
+	reconciliationDate := latestRecord.Date
+
+	// Handle interim reconciliation (NENDBAL = 0)
+	if reconciliationBalance == 0 && len(accountRecords) > 1 {
+		for _, record := range accountRecords[1:] {
+			if record.Balance > 0 {
+				reconciliationBalance = record.Balance
+				break
+			}
+		}
+	}
+
+	// Calculate expected GL balance: Reconciliation Balance - Outstanding Checks = GL Balance
+	expectedGLBalance := reconciliationBalance - outstandingChecks
+	difference := glBalance - expectedGLBalance
+
+	// Determine issue type
+	var issueType string
+	if math.Abs(difference) < 0.01 { // Allow for small rounding differences
+		issueType = "balanced"
+	} else {
+		issueType = "discrepancy_found"
+	}
+
+	return map[string]interface{}{
+		"status": "success",
+		"account_number": accountNumber,
+		"account_name": targetAccount["account_name"],
+		"issue_type": issueType,
+		"gl_balance": glBalance,
+		"outstanding_checks": outstandingChecks,
+		"outstanding_count": outstandingCount,
+		"reconciliation_balance": reconciliationBalance,
+		"reconciliation_date": reconciliationDate.Format("2006-01-02"),
+		"expected_gl_balance": expectedGLBalance,
+		"difference": difference,
+		"audit_timestamp": time.Now().Format(time.RFC3339),
+		"audited_by": a.currentUser.Username,
+	}, nil
+}
+
+// GetBankAccountsForAudit returns a list of bank accounts available for auditing
+func (a *App) GetBankAccountsForAudit(companyName string) ([]map[string]interface{}, error) {
+	fmt.Printf("GetBankAccountsForAudit called for company: %s\n", companyName)
+	
+	// Check permissions - only admin/root can audit
+	if a.currentUser == nil {
+		return nil, fmt.Errorf("user not authenticated")
+	}
+	
+	if !a.currentUser.IsRoot && a.currentUser.RoleName != "Admin" {
+		return nil, fmt.Errorf("insufficient permissions - admin or root required")
+	}
+
+	// Get bank accounts
+	bankAccounts, err := a.GetBankAccounts(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+
+	// Get cached balances for additional info
+	cachedBalances, err := a.GetCachedBalances(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+
+	// Create balance lookup map
+	balanceMap := make(map[string]map[string]interface{})
+	for _, balance := range cachedBalances {
+		accountNum := balance["account_number"].(string)
+		balanceMap[accountNum] = balance
+	}
+
+	// Enhance bank accounts with balance info
+	var auditAccounts []map[string]interface{}
+	for _, account := range bankAccounts {
+		accountNum := account["account_number"].(string)
+		auditAccount := map[string]interface{}{
+			"account_number": accountNum,
+			"account_name":   account["account_name"],
+			"account_type":   account["account_type"],
+			"gl_balance":     0.0,
+			"outstanding_checks": 0.0,
+			"outstanding_count": 0,
+			"last_audited":   nil,
+		}
+
+		if balance, exists := balanceMap[accountNum]; exists {
+			auditAccount["gl_balance"] = balance["gl_balance"]
+			auditAccount["outstanding_checks"] = balance["outstanding_total"]
+			auditAccount["outstanding_count"] = balance["outstanding_count"]
+		}
+
+		auditAccounts = append(auditAccounts, auditAccount)
+	}
+
+	return auditAccounts, nil
 }
 
 func main() {

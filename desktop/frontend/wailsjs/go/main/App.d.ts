@@ -7,6 +7,8 @@ export function AuditBankReconciliation(arg1:string):Promise<Record<string, any>
 
 export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
+export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;
 
 export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -22,6 +24,8 @@ export function GetAllUsers():Promise<Array<auth.User>>;
 export function GetBalanceHistory(arg1:string,arg2:string,arg3:number):Promise<Array<Record<string, any>>>;
 
 export function GetBankAccounts(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetBankAccountsForAudit(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
 

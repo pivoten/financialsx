@@ -7,14 +7,38 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
 )
 
+// Cache the datafiles path to avoid repeated directory scanning
+var (
+	cachedDatafilesPath string
+	datafilesPathMutex  sync.RWMutex
+)
+
 // getDatafilesPath returns the path to the datafiles directory
 // It looks for the directory in multiple locations to handle both dev and production scenarios
+// Uses caching to avoid repeated scanning after first discovery
 func getDatafilesPath() (string, error) {
+	// Check cache first
+	datafilesPathMutex.RLock()
+	if cachedDatafilesPath != "" {
+		defer datafilesPathMutex.RUnlock()
+		return cachedDatafilesPath, nil
+	}
+	datafilesPathMutex.RUnlock()
+	
+	// Need to find the path - upgrade to write lock
+	datafilesPathMutex.Lock()
+	defer datafilesPathMutex.Unlock()
+	
+	// Double-check after acquiring write lock (another goroutine might have set it)
+	if cachedDatafilesPath != "" {
+		return cachedDatafilesPath, nil
+	}
 	// Possible locations for datafiles directory
 	possiblePaths := []string{
 		"../datafiles",       // One level up (dev from desktop folder) - CHECK THIS FIRST
@@ -37,6 +61,7 @@ func getDatafilesPath() (string, error) {
 				// Prefer directories that have companies in them
 				if companyCount > 0 {
 					fmt.Printf("Found datafiles path with %d companies: %s\n", companyCount, path)
+					cachedDatafilesPath = path
 					return path, nil
 				}
 			}
@@ -47,6 +72,7 @@ func getDatafilesPath() (string, error) {
 	for _, path := range possiblePaths {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			fmt.Printf("Using empty datafiles path: %s\n", path)
+			cachedDatafilesPath = path
 			return path, nil
 		}
 	}
@@ -58,6 +84,7 @@ func getDatafilesPath() (string, error) {
 	}
 	
 	fmt.Printf("Created new datafiles path: %s\n", datafilesPath)
+	cachedDatafilesPath = datafilesPath
 	return datafilesPath, nil
 }
 
@@ -395,10 +422,19 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 		}
 	}
 	
-	// Apply pagination
+	// Apply pagination (limit = 0 means no limit)
 	totalRows := len(allRows)
 	startIdx := offset
-	endIdx := offset + limit
+	endIdx := totalRows // Default to end of data
+	
+	fmt.Printf("Pagination: offset=%d, limit=%d, totalRows=%d\n", offset, limit, totalRows)
+	
+	if limit > 0 { // Only apply limit if it's specified
+		endIdx = offset + limit
+		fmt.Printf("Pagination: Applied limit, endIdx=%d\n", endIdx)
+	} else {
+		fmt.Printf("Pagination: No limit specified, endIdx=%d (all rows)\n", endIdx)
+	}
 	
 	if startIdx >= totalRows {
 		startIdx = totalRows
@@ -451,33 +487,20 @@ func UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex int, value
 		rowIndex, colIndex, value, fileName, companyName)
 }
 
-// GetDashboardData analyzes DBF files and returns dashboard statistics
+// GetDashboardData returns lightweight dashboard data with well types
 func GetDashboardData(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("Getting dashboard data for company: %s\n", companyName)
 	
 	dashboard := map[string]interface{}{
 		"company": companyName,
 		"widgets": map[string]interface{}{},
+		"status": "ready",
+		"message": "Dashboard loaded successfully",
 	}
 	
-	// Get basic file statistics
-	if fileStats, err := getFileStatistics(companyName); err == nil {
-		dashboard["fileStats"] = fileStats
-	}
-	
-	// Try to get financial data from INCOME and EXPENSE files
-	if financials, err := getFinancialSummary(companyName); err == nil {
-		dashboard["financials"] = financials
-	}
-	
-	// Try to get well data
-	if wells, err := getWellSummary(companyName); err == nil {
-		dashboard["wells"] = wells
-	}
-	
-	// Try to get check activity
-	if checks, err := getCheckActivity(companyName); err == nil {
-		dashboard["checks"] = checks
+	// Get well types for top cards (lightweight operation)
+	if wellTypes, err := getWellTypes(companyName); err == nil {
+		dashboard["wellTypes"] = wellTypes
 	}
 	
 	return dashboard, nil
@@ -640,4 +663,105 @@ func parseNumber(value interface{}) (float64, error) {
 	str = strings.ReplaceAll(str, ",", "")
 	
 	return strconv.ParseFloat(str, 64)
+}
+
+// getWellTypes returns a lightweight summary of well types from WELLS.DBF
+func getWellTypes(companyName string) ([]map[string]interface{}, error) {
+	fmt.Printf("getWellTypes: Reading WELLS.dbf for company: %s\n", companyName)
+	
+	// Read WELLS.DBF file
+	wellsData, err := ReadDBFFile(companyName, "WELLS.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("getWellTypes: Failed to read WELLS.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read WELLS.dbf: %w", err)
+	}
+	
+	columns, ok := wellsData["columns"].([]string)
+	if !ok {
+		fmt.Printf("getWellTypes: Invalid WELLS.dbf structure - no columns\n")
+		return nil, fmt.Errorf("invalid WELLS.dbf structure - no columns")
+	}
+	
+	rows, ok := wellsData["rows"].([][]interface{})
+	if !ok {
+		fmt.Printf("getWellTypes: Invalid WELLS.dbf structure - no rows\n")
+		return nil, fmt.Errorf("invalid WELLS.dbf structure - no rows")
+	}
+	
+	fmt.Printf("getWellTypes: Found %d columns: %v\n", len(columns), columns)
+	fmt.Printf("getWellTypes: Found %d rows\n", len(rows))
+	
+	// Find relevant columns (adjust based on actual WELLS.DBF structure)
+	var wellNameIdx, wellTypeIdx, statusIdx int = -1, -1, -1
+	for i, col := range columns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "WELLNAME", "WELL_NAME", "NAME", "CWELLNAME":
+			wellNameIdx = i
+			fmt.Printf("getWellTypes: Found well name column at index %d: %s\n", i, col)
+		case "WELLTYPE", "WELL_TYPE", "TYPE", "CWELLTYPE", "CGROUP", "CFORMATION":
+			wellTypeIdx = i
+			fmt.Printf("getWellTypes: Found well type column at index %d: %s\n", i, col)
+		case "STATUS", "ACTIVE", "LSTATUS", "CSTATUS", "CWELLSTAT":
+			statusIdx = i
+			fmt.Printf("getWellTypes: Found status column at index %d: %s\n", i, col)
+		}
+	}
+	
+	fmt.Printf("getWellTypes: Column indices - Name: %d, Type: %d, Status: %d\n", wellNameIdx, wellTypeIdx, statusIdx)
+	
+	// Count wells by status
+	statusCounts := make(map[string]int)
+	totalWells := 0
+	
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		
+		totalWells++
+		
+		// Get well status (A=Active, P=Plugged, S=Shutin, I=Inactive)
+		wellStatus := "Unknown"
+		if statusIdx != -1 && len(row) > statusIdx && row[statusIdx] != nil {
+			wellStatus = strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", row[statusIdx])))
+		}
+		
+		// Count by status
+		switch wellStatus {
+		case "A":
+			statusCounts["Active"]++
+		case "P":
+			statusCounts["Plugged"]++
+		case "S":
+			statusCounts["Shut-in"]++
+		case "I":
+			statusCounts["Inactive"]++
+		default:
+			statusCounts["Unknown"]++
+		}
+		
+		// For well types, we'll show status-based groupings instead of formation/group
+		// since status is more actionable for operations
+	}
+	
+	// Convert status counts to array for frontend (showing well status instead of type)
+	var wellTypes []map[string]interface{}
+	for status, count := range statusCounts {
+		if count > 0 { // Only show statuses that have wells
+			wellTypes = append(wellTypes, map[string]interface{}{
+				"type":  status,
+				"count": count,
+			})
+		}
+	}
+	
+	// Sort by count (descending)
+	sort.Slice(wellTypes, func(i, j int) bool {
+		return wellTypes[i]["count"].(int) > wellTypes[j]["count"].(int)
+	})
+	
+	fmt.Printf("getWellTypes: Total wells: %d, Status breakdown: %v\n", totalWells, statusCounts)
+	fmt.Printf("getWellTypes: Returning %d status categories: %v\n", len(wellTypes), wellTypes)
+	return wellTypes, nil
 }

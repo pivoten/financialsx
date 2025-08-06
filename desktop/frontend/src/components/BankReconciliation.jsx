@@ -89,10 +89,28 @@ export function BankReconciliation({ companyName }) {
   // Load last reconciliation and checks data when selected account changes
   useEffect(() => {
     if (companyName && selectedAccount) {
-      loadLastReconciliation()
-      loadChecksData()
+      // Load data sequentially to avoid overwriting saved draft values
+      const loadAccountData = async () => {
+        await loadLastReconciliation()
+        await loadChecksData() 
+        // Load draft AFTER everything else is loaded to avoid overwriting
+        await loadDraftReconciliation()
+      }
+      loadAccountData()
     }
   }, [companyName, selectedAccount])
+
+  // Auto-save functionality when form values or selected checks change
+  useEffect(() => {
+    if (hasUnsavedChanges && selectedAccount && companyName) {
+      // Debounce auto-save to avoid too many saves
+      const timeoutId = setTimeout(() => {
+        saveDraftReconciliation()
+      }, 10000) // Auto-save after 10 seconds of inactivity
+
+      return () => clearTimeout(timeoutId)
+    }
+  }, [hasUnsavedChanges, selectedAccount, companyName]) // Removed individual field dependencies to reduce re-renders
 
   // Load bank accounts from COA.dbf
   const loadBankAccounts = async () => {
@@ -215,6 +233,7 @@ export function BankReconciliation({ companyName }) {
           memo: check.memo || '',
           voidFlag: check.voidFlag || false,
           daysOutstanding: check.daysOutstanding || 0,
+          entryType: check.entryType || '', // D = Deposit, C = Check
           rowIndex: check._rowIndex || index, // Keep row index for DBF updates
           originalCheck: check // Keep original data for updates
         }))
@@ -245,21 +264,59 @@ export function BankReconciliation({ companyName }) {
         setLastReconciliation(response)
         
         // Pre-populate the reconciliation form with the last data
-        // The ending balance from last reconciliation becomes the beginning balance for new reconciliation
-        if (response.ending_balance) {
+        // The ending balance from last reconciliation becomes the beginning balance for new reconciliation (only if not already set)
+        if (response.ending_balance && !beginningBalance) {
           setBeginningBalance(response.ending_balance.toString())
         }
-        // Clear the statement fields for the new reconciliation (but don't trigger unsaved changes)
-        setStatementBalance('')
-        setStatementDate('')
-        setStatementCredits('')
-        setStatementDebits('')
+        
+        // Pre-populate statement date with end of following month from last reconciliation (only if not already set)
+        const lastDate = response.statement_date || response.date || response.reconcile_date
+        if (lastDate && !statementDate) {
+          // Parse the date string safely (assumes YYYY-MM-DD format from backend)
+          const dateStr = lastDate.split('T')[0] // Remove time if present
+          const [year, month, day] = dateStr.split('-').map(Number)
+          const lastStatementDate = new Date(year, month - 1, day) // month is 0-based in JS
+          
+          console.log('Last statement date from response:', lastDate)
+          console.log('Parsed date components:', { year, month: month-1, day })
+          console.log('Last statement date object:', lastStatementDate)
+          
+          // Calculate the end of the following month
+          const nextMonth = lastStatementDate.getMonth() + 1 // Get next month (0-based)
+          const nextYear = nextMonth > 11 ? lastStatementDate.getFullYear() + 1 : lastStatementDate.getFullYear()
+          const adjustedMonth = nextMonth > 11 ? 0 : nextMonth
+          
+          // Get last day of the next month
+          const endOfFollowingMonth = new Date(nextYear, adjustedMonth + 1, 0)
+          
+          console.log('Next month calculations:', { nextMonth, nextYear, adjustedMonth })
+          console.log('End of following month:', endOfFollowingMonth)
+          
+          // Format as YYYY-MM-DD for the date input
+          const formattedDate = endOfFollowingMonth.getFullYear() + '-' + 
+                               String(endOfFollowingMonth.getMonth() + 1).padStart(2, '0') + '-' +
+                               String(endOfFollowingMonth.getDate()).padStart(2, '0')
+          
+          console.log('Formatted date for input:', formattedDate)
+          setStatementDate(formattedDate)
+        }
+        
+        // Clear other statement fields for the new reconciliation only if they're not already set (but don't trigger unsaved changes)
+        if (!statementBalance) setStatementBalance('')
+        if (!statementCredits) setStatementCredits('')
+        if (!statementDebits) setStatementDebits('')
         
         // Don't mark as unsaved changes since this is auto-population
         // setHasUnsavedChanges will be triggered by user input
       } else if (response && response.status === 'no_data') {
         setLastReconciliation(null)
         console.log('No reconciliation history found for this account')
+        
+        // If no last reconciliation, set statement date to end of current month
+        const now = new Date()
+        const endOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+        const formattedDate = endOfCurrentMonth.toISOString().split('T')[0]
+        setStatementDate(formattedDate)
       }
     } catch (err) {
       console.error('Error loading last reconciliation:', err)
@@ -272,8 +329,9 @@ export function BankReconciliation({ companyName }) {
   // Draft Reconciliation Management using SQLite
   const saveDraftReconciliation = async () => {
     if (!selectedAccount || !companyName) return
-    if (!statementDate) {
-      console.log('Cannot save draft without statement date')
+    // Allow saving draft even without statement date for partial saves
+    if (!statementDate && !statementCredits && !statementDebits && draftSelectedChecks.size === 0) {
+      console.log('Cannot save empty draft reconciliation')
       return
     }
     
@@ -292,7 +350,7 @@ export function BankReconciliation({ companyName }) {
     
     const draftData = {
       account_number: selectedAccount,
-      statement_date: statementDate,
+      statement_date: statementDate ? statementDate.split('T')[0] : '', // Remove timestamp if present
       statement_balance: parseFloat(statementBalance) || 0,
       statement_credits: parseFloat(statementCredits) || 0,
       statement_debits: parseFloat(statementDebits) || 0,
@@ -318,7 +376,8 @@ export function BankReconciliation({ companyName }) {
       }
     } catch (err) {
       console.error('Failed to save draft reconciliation:', err)
-      setError('Failed to save draft reconciliation: ' + err.message)
+      const errorMessage = err?.message || err?.toString() || 'Unknown error occurred'
+      setError('Failed to save draft reconciliation: ' + errorMessage)
     }
   }
 
@@ -338,11 +397,11 @@ export function BankReconciliation({ companyName }) {
         console.log('Loading draft reconciliation from SQLite:', draftData)
         
         // Restore form data
-        setStatementDate(draftData.statement_date || '')
-        setStatementBalance(draftData.statement_balance?.toString() || '')
-        setStatementCredits(draftData.statement_credits?.toString() || '')
-        setStatementDebits(draftData.statement_debits?.toString() || '')
-        setBeginningBalance(draftData.beginning_balance?.toString() || '')
+        if (draftData.statement_date) setStatementDate(draftData.statement_date)
+        if (draftData.statement_balance) setStatementBalance(draftData.statement_balance.toString())
+        if (draftData.statement_credits) setStatementCredits(draftData.statement_credits.toString())
+        if (draftData.statement_debits) setStatementDebits(draftData.statement_debits.toString())
+        if (draftData.beginning_balance) setBeginningBalance(draftData.beginning_balance.toString())
         
         // Restore selected checks by matching CIDCHEC IDs
         const selectedCIDCHECs = new Set()
@@ -418,6 +477,22 @@ export function BankReconciliation({ companyName }) {
       setDraftReconciliation(null)
       setDraftSelectedChecks(new Set())
       setHasUnsavedChanges(false)
+    }
+  }
+
+  // Calculate ending balance (called when user leaves input fields)
+  const calculateEndingBalance = () => {
+    const beginningBal = parseFloat(beginningBalance) || 0
+    const credits = parseFloat(statementCredits) || 0
+    const debits = parseFloat(statementDebits) || 0
+    
+    // Bank reconciliation formula: Beginning + Credits - Debits = Ending Balance
+    const calculatedEnding = beginningBal + credits - debits
+    const newBalance = calculatedEnding.toFixed(2)
+    
+    // Only update if the value actually changed to avoid infinite loops
+    if (newBalance !== statementBalance) {
+      setStatementBalance(newBalance)
     }
   }
 
@@ -566,34 +641,58 @@ export function BankReconciliation({ companyName }) {
     const clearedChecks = accountChecks.filter(check => check.cleared)
     const unclearedChecks = accountChecks.filter(check => !check.cleared)
     
+    // Get checks selected for reconciliation (draft)
+    const selectedForReconciliation = Array.from(draftSelectedChecks).map(id => 
+      checks.find(check => check.id === id)
+    ).filter(Boolean)
+    
     const clearedTotal = clearedChecks.reduce((sum, check) => sum + check.amount, 0)
     const unclearedTotal = unclearedChecks.reduce((sum, check) => sum + check.amount, 0)
+    const selectedTotal = selectedForReconciliation.reduce((sum, check) => sum + check.amount, 0)
+    
+    // Separate selected items by type (Deposits vs Checks)
+    const selectedCredits = selectedForReconciliation
+      .filter(check => check.entryType?.toUpperCase() === 'D')
+      .reduce((sum, check) => sum + check.amount, 0)
+    const selectedDebits = selectedForReconciliation
+      .filter(check => check.entryType?.toUpperCase() === 'C')
+      .reduce((sum, check) => sum + check.amount, 0)
     
     const beginningBal = parseFloat(beginningBalance) || 0
     const statementBal = parseFloat(statementBalance) || 0
     const stmtCredits = parseFloat(statementCredits) || 0
     const stmtDebits = parseFloat(statementDebits) || 0
     
-    // Bank reconciliation with credits and debits
-    // Expected ending balance: Beginning + Credits - Debits = Statement Balance
-    const calculatedBalance = beginningBal + stmtCredits - stmtDebits
-    const balanceDifference = statementBal - calculatedBalance
+    // Bank reconciliation calculations
+    // 1. Calculated balance from selected items: Beginning + Selected Credits - Selected Debits
+    const calculatedBalance = beginningBal + selectedCredits - selectedDebits
     
-    // Outstanding items difference
-    const outstandingDifference = statementBal - unclearedTotal - beginningBal
+    // 2. Book balance after reconciling selected checks: Beginning - Selected Outstanding Checks
+    const bookBalanceAfterReconciliation = beginningBal - selectedTotal
+    
+    // 3. Difference between statement balance and calculated balance from selected items
+    const reconciliationDifference = statementBal - calculatedBalance
+    
+    // 4. Are we in balance? (difference should be zero or very close)
+    const isInBalance = Math.abs(reconciliationDifference) < 0.01
 
     return {
       clearedCount: clearedChecks.length,
       unclearedCount: unclearedChecks.length,
+      selectedCount: selectedForReconciliation.length,
       clearedTotal,
       unclearedTotal,
+      selectedTotal,
       beginningBalance: beginningBal,
       statementBalance: statementBal,
-      statementCredits: stmtCredits,
-      statementDebits: stmtDebits,
+      statementCredits: stmtCredits, // Input field values
+      statementDebits: stmtDebits,   // Input field values
+      selectedCredits,               // Selected deposit amounts
+      selectedDebits,                // Selected check amounts
       calculatedBalance,
-      balanceDifference,
-      outstandingDifference
+      bookBalanceAfterReconciliation,
+      reconciliationDifference,
+      isInBalance
     }
   }
 
@@ -678,10 +777,11 @@ export function BankReconciliation({ companyName }) {
 
   // Format currency
   const formatCurrency = (amount) => {
+    const numValue = parseFloat(amount) || 0
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
-    }).format(amount || 0)
+    }).format(numValue)
   }
 
   // Format date
@@ -692,6 +792,58 @@ export function BankReconciliation({ companyName }) {
       return date.toLocaleDateString()
     } catch {
       return dateStr
+    }
+  }
+
+  // Format number for input display (preserves partial decimal entries)
+  const formatNumberForInput = (value) => {
+    if (!value || value === '0') return ''
+    // If the value ends with a decimal point or has trailing zeros after decimal, preserve it
+    if (typeof value === 'string' && (value.endsWith('.') || value.match(/\.\d*$/))) {
+      return value
+    }
+    return parseFloat(value).toString()
+  }
+
+  // Parse input value to number
+  const parseInputNumber = (value) => {
+    if (!value || value === '') return 0
+    return parseFloat(value) || 0
+  }
+
+  // Format transaction type for display
+  const formatTransactionType = (entryType) => {
+    switch (entryType?.toUpperCase()) {
+      case 'D':
+        return 'Deposit'
+      case 'C':
+        return 'Check'
+      default:
+        return entryType || 'Unknown'
+    }
+  }
+
+  // Get transaction type badge component
+  const getTransactionTypeBadge = (entryType) => {
+    switch (entryType?.toUpperCase()) {
+      case 'D':
+        return (
+          <Badge variant="default" className="bg-green-100 text-green-800">
+            Deposit
+          </Badge>
+        )
+      case 'C':
+        return (
+          <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+            Check
+          </Badge>
+        )
+      default:
+        return (
+          <Badge variant="outline">
+            {entryType || 'Unknown'}
+          </Badge>
+        )
     }
   }
 
@@ -845,19 +997,6 @@ export function BankReconciliation({ companyName }) {
             <CardContent>
               <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
                 <div className="space-y-2">
-                  <Label htmlFor="beginning-balance">Beginning Balance</Label>
-                  <Input 
-                    id="beginning-balance"
-                    type="number"
-                    step="0.01"
-                    value={beginningBalance}
-                    onChange={(e) => setBeginningBalance(e.target.value)}
-                    className="bg-gray-50"
-                    readOnly
-                  />
-                  <p className="text-xs text-muted-foreground">From last reconciliation</p>
-                </div>
-                <div className="space-y-2">
                   <Label htmlFor="statement-date">Statement Date</Label>
                   <Input 
                     id="statement-date"
@@ -870,17 +1009,32 @@ export function BankReconciliation({ companyName }) {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="beginning-balance">Beginning Balance</Label>
+                  <div className="relative">
+                    <Input 
+                      id="beginning-balance"
+                      type="text"
+                      value={formatCurrency(parseFloat(beginningBalance) || 0)}
+                      className="bg-gray-50 font-mono text-right pr-4"
+                      readOnly
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">From last reconciliation</p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="statement-credits">Statement Credits</Label>
                   <Input 
                     id="statement-credits"
-                    type="number"
-                    step="0.01"
+                    type="text"
                     placeholder="0.00"
-                    value={statementCredits}
+                    className="font-mono text-right"
+                    value={formatNumberForInput(statementCredits)}
                     onChange={(e) => {
-                      setStatementCredits(e.target.value)
-                      setHasUnsavedChanges(true)
+                      const value = e.target.value
+                      setStatementCredits(value)
+                      if (!hasUnsavedChanges) setHasUnsavedChanges(true)
                     }}
+                    onBlur={calculateEndingBalance}
                   />
                   <p className="text-xs text-muted-foreground">Deposits per bank statement</p>
                 </div>
@@ -888,44 +1042,37 @@ export function BankReconciliation({ companyName }) {
                   <Label htmlFor="statement-debits">Statement Debits</Label>
                   <Input 
                     id="statement-debits"
-                    type="number"
-                    step="0.01"
+                    type="text"
                     placeholder="0.00"
-                    value={statementDebits}
+                    className="font-mono text-right"
+                    value={formatNumberForInput(statementDebits)}
                     onChange={(e) => {
-                      setStatementDebits(e.target.value)
-                      setHasUnsavedChanges(true)
+                      const value = e.target.value
+                      setStatementDebits(value)
+                      if (!hasUnsavedChanges) setHasUnsavedChanges(true)
                     }}
+                    onBlur={calculateEndingBalance}
                   />
                   <p className="text-xs text-muted-foreground">Withdrawals per bank statement</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="statement-balance">Ending Statement Balance</Label>
-                  <Input 
-                    id="statement-balance"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={statementBalance}
-                    onChange={(e) => {
-                      setStatementBalance(e.target.value)
-                      setHasUnsavedChanges(true)
-                    }}
-                  />
+                  <div className="relative">
+                    <Input 
+                      id="statement-balance"
+                      type="text"
+                      value={formatCurrency(parseFloat(statementBalance) || 0)}
+                      className="bg-gray-50 font-mono text-right pr-4"
+                      readOnly
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Auto-calculated</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Actions</Label>
                   <div className="flex gap-2 flex-wrap">
                     <Button onClick={loadChecksData} size="sm" variant="outline">
                       <RefreshCw className="w-4 h-4" />
-                    </Button>
-                    <Button 
-                      onClick={bulkSelectChecks} 
-                      size="sm" 
-                      variant="outline"
-                      disabled={selectedChecks.size === 0}
-                    >
-                      <Plus className="w-4 h-4" />
                     </Button>
                     {hasUnsavedChanges && (
                       <Badge variant="outline" className="text-amber-600">
@@ -960,7 +1107,7 @@ export function BankReconciliation({ companyName }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Statement Credits</p>
-                    <p className="text-xl font-bold text-green-600">{formatCurrency(totals.statementCredits)}</p>
+                    <p className="text-xl font-bold text-green-600">{formatCurrency(totals.selectedCredits)}</p>
                     <p className="text-xs text-muted-foreground">Deposits per bank</p>
                   </div>
                   <ArrowDownLeft className="w-6 h-6 text-green-600" />
@@ -973,7 +1120,7 @@ export function BankReconciliation({ companyName }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Statement Debits</p>
-                    <p className="text-xl font-bold text-red-600">{formatCurrency(totals.statementDebits)}</p>
+                    <p className="text-xl font-bold text-red-600">{formatCurrency(totals.selectedDebits)}</p>
                     <p className="text-xs text-muted-foreground">Withdrawals per bank</p>
                   </div>
                   <ArrowUpRight className="w-6 h-6 text-red-600" />
@@ -1012,14 +1159,17 @@ export function BankReconciliation({ companyName }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Balance Difference</p>
-                    <p className={`text-xl font-bold ${Math.abs(totals.balanceDifference) < 0.01 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatCurrency(totals.balanceDifference)}
+                    <p className={`text-xl font-bold ${totals.isInBalance ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(Math.abs(totals.reconciliationDifference))}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {Math.abs(totals.balanceDifference) < 0.01 ? 'Reconciled' : 'Needs Review'}
+                      {totals.isInBalance ? 'Reconciled' : `Selected ${totals.selectedCount} checks`}
                     </p>
                   </div>
-                  <AlertCircle className={`w-6 h-6 ${Math.abs(totals.balanceDifference) < 0.01 ? 'text-green-600' : 'text-red-600'}`} />
+                  {totals.isInBalance ? 
+                    <CheckCircle className="w-6 h-6 text-green-600" /> : 
+                    <AlertCircle className="w-6 h-6 text-red-600" />
+                  }
                 </div>
               </CardContent>
             </Card>
@@ -1027,12 +1177,12 @@ export function BankReconciliation({ companyName }) {
           )}
 
           {/* Draft Status and Commit Actions */}
-          {selectedAccount && draftSelectedChecks.size > 0 && (
-            <Card className="border-blue-200">
+          {selectedAccount && draftSelectedChecks.size > 0 && totals.isInBalance && (
+            <Card className="border-green-200">
               <CardHeader>
-                <CardTitle className="text-blue-800">Draft Reconciliation in Progress</CardTitle>
+                <CardTitle className="text-green-800">Reconciliation Ready to Commit</CardTitle>
                 <CardDescription>
-                  You have {draftSelectedChecks.size} checks selected for reconciliation. 
+                  Perfect! You have {draftSelectedChecks.size} checks selected and the reconciliation is balanced. 
                   {hasUnsavedChanges ? ' Changes are being auto-saved.' : ' All changes saved.'}
                 </CardDescription>
               </CardHeader>
@@ -1180,16 +1330,24 @@ export function BankReconciliation({ companyName }) {
                         checked={selectedChecks.size === filteredChecks.length && filteredChecks.length > 0}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            setSelectedChecks(new Set(filteredChecks.map(c => c.id)))
+                            const allCheckIds = new Set(filteredChecks.map(c => c.id))
+                            setSelectedChecks(allCheckIds)
+                            setDraftSelectedChecks(new Set([...draftSelectedChecks, ...allCheckIds]))
                           } else {
+                            // Remove all filtered checks from both selections
+                            const filteredCheckIds = new Set(filteredChecks.map(c => c.id))
+                            const newDraftSelected = new Set([...draftSelectedChecks].filter(id => !filteredCheckIds.has(id)))
                             setSelectedChecks(new Set())
+                            setDraftSelectedChecks(newDraftSelected)
                           }
+                          setHasUnsavedChanges(true)
                         }}
                       />
                     </TableHead>
                     {renderSortableHeader('checkNumber', 'Check #')}
                     {renderSortableHeader('checkDate', 'Date')}
                     {renderSortableHeader('payee', 'Payee')}
+                    <TableHead>Type</TableHead>
                     {renderSortableHeader('memo', 'Memo')}
                     {renderSortableHeader('amount', 'Amount', 'text-right')}
                     <TableHead>Account</TableHead>
@@ -1211,19 +1369,30 @@ export function BankReconciliation({ companyName }) {
                         <Checkbox 
                           checked={isUISelected}
                           onCheckedChange={(checked) => {
+                            // Update both UI selection and draft reconciliation
                             const newSelected = new Set(selectedChecks)
+                            const newDraftSelected = new Set(draftSelectedChecks)
+                            
                             if (checked) {
                               newSelected.add(check.id)
+                              newDraftSelected.add(check.id)
                             } else {
                               newSelected.delete(check.id)
+                              newDraftSelected.delete(check.id)
                             }
+                            
                             setSelectedChecks(newSelected)
+                            setDraftSelectedChecks(newDraftSelected)
+                            setHasUnsavedChanges(true)
                           }}
                         />
                       </TableCell>
                       <TableCell className="font-mono">{check.checkNumber}</TableCell>
                       <TableCell>{formatDate(check.checkDate)}</TableCell>
                       <TableCell>{check.payee}</TableCell>
+                      <TableCell>
+                        {getTransactionTypeBadge(check.entryType)}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{check.memo}</TableCell>
                       <TableCell className="text-right font-mono">{formatCurrency(check.amount)}</TableCell>
                       <TableCell className="font-mono text-sm">{check.accountNumber}</TableCell>
@@ -1267,6 +1436,7 @@ export function BankReconciliation({ companyName }) {
                     <TableHead>Check #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Payee</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>Days Outstanding</TableHead>
@@ -1283,6 +1453,9 @@ export function BankReconciliation({ companyName }) {
                         <TableCell className="font-mono">{check.checkNumber}</TableCell>
                         <TableCell>{formatDate(check.checkDate)}</TableCell>
                         <TableCell>{check.payee}</TableCell>
+                        <TableCell>
+                          {getTransactionTypeBadge(check.entryType)}
+                        </TableCell>
                         <TableCell className="text-right font-mono">{formatCurrency(check.amount)}</TableCell>
                         <TableCell className="font-mono text-sm">{check.accountNumber}</TableCell>
                         <TableCell>
@@ -1313,6 +1486,7 @@ export function BankReconciliation({ companyName }) {
                     <TableHead>Check #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Payee</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>Reconciled Date</TableHead>
@@ -1324,6 +1498,9 @@ export function BankReconciliation({ companyName }) {
                       <TableCell className="font-mono">{check.checkNumber}</TableCell>
                       <TableCell>{formatDate(check.checkDate)}</TableCell>
                       <TableCell>{check.payee}</TableCell>
+                      <TableCell>
+                        {getTransactionTypeBadge(check.entryType)}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{formatCurrency(check.amount)}</TableCell>
                       <TableCell className="font-mono text-sm">{check.accountNumber}</TableCell>
                       <TableCell>{formatDate(check.reconcileDate)}</TableCell>

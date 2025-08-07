@@ -34,7 +34,9 @@ import {
   Upload,
   Copy,
   Calendar,
-  Wrench
+  Wrench,
+  Menu,
+  ChevronLeft
 } from 'lucide-react'
 import './globals.css'
 
@@ -258,6 +260,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard')
   const [dashboardData, setDashboardData] = useState(null)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const lastLoadedCompany = useRef(null)
 
   // Load dashboard data when company changes (not when user object changes)
@@ -334,81 +337,107 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
-      <Sidebar className="hidden lg:flex border-r">
-        <SidebarHeader className="border-b px-6 py-4">
-          <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
-        </SidebarHeader>
-        <SidebarContent>
+      <div 
+        className="hidden lg:flex flex-col border-r transition-all duration-300 bg-card"
+        style={{ width: isSidebarCollapsed ? '4rem' : '16rem' }}
+      >
+        <div className="border-b px-4 py-4 flex items-center justify-between h-16">
+          {!isSidebarCollapsed && (
+            <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
+          )}
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className={`p-2 hover:bg-accent rounded-md transition-colors ${isSidebarCollapsed ? 'mx-auto' : 'ml-auto'}`}
+          >
+            {isSidebarCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="flex-1 flex flex-col overflow-y-auto">
           <SidebarNav>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'dashboard'}
               onClick={() => setActiveView('dashboard')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Dashboard" : ""}
             >
-              <Home className="w-4 h-4" />
-              Dashboard
+              <Home className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Dashboard</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'operations'}
               onClick={() => setActiveView('operations')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Operations" : ""}
             >
-              <Activity className="w-4 h-4" />
-              Operations
+              <Activity className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Operations</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'financials'}
               onClick={() => setActiveView('financials')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Financials" : ""}
             >
-              <DollarSign className="w-4 h-4" />
-              Financials
+              <DollarSign className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Financials</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'data'}
               onClick={() => setActiveView('data')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Data Management" : ""}
             >
-              <Database className="w-4 h-4" />
-              Data Management
+              <Database className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Data Management</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'reporting'}
               onClick={() => setActiveView('reporting')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Reporting" : ""}
             >
-              <FileText className="w-4 h-4" />
-              Reporting
+              <FileText className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Reporting</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'utilities'}
               onClick={() => setActiveView('utilities')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Utilities" : ""}
             >
-              <Wrench className="w-4 h-4" />
-              Utilities
+              <Wrench className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Utilities</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'settings'}
               onClick={() => setActiveView('settings')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Settings" : ""}
             >
-              <Settings className="w-4 h-4" />
-              Settings
+              <Settings className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Settings</span>}
             </SidebarNavItem>
           </SidebarNav>
           <div className="mt-auto p-4 border-t">
             <Button 
               variant="ghost" 
-              className="w-full justify-start" 
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2' : 'justify-start'}`}
               onClick={onLogout}
+              title={isSidebarCollapsed ? "Logout" : ""}
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              <LogOut className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span className="ml-2">Logout</span>}
             </Button>
           </div>
-        </SidebarContent>
-      </Sidebar>
+        </div>
+      </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">

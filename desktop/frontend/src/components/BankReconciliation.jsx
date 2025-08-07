@@ -46,6 +46,8 @@ import {
   ArrowUpRight,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Plus,
   X,
   FileSpreadsheet,
@@ -53,17 +55,19 @@ import {
   Check,
   Eye,
   History,
-  Trash2
+  Trash2,
+  ArrowLeft,
+  Building2
 } from 'lucide-react'
 
-export function BankReconciliation({ companyName }) {
+export function BankReconciliation({ companyName, currentUser, preSelectedAccount, onBack }) {
   // State management
   const [checks, setChecks] = useState([])
   const [bankAccounts, setBankAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [error, setError] = useState(null)
-  const [selectedAccount, setSelectedAccount] = useState('')
+  const [selectedAccount, setSelectedAccount] = useState(preSelectedAccount || '')
   const [reconciliationPeriod, setReconciliationPeriod] = useState('')
   const [statementBalance, setStatementBalance] = useState('')
   const [statementDate, setStatementDate] = useState('')
@@ -99,13 +103,14 @@ export function BankReconciliation({ companyName }) {
   // Manual matching state
   const [selectedBankTxn, setSelectedBankTxn] = useState(null)
   const [selectedCheckForMatch, setSelectedCheckForMatch] = useState(null)
+  const [selectedChecksForMatch, setSelectedChecksForMatch] = useState(new Set()) // Multiple check selection
   const [isManualMatching, setIsManualMatching] = useState(false)
 
   // Filters
   const [showCleared, setShowCleared] = useState(false)
   const [showUncleared, setShowUncleared] = useState(true)
   const [showTransactionType, setShowTransactionType] = useState('all') // 'all', 'debits', 'credits'
-  const [limitToStatementDate, setLimitToStatementDate] = useState(true) // New filter for statement date
+  const [limitToStatementDate, setLimitToStatementDate] = useState(false) // Default to showing all checks
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [amountFrom, setAmountFrom] = useState('')
@@ -141,11 +146,33 @@ export function BankReconciliation({ companyName }) {
   useEffect(() => {
     if (companyName) {
       loadBankAccounts()
-      loadChecksData()
-      loadBankTransactions()
-      loadMatchedTransactions()
+      // Don't load checks data here - wait for account selection
+      // loadChecksData()
+      // loadBankTransactions()
+      // loadMatchedTransactions()
     }
   }, [companyName])
+  
+  // Set selectedAccount when preSelectedAccount is provided
+  useEffect(() => {
+    if (preSelectedAccount && preSelectedAccount !== selectedAccount) {
+      setSelectedAccount(preSelectedAccount)
+    }
+  }, [preSelectedAccount])
+  
+  // Debug log when filter changes
+  useEffect(() => {
+    if (checks.length > 0) {
+      const available = getAvailableChecks()
+      console.log('Filter state changed:', {
+        limitToStatementDate,
+        statementDate,
+        totalChecks: checks.length,
+        availableChecks: available.length,
+        selectedAccount
+      })
+    }
+  }, [limitToStatementDate, statementDate, checks.length])
 
   // Load last reconciliation and checks data when selected account changes
   useEffect(() => {
@@ -270,15 +297,18 @@ export function BankReconciliation({ companyName }) {
   }
 
   const loadChecksData = async () => {
-    if (!companyName) return
+    if (!companyName || !selectedAccount) {
+      console.log('BankReconciliation: Skipping check load - no account selected')
+      return
+    }
     
     try {
       setLoading(true)
       setError(null)
       
       // Use the dedicated GetOutstandingChecks function with account filter
-      const accountFilter = selectedAccount || ''
-      console.log('BankReconciliation: Loading checks for account:', accountFilter || 'all')
+      const accountFilter = selectedAccount
+      console.log('BankReconciliation: Loading checks for account:', accountFilter)
       
       const result = await GetOutstandingChecks(companyName, accountFilter)
       
@@ -306,7 +336,7 @@ export function BankReconciliation({ companyName }) {
             payee: check.payee || '',
             amount: check.amount || 0,
             checkDate: check.date || '',
-            accountNumber: check.account || selectedAccount,
+            accountNumber: check.account || check.accountNumber || selectedAccount, // Handle both field names
             cleared: check.cleared || false,
             reconcileDate: check.reconcileDate || '',
             memo: check.memo || '',
@@ -321,6 +351,15 @@ export function BankReconciliation({ companyName }) {
         console.log('BankReconciliation: Sample check CIDCHEC IDs:', processedChecks.slice(0, 3).map(c => ({id: c.id, cidchec: c.cidchec})))
         
         setChecks(processedChecks)
+        
+        // Debug first few checks to see their properties
+        console.log('Sample checks:', processedChecks.slice(0, 3).map(c => ({
+          id: c.id,
+          checkNumber: c.checkNumber,
+          cleared: c.cleared,
+          voidFlag: c.voidFlag,
+          accountNumber: c.accountNumber
+        })))
       }
     } catch (err) {
       console.error('Error loading checks data:', err)
@@ -878,22 +917,54 @@ export function BankReconciliation({ companyName }) {
     console.log('Check selection updated:', Array.from(newDraftSelected))
   }
 
+  // Handler to unmatch a transaction
+  const handleUnmatchTransaction = async (bankTxnId) => {
+    try {
+      const result = await UnmatchTransaction(bankTxnId)
+      if (result.status === 'success') {
+        // Reload matched transactions to reflect the change
+        await loadMatchedTransactions()
+        await loadBankTransactions()
+        await loadChecksData()
+      } else {
+        setError('Failed to unmatch transaction')
+      }
+    } catch (err) {
+      console.error('Error unmatching transaction:', err)
+      setError('Failed to unmatch transaction: ' + (err.message || err.toString()))
+    }
+  }
+
   // Manual match function for bank transactions
   const handleManualMatch = async () => {
-    if (!selectedBankTxn || !selectedCheckForMatch) {
-      setError('Please select both a bank transaction and a check to match')
+    if (!selectedBankTxn || selectedChecksForMatch.size === 0) {
+      setError('Please select both a bank transaction and at least one check to match')
       return
     }
     
     setIsManualMatching(true)
     try {
-      console.log('Manual matching bank txn:', selectedBankTxn.id, 'to check:', selectedCheckForMatch.id)
+      // Get the selected checks
+      const selectedChecksList = Array.from(selectedChecksForMatch).map(id => 
+        checks.find(c => c.id === id)
+      ).filter(Boolean)
+      
+      if (selectedChecksList.length === 0) {
+        setError('No valid checks selected')
+        return
+      }
+      
+      // TODO: Backend should support matching multiple checks to one bank transaction
+      // For now, we'll match the first check
+      const checkToMatch = selectedChecksList[0]
+      
+      console.log('Manual matching bank txn:', selectedBankTxn.id, 'to check:', checkToMatch.id)
       
       // Call the backend to create the match
       const result = await ManualMatchTransaction(
         selectedBankTxn.id, 
-        selectedCheckForMatch.id, 
-        selectedCheckForMatch._rowIndex || 0
+        checkToMatch.id, 
+        checkToMatch._rowIndex || 0
       )
       
       if (result.status === 'success') {
@@ -902,6 +973,7 @@ export function BankReconciliation({ companyName }) {
         // Clear selections
         setSelectedBankTxn(null)
         setSelectedCheckForMatch(null)
+        setSelectedChecksForMatch(new Set())
         
         // Reload data to reflect the match
         await loadBankTransactions()
@@ -959,13 +1031,71 @@ export function BankReconciliation({ companyName }) {
 
   // Get available checks for matching (not already selected for reconciliation)
   const getAvailableChecks = () => {
-    let available = checks.filter(check => !draftSelectedChecks.has(check.id) && !check.cleared)
+    // Build comprehensive sets of matched check identifiers
+    const matchedCheckIds = new Set()
+    const matchedCidchecs = new Set()
+    const matchedCheckNumbers = new Set()
+    
+    matchedTransactions.forEach(txn => {
+      // Add all possible identifiers from matched transactions
+      if (txn.id) matchedCheckIds.add(txn.id)
+      if (txn.cidchec) matchedCidchecs.add(txn.cidchec)
+      if (txn.check_number) matchedCheckNumbers.add(txn.check_number)
+      if (txn.matched_check_id) matchedCheckIds.add(txn.matched_check_id)
+      if (txn.checkNumber) matchedCheckNumbers.add(txn.checkNumber)
+    })
+    
+    // Debug: log filtering details
+    const clearedCount = checks.filter(c => c.cleared).length
+    const draftSelectedCount = checks.filter(c => draftSelectedChecks.has(c.id)).length
+    const voidCount = checks.filter(c => c.voidFlag).length
+    const matchedCount = checks.filter(c => {
+      return matchedCheckIds.has(c.id) || 
+             matchedCidchecs.has(c.cidchec) ||
+             matchedCheckNumbers.has(c.checkNumber)
+    }).length
+    
+    console.log('getAvailableChecks filtering:', {
+      totalChecks: checks.length,
+      clearedChecks: clearedCount,
+      voidedChecks: voidCount,
+      matchedChecks: matchedCount,
+      matchedCheckIdentifiers: {
+        ids: matchedCheckIds.size,
+        cidchecs: matchedCidchecs.size,
+        checkNumbers: matchedCheckNumbers.size
+      },
+      draftSelected: draftSelectedCount,
+      draftSelectedIds: Array.from(draftSelectedChecks).slice(0, 5) // Show first 5 IDs
+    })
+    
+    // Start with checks for the selected account only
+    let available = checks.filter(check => {
+      // Check if this check is matched using any identifier
+      const isMatched = matchedCheckIds.has(check.id) || 
+                       matchedCidchecs.has(check.cidchec) ||
+                       matchedCheckNumbers.has(check.checkNumber)
+      
+      // Filter out already selected, cleared, and matched checks
+      // Note: voided checks are already filtered by the backend
+      return !draftSelectedChecks.has(check.id) && !check.cleared && !isMatched
+    })
     
     // Apply statement date filter if enabled
     if (limitToStatementDate && statementDate) {
       available = available.filter(check => {
         if (!check.checkDate) return true // Include checks without dates
-        return check.checkDate <= statementDate
+        
+        // Parse dates for proper comparison
+        const checkDateObj = new Date(check.checkDate)
+        const statementDateObj = new Date(statementDate)
+        
+        // Check if dates are valid
+        if (isNaN(checkDateObj.getTime())) return true // Include if date is invalid
+        if (isNaN(statementDateObj.getTime())) return true // Include if statement date is invalid
+        
+        // Compare dates
+        return checkDateObj <= statementDateObj
       })
     }
     
@@ -1101,7 +1231,19 @@ export function BankReconciliation({ companyName }) {
       setLoadingMatched(true)
       const result = await GetMatchedTransactions(companyName, selectedAccount)
       if (result.status === 'success') {
-        setMatchedTransactions(result.checks || [])
+        const matched = result.checks || []
+        setMatchedTransactions(matched)
+        
+        // Debug: Log matched check IDs
+        console.log('Loaded matched transactions:', {
+          count: matched.length,
+          sampleIds: matched.slice(0, 5).map(m => ({
+            id: m.id,
+            cidchec: m.cidchec,
+            matched_check_id: m.matched_check_id,
+            check_number: m.check_number
+          }))
+        })
       } else {
         setMatchedTransactions([])
       }
@@ -1419,26 +1561,44 @@ export function BankReconciliation({ companyName }) {
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     
+    // Convert to string if it's not already
+    const dateString = String(dateStr)
+    
+    // Handle format like "11/14 00:00:00 +0000U/2024" 
+    // This appears to be MM/DD HH:MM:SS +ZZZZUYYYY
+    if (dateString.includes(' ') && dateString.includes('U/')) {
+      // Extract month/day from start
+      const parts = dateString.split(' ')
+      const monthDay = parts[0] // "11/14"
+      
+      // Extract year from the end after "U/"
+      const yearMatch = dateString.match(/U\/(\d{4})/)
+      const year = yearMatch ? yearMatch[1] : new Date().getFullYear()
+      
+      // Return MM/DD/YYYY format
+      return `${monthDay}/${year}`
+    }
+    
     // Handle ISO date format (2025-01-02T00:00:00Z)
-    if (dateStr.includes('T')) {
-      const datePart = dateStr.split('T')[0]
+    if (dateString.includes('T')) {
+      const datePart = dateString.split('T')[0]
       const [year, month, day] = datePart.split('-')
       return `${month}/${day}/${year}`
     }
     
     // Handle MM/DD/YYYY format
-    if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
-      return dateStr
+    if (dateString.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+      return dateString
     }
     
     // Handle YYYY-MM-DD format
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const [year, month, day] = dateStr.split('-')
+    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = dateString.split('-')
       return `${month}/${day}/${year}`
     }
     
     // Return original if no match
-    return dateStr
+    return dateString
   }
 
   // Format number for input display (preserves partial decimal entries)
@@ -1531,34 +1691,54 @@ export function BankReconciliation({ companyName }) {
   }
 
   return (
+    <>
     <div className="space-y-6">
+      {/* Account Header when coming from a specific account */}
+      {preSelectedAccount && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5" />
+                  Bank Reconciliation
+                </CardTitle>
+                <CardDescription>
+                  Account: {preSelectedAccount} - {bankAccounts.find(a => a.accountNumber === preSelectedAccount)?.accountName || 'Loading...'}
+                </CardDescription>
+              </div>
+              {onBack && (
+                <Button variant="outline" onClick={onBack}>
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Accounts
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+        </Card>
+      )}
+      
       <Tabs 
         defaultValue="reconcile" 
         className="w-full"
-        onValueChange={(value) => {
-          // Load matched transactions when the matched tab is selected
-          if (value === 'matched') {
-            loadMatchedTransactions()
-          }
-        }}
       >
         <TabsList>
           <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
           <TabsTrigger value="outstanding">Outstanding Checks</TabsTrigger>
-          <TabsTrigger value="matched">Matched ({matchedTransactions.length})</TabsTrigger>
           <TabsTrigger value="cleared">Cleared Checks</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
-
-        {/* Main Reconciliation Tab */}
+        
+        {/* Reconcile Tab */}
         <TabsContent value="reconcile" className="space-y-4">
-          {/* Account Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Select Bank Account</CardTitle>
-              <CardDescription>Choose a bank account to start the reconciliation process</CardDescription>
-            </CardHeader>
-            <CardContent>
+          {/* Account Selection - only show if no preSelectedAccount */}
+          {!preSelectedAccount && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Select Bank Account</CardTitle>
+                <CardDescription>Choose a bank account to start the reconciliation process</CardDescription>
+              </CardHeader>
+              <CardContent>
               <div className="space-y-2">
                 <Label htmlFor="main-account-select">Bank Account</Label>
                 <select 
@@ -1581,6 +1761,7 @@ export function BankReconciliation({ companyName }) {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Last Reconciliation Section */}
           {selectedAccount && (
@@ -2265,23 +2446,86 @@ export function BankReconciliation({ companyName }) {
                 {/* Outstanding Checks (Right Side) */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-lg">Outstanding Checks ({getAvailableChecks().length})</h3>
+                    <h3 className="font-semibold text-lg">
+                      Outstanding Checks ({getAvailableChecks().length})
+                      {draftSelectedChecks.size > 0 && (
+                        <span className="text-sm font-normal text-muted-foreground ml-2">
+                          ({draftSelectedChecks.size} already selected)
+                        </span>
+                      )}
+                    </h3>
                     <div className="flex items-center gap-2">
                       <Button
                         variant={limitToStatementDate ? "default" : "outline"}
                         size="sm"
-                        onClick={() => setLimitToStatementDate(!limitToStatementDate)}
+                        onClick={() => {
+                          const newValue = !limitToStatementDate
+                          console.log('Date filter toggled:', { 
+                            from: limitToStatementDate, 
+                            to: newValue, 
+                            statementDate,
+                            checksBeforeToggle: getAvailableChecks().length 
+                          })
+                          setLimitToStatementDate(newValue)
+                        }}
                         disabled={!statementDate}
                         title={!statementDate ? "Set a statement date first" : "Toggle date filter"}
                       >
                         <Calendar className="w-4 h-4 mr-1" />
-                        {limitToStatementDate ? `≤ ${statementDate || 'Statement Date'}` : 'All Dates'}
+                        {limitToStatementDate && statementDate ? `≤ ${formatDate(statementDate)}` : 'All Dates'}
                       </Button>
                     </div>
                   </div>
                   {limitToStatementDate && statementDate && (
                     <div className="text-sm text-muted-foreground">
                       Showing checks dated on or before {formatDate(statementDate)}
+                    </div>
+                  )}
+                  {checks.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        Total loaded: {checks.length} checks | 
+                        Available: {getAvailableChecks().length} | 
+                        Matched: {matchedTransactions.length} | 
+                        Draft selected: {draftSelectedChecks.size}
+                      </div>
+                      {draftSelectedChecks.size > 0 && (
+                        <div className="text-xs bg-blue-50 p-2 rounded border border-blue-200">
+                          <div className="font-semibold text-blue-900 mb-1">Draft Selected Checks ({draftSelectedChecks.size}):</div>
+                          <div className="text-blue-700 space-y-0.5">
+                            {Array.from(draftSelectedChecks).slice(0, 5).map(checkId => {
+                              const check = checks.find(c => c.id === checkId)
+                              if (!check) return null
+                              return (
+                                <div key={checkId} className="flex items-center gap-2">
+                                  <span>• Check #{check.checkNumber}</span>
+                                  <span>{formatDate(check.checkDate)}</span>
+                                  <span>{check.payee}</span>
+                                  <span className="font-mono">{formatCurrency(check.amount)}</span>
+                                </div>
+                              )
+                            })}
+                            {draftSelectedChecks.size > 5 && (
+                              <div className="italic">...and {draftSelectedChecks.size - 5} more</div>
+                            )}
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="mt-2"
+                            onClick={() => {
+                              setDraftSelectedChecks(new Set())
+                              // Clear from formData as well
+                              setFormData(prev => ({
+                                ...prev,
+                                selectedChecks: []
+                              }))
+                            }}
+                          >
+                            Clear All Selections
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="max-h-96 overflow-y-auto border rounded-lg">
@@ -2350,12 +2594,20 @@ export function BankReconciliation({ companyName }) {
                             className={selectedCheckForMatch?.id === check.id ? 'bg-blue-50' : ''}
                           >
                             <TableCell>
-                              <input
-                                type="radio"
-                                name="checkSelect"
-                                checked={selectedCheckForMatch?.id === check.id}
-                                onChange={() => setSelectedCheckForMatch(check)}
-                                className="cursor-pointer"
+                              <Checkbox
+                                checked={selectedChecksForMatch.has(check.id)}
+                                onCheckedChange={(checked) => {
+                                  const newSelected = new Set(selectedChecksForMatch)
+                                  if (checked) {
+                                    newSelected.add(check.id)
+                                    // Also store the check object for amount calculation
+                                    if (!selectedCheckForMatch) setSelectedCheckForMatch(check)
+                                  } else {
+                                    newSelected.delete(check.id)
+                                    if (selectedCheckForMatch?.id === check.id) setSelectedCheckForMatch(null)
+                                  }
+                                  setSelectedChecksForMatch(newSelected)
+                                }}
                               />
                             </TableCell>
                             <TableCell className="font-mono">{check.checkNumber}</TableCell>
@@ -2370,36 +2622,127 @@ export function BankReconciliation({ companyName }) {
                 </div>
               </div>
               
-              {/* Match Button */}
-              <div className="mt-6 flex justify-center">
-                <Button 
-                  onClick={handleManualMatch}
-                  disabled={!selectedBankTxn || !selectedCheckForMatch || isManualMatching}
-                  className="px-6"
-                >
-                  {isManualMatching ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Matching...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4 mr-2" />
-                      Match Selected Items
-                    </>
-                  )}
-                </Button>
-                {selectedBankTxn && selectedCheckForMatch && (
-                  <div className="ml-4 text-sm text-muted-foreground">
-                    Ready to match: Bank transaction from {formatDate(selectedBankTxn.transaction_date)} 
-                    ({formatCurrency(Math.abs(selectedBankTxn.amount))}) with Check #{selectedCheckForMatch.checkNumber}
+              {/* Match Button and Status */}
+              <div className="mt-6 space-y-2">
+                <div className="flex justify-center">
+                  <Button 
+                    onClick={handleManualMatch}
+                    disabled={!selectedBankTxn || selectedChecksForMatch.size === 0 || isManualMatching}
+                    className="px-6"
+                  >
+                    {isManualMatching ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Matching...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Match Selected Items
+                      </>
+                    )}
+                  </Button>
+                </div>
+                
+                {/* Match Status Display */}
+                {selectedBankTxn && selectedChecksForMatch.size > 0 && (
+                  <div className="text-center text-sm text-muted-foreground">
+                    {(() => {
+                      const selectedChecksList = Array.from(selectedChecksForMatch).map(id => 
+                        checks.find(c => c.id === id)
+                      ).filter(Boolean)
+                      const totalCheckAmount = selectedChecksList.reduce((sum, check) => sum + check.amount, 0)
+                      const bankAmount = Math.abs(selectedBankTxn.amount)
+                      const difference = Math.abs(bankAmount - totalCheckAmount)
+                      
+                      return (
+                        <div className="space-y-1">
+                          <div>
+                            Bank transaction: {formatCurrency(bankAmount)} on {formatDate(selectedBankTxn.transaction_date)}
+                          </div>
+                          <div>
+                            Selected {selectedChecksList.length} check(s): {formatCurrency(totalCheckAmount)}
+                          </div>
+                          {difference > 0.01 && (
+                            <div className="text-amber-600">
+                              Difference: {formatCurrency(difference)}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>
               
             </CardContent>
           </Card>
-          )}
+        )}
+          
+        {/* Matched Transactions Box Below */}
+        {showSideBySide && (
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-lg">
+                Matched Transactions ({matchedTransactions.length})
+              </CardTitle>
+              <CardDescription>
+                Successfully matched bank transactions with checks
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-64 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Bank Description</TableHead>
+                      <TableHead>Check #</TableHead>
+                      <TableHead>Payee</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Confidence</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {matchedTransactions.slice(0, 10).map((match) => (
+                      <TableRow key={match.id}>
+                        <TableCell>{formatDate(match.check_date)}</TableCell>
+                        <TableCell className="max-w-xs truncate">
+                          {match.bank_description || 'No description'}
+                        </TableCell>
+                        <TableCell className="font-mono">{match.check_number}</TableCell>
+                        <TableCell>{match.payee}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(match.amount)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={match.match_confidence > 0.8 ? "default" : "secondary"}>
+                            {Math.round(match.match_confidence * 100)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleUnmatchTransaction(match.bank_txn_id)}
+                          >
+                            Unmatch
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {matchedTransactions.length > 10 && (
+                  <div className="text-center mt-2 text-sm text-muted-foreground">
+                    Showing 10 of {matchedTransactions.length} matched transactions
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
           {/* Toggle Button for Manual Mode */}
           {selectedAccount && !showSideBySide && (
@@ -2689,186 +3032,6 @@ export function BankReconciliation({ companyName }) {
           </Card>
         </TabsContent>
 
-        {/* Matched Transactions Tab */}
-        <TabsContent value="matched" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Matched Transactions</span>
-                <div className="flex gap-2">
-                  {selectedMatchedTxns.size > 0 && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={handleBulkUnmatch}
-                      disabled={isBulkUnmatching}
-                    >
-                      {isBulkUnmatching ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Unmatching...
-                        </>
-                      ) : (
-                        <>
-                          <X className="w-4 h-4 mr-2" />
-                          Unmatch {selectedMatchedTxns.size} Selected
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  <Input
-                    placeholder="Search matched transactions..."
-                    value={matchedSearchTerm}
-                    onChange={(e) => setMatchedSearchTerm(e.target.value)}
-                    className="max-w-xs"
-                  />
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={loadMatchedTransactions}
-                    disabled={loadingMatched}
-                  >
-                    {loadingMatched ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
-              </CardTitle>
-              <CardDescription>
-                Bank transactions that have been matched to checks ({matchedTransactions.length} total)
-                {selectedMatchedTxns.size > 0 && (
-                  <span className="ml-2 text-blue-600">
-                    • {selectedMatchedTxns.size} selected
-                  </span>
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loadingMatched ? (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                </div>
-              ) : matchedTransactions.length === 0 ? (
-                <div className="text-center p-8 text-muted-foreground">
-                  No matched transactions found
-                </div>
-              ) : (
-                <div className="max-h-[600px] overflow-y-auto">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-white">
-                      <TableRow>
-                        <TableHead className="w-12">
-                          <Checkbox
-                            checked={
-                              matchedTransactions.filter(txn => 
-                                !matchedSearchTerm || 
-                                txn.check_number?.includes(matchedSearchTerm) ||
-                                txn.description?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
-                                txn.matched_check_id?.includes(matchedSearchTerm)
-                              ).length > 0 &&
-                              matchedTransactions.filter(txn => 
-                                !matchedSearchTerm || 
-                                txn.check_number?.includes(matchedSearchTerm) ||
-                                txn.description?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
-                                txn.matched_check_id?.includes(matchedSearchTerm)
-                              ).every(txn => selectedMatchedTxns.has(txn.id))
-                            }
-                            onCheckedChange={toggleSelectAllMatched}
-                          />
-                        </TableHead>
-                        <TableHead>Check Date</TableHead>
-                        <TableHead>Check #</TableHead>
-                        <TableHead>Payee</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead>Bank Confirmation</TableHead>
-                        <TableHead>Confidence</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {matchedTransactions
-                        .filter(check => 
-                          !matchedSearchTerm || 
-                          check.check_number?.includes(matchedSearchTerm) ||
-                          check.payee?.toLowerCase().includes(matchedSearchTerm.toLowerCase()) ||
-                          check.id?.includes(matchedSearchTerm)
-                        )
-                        .map((check) => (
-                        <TableRow 
-                          key={check.id}
-                          className={selectedMatchedTxns.has(check.id) ? 'bg-blue-50' : ''}
-                        >
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedMatchedTxns.has(check.id)}
-                              onCheckedChange={() => toggleMatchedSelection(check.id)}
-                            />
-                          </TableCell>
-                          <TableCell>{formatDate(check.check_date)}</TableCell>
-                          <TableCell className="font-mono">
-                            {check.check_number || '-'}
-                          </TableCell>
-                          <TableCell>
-                            {check.payee || 'No payee'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            <span className="text-red-600">
-                              {formatCurrency(Math.abs(check.amount))}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {check.bank_match && (
-                              <div className="text-xs">
-                                <p className="text-muted-foreground">
-                                  Bank: {formatCurrency(Math.abs(check.bank_match.bank_amount))}
-                                </p>
-                                <p className="text-muted-foreground truncate max-w-[200px]" title={check.bank_match.bank_description}>
-                                  {check.bank_match.bank_description || 'No description'}
-                                </p>
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <div 
-                                className="w-full bg-gray-200 rounded-full h-2"
-                                title={`${(check.match_confidence * 100).toFixed(0)}% confidence`}
-                              >
-                                <div 
-                                  className={`h-2 rounded-full ${
-                                    check.match_confidence >= 0.8 ? 'bg-green-500' :
-                                    check.match_confidence >= 0.6 ? 'bg-yellow-500' :
-                                    'bg-red-500'
-                                  }`}
-                                  style={{ width: `${check.match_confidence * 100}%` }}
-                                />
-                              </div>
-                              <span className="text-xs text-muted-foreground">
-                                {(check.match_confidence * 100).toFixed(0)}%
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleUnmatch(check)}
-                            >
-                              Unmatch
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* Cleared Checks Tab */}
         <TabsContent value="cleared" className="space-y-4">
           <Card>
@@ -2953,8 +3116,9 @@ export function BankReconciliation({ companyName }) {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
 
-      {/* Import History Dialog */}
+    {/* Import History Dialog */}
       <Dialog open={showImportHistory} onOpenChange={setShowImportHistory}>
         <DialogContent className="max-w-5xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader className="flex-shrink-0">
@@ -3160,6 +3324,6 @@ export function BankReconciliation({ companyName }) {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

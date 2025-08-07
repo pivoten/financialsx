@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Login, Register, GetCompanies, ValidateSession, GetDashboardData } from '../wailsjs/go/main/App'
+import { supabase, isSupabaseConfigured, signIn, signUp } from './lib/supabase'
 import { Button } from './components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -34,52 +35,93 @@ import {
   Upload,
   Copy,
   Calendar,
-  Wrench
+  Wrench,
+  Menu,
+  ChevronLeft
 } from 'lucide-react'
 import './globals.css'
 
 function App() {
+  console.log('App component rendering...')
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
   const [companies, setCompanies] = useState([])
   const [showRegister, setShowRegister] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [selectedCompany, setSelectedCompany] = useState('')
+  const [companySelected, setCompanySelected] = useState(false)
 
   // Form states
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
-  const [selectedCompany, setSelectedCompany] = useState('')
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Log Supabase configuration on mount
+  useEffect(() => {
+    console.log('App mounted, checking Supabase configuration...')
+    console.log('Supabase configured?', isSupabaseConfigured())
+    console.log('Supabase client exists?', !!supabase)
+    if (supabase) {
+      console.log('Supabase URL from client:', supabase.supabaseUrl)
+    }
+  }, [])
 
   useEffect(() => {
     checkSession()
   }, [])
 
-  // Load companies only when login screen is shown
+  // Load companies after authentication
   useEffect(() => {
-    if (!isAuthenticated && !loading) {
+    if (isAuthenticated && !companySelected && !loading) {
       loadCompanies()
     }
-  }, [isAuthenticated, loading])
+  }, [isAuthenticated, companySelected, loading])
 
   const checkSession = async () => {
     const token = localStorage.getItem('session_token')
-    const companyName = localStorage.getItem('company_name')
+    const authType = localStorage.getItem('auth_type')
+    const savedCompany = localStorage.getItem('company_name')
     
-    console.log('checkSession: Found stored session?', { hasToken: !!token, companyName })
+    console.log('checkSession: Found stored session?', { hasToken: !!token, authType })
     
-    if (token && companyName) {
+    if (token) {
       try {
-        console.log('checkSession: Validating session for company:', companyName)
-        const user = await ValidateSession(token, companyName)
-        console.log('checkSession: Session valid, user:', user)
-        setCurrentUser(user)
-        setIsAuthenticated(true)
+        if (authType === 'supabase' && isSupabaseConfigured()) {
+          // Validate Supabase session
+          const { data: { user }, error } = await supabase.auth.getUser(token)
+          if (error) throw error
+          
+          console.log('checkSession: Supabase session valid, user:', user)
+          setCurrentUser({
+            ...user,
+            email: user.email,
+            username: user.email
+          })
+          setIsAuthenticated(true)
+          
+          // Check if user had a company selected previously
+          if (savedCompany) {
+            setSelectedCompany(savedCompany)
+            setCompanySelected(true)
+          }
+        } else if (authType === 'local' && savedCompany) {
+          // Validate local SQLite session (requires company)
+          console.log('checkSession: Validating local session for company:', savedCompany)
+          const user = await ValidateSession(token, savedCompany)
+          console.log('checkSession: Session valid, user:', user)
+          setCurrentUser(user)
+          setIsAuthenticated(true)
+          setSelectedCompany(savedCompany)
+          setCompanySelected(true)
+        }
       } catch (error) {
         console.log('checkSession: Session validation failed:', error)
         localStorage.removeItem('session_token')
         localStorage.removeItem('company_name')
+        localStorage.removeItem('auth_type')
       }
     } else {
       console.log('checkSession: No stored session found')
@@ -89,10 +131,28 @@ function App() {
 
   const loadCompanies = async () => {
     try {
+      // Check if Wails runtime is available
+      if (!window.go || !window.go.main || !window.go.main.App) {
+        console.log('Wails runtime not available')
+        // For testing without Wails, use mock data
+        setCompanies([
+          { name: 'apollo', path: 'datafiles/apollo' },
+          { name: 'cantrellenergy', path: 'datafiles/cantrellenergy' },
+          { name: 'pivotenoperating', path: 'datafiles/pivotenoperating' }
+        ])
+        return
+      }
+      
       const companiesList = await GetCompanies()
       setCompanies(companiesList || [])
     } catch (error) {
       console.error('Failed to load companies:', error)
+      // Set some default companies for testing
+      setCompanies([
+        { name: 'apollo', path: 'datafiles/apollo' },
+        { name: 'cantrellenergy', path: 'datafiles/cantrellenergy' },
+        { name: 'pivotenoperating', path: 'datafiles/pivotenoperating' }
+      ])
     }
   }
 
@@ -100,19 +160,47 @@ function App() {
     e.preventDefault()
     setError('')
     
-    if (!username || !password || !selectedCompany) {
-      setError('Please fill in all fields')
+    if (!username || !password) {
+      setError('Please enter your email and password')
       return
     }
 
+    setIsSubmitting(true)
     try {
-      const result = await Login(username, password, selectedCompany)
-      localStorage.setItem('session_token', result.session.token)
-      localStorage.setItem('company_name', result.user.company_name)
-      setCurrentUser(result.user)
-      setIsAuthenticated(true)
+      console.log('Login attempt:', { username, supabaseConfigured: isSupabaseConfigured() })
+      
+      if (isSupabaseConfigured()) {
+        // Use Supabase authentication
+        console.log('Attempting Supabase login with:', { email: username, passwordLength: password.length })
+        const { data, error } = await signIn(username, password)
+        
+        console.log('Supabase response:', { data, error })
+        
+        if (error) {
+          console.error('Supabase error:', error)
+          throw error
+        }
+        
+        // Store session info
+        localStorage.setItem('session_token', data.session.access_token)
+        localStorage.setItem('auth_type', 'supabase')
+        
+        // Set user info
+        setCurrentUser({
+          ...data.user,
+          email: data.user.email,
+          username: data.user.email
+        })
+        setIsAuthenticated(true)
+      } else {
+        // For local auth, we need to select a company first
+        setError('Please use Supabase authentication or select a company for local auth')
+      }
     } catch (error) {
-      setError(error.message || 'Login failed')
+      console.error('Login error details:', error)
+      setError(error.message || 'Invalid login credentials')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -120,31 +208,80 @@ function App() {
     e.preventDefault()
     setError('')
     
-    if (!username || !password || !email || !selectedCompany) {
+    if (!username || !password || !email) {
       setError('Please fill in all fields')
       return
     }
 
+    setIsSubmitting(true)
     try {
-      const result = await Register(username, password, email, selectedCompany)
-      localStorage.setItem('session_token', result.session.token)
-      localStorage.setItem('company_name', result.user.company_name)
-      setCurrentUser(result.user)
-      setIsAuthenticated(true)
+      if (isSupabaseConfigured()) {
+        // Use Supabase registration
+        const { data, error } = await signUp(email, password, {
+          username: username
+        })
+        if (error) throw error
+        
+        // Auto-login after registration
+        const { data: loginData, error: loginError } = await signIn(email, password)
+        if (loginError) throw loginError
+        
+        localStorage.setItem('session_token', loginData.session.access_token)
+        localStorage.setItem('auth_type', 'supabase')
+        
+        setCurrentUser({
+          ...loginData.user,
+          email: loginData.user.email,
+          username: loginData.user.email
+        })
+        setIsAuthenticated(true)
+      } else {
+        setError('Please use Supabase authentication for registration')
+      }
     } catch (error) {
       setError(error.message || 'Registration failed')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCompanySelect = async (company) => {
+    setError('')
+    setIsSubmitting(true)
+    
+    try {
+      // Store selected company
+      localStorage.setItem('company_name', company)
+      setSelectedCompany(company)
+      
+      // For Supabase auth, we just need to set the company context
+      // The actual data loading will happen in the dashboard
+      setCompanySelected(true)
+      
+      // Update current user with company info
+      setCurrentUser(prev => ({
+        ...prev,
+        company_name: company
+      }))
+    } catch (error) {
+      setError('Failed to select company')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleLogout = () => {
     localStorage.removeItem('session_token')
     localStorage.removeItem('company_name')
+    localStorage.removeItem('auth_type')
     setCurrentUser(null)
     setIsAuthenticated(false)
+    setCompanySelected(false)
     setUsername('')
     setPassword('')
     setEmail('')
     setSelectedCompany('')
+    setError('')
   }
 
   if (loading) {
@@ -155,87 +292,291 @@ function App() {
     )
   }
 
-  if (!isAuthenticated) {
+  // Show company selector if authenticated but no company selected
+  if (isAuthenticated && !companySelected) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-bold text-blue-900">
-              Pivoten FinancialsX
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #F4EBE8 0%, #E7ECEF 50%, #F4EBE8 100%)' }}>
+        {/* Subtle animated background using brand colors */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full blur-3xl animate-blob" style={{ backgroundColor: 'rgba(245, 152, 30, 0.1)' }}></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full blur-3xl animate-blob animation-delay-2000" style={{ backgroundColor: 'rgba(44, 68, 113, 0.1)' }}></div>
+          <div className="absolute top-40 left-40 w-80 h-80 rounded-full blur-3xl animate-blob animation-delay-4000" style={{ backgroundColor: 'rgba(110, 142, 201, 0.1)' }}></div>
+        </div>
+
+        <Card className="w-full max-w-2xl relative backdrop-blur-sm bg-white/90 shadow-2xl border border-white/50">
+          <CardHeader className="text-center space-y-1 pb-6">
+            <div className="mx-auto mb-4">
+              <img 
+                src="/src/assets/pivoten-logo.png" 
+                alt="Pivoten Logo" 
+                className="w-24 h-24 object-contain drop-shadow-md"
+              />
+            </div>
+            <CardTitle className="text-2xl font-bold" style={{ color: '#2C4471' }}>
+              Select Company
             </CardTitle>
-            <CardDescription>
-              {showRegister ? 'Create your account' : 'Sign in to your account'}
+            <CardDescription className="text-gray-600">
+              Welcome back, {currentUser?.email}! Please select a company to continue.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={showRegister ? handleRegister : handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Username</label>
-                <Input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Password</label>
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                />
-              </div>
-
-              {showRegister && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Email</label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                  />
+            <div className="space-y-4">
+              {companies.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading companies...</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {companies.map((company) => (
+                    <button
+                      key={company.name}
+                      onClick={() => handleCompanySelect(company.name)}
+                      disabled={isSubmitting}
+                      className="w-full p-4 bg-white border-2 border-gray-200 rounded-lg hover:shadow-md transition-all text-left group"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#F5981E'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = ''
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-lg flex items-center justify-center transition-colors"
+                            style={{ backgroundColor: 'rgba(110, 142, 201, 0.1)' }}>
+                            <Home className="w-6 h-6" style={{ color: '#6E8EC9' }} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold" style={{ color: '#2C4471' }}>{company.name}</h3>
+                            <p className="text-sm text-gray-500">
+                              {company.path || 'Company database'}
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronLeft className="w-5 h-5 text-gray-400 rotate-180 transition-colors group-hover:text-[#F5981E]" />
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Company</label>
-                <select
-                  value={selectedCompany}
-                  onChange={(e) => setSelectedCompany(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Select a company</option>
-                  {companies.map((company) => (
-                    <option key={company.name} value={company.name}>
-                      {company.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               {error && (
-                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">
-                  {error}
+                <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">
+                  <div className="mt-0.5">⚠️</div>
+                  <div>{error}</div>
                 </div>
               )}
 
-              <Button type="submit" className="w-full">
-                {showRegister ? 'Register' : 'Sign In'}
+              <div className="pt-4 border-t">
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  Sign out and use a different account
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #F4EBE8 0%, #E7ECEF 50%, #F4EBE8 100%)' }}>
+        {/* Subtle animated background using brand colors */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full blur-3xl animate-blob" style={{ backgroundColor: 'rgba(245, 152, 30, 0.1)' }}></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full blur-3xl animate-blob animation-delay-2000" style={{ backgroundColor: 'rgba(44, 68, 113, 0.1)' }}></div>
+          <div className="absolute top-40 left-40 w-80 h-80 rounded-full blur-3xl animate-blob animation-delay-4000" style={{ backgroundColor: 'rgba(110, 142, 201, 0.1)' }}></div>
+        </div>
+
+        <Card className="w-full max-w-md relative backdrop-blur-sm bg-white/90 shadow-2xl border border-white/50">
+          <CardHeader className="text-center space-y-1 pb-8">
+            <div className="mx-auto mb-6">
+              <img 
+                src="/src/assets/pivoten-logo.png" 
+                alt="Pivoten Logo" 
+                className="w-28 h-28 object-contain drop-shadow-md"
+              />
+            </div>
+            <CardDescription className="text-gray-600 text-base">
+              {showRegister ? 'Create your account to get started' : 'Sign in to your account'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={(e) => {
+              console.log('Form submitted!', { showRegister, username, password })
+              return showRegister ? handleRegister(e) : handleLogin(e)
+            }} className="space-y-5">
+              {/* Username/Email field with icon */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <Users className="w-4 h-4" style={{ color: '#F5981E' }} />
+                  {showRegister ? 'Email' : 'Email or Username'}
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showRegister ? "email" : "text"}
+                    value={showRegister ? email : username}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      console.log('Input changed:', { field: showRegister ? 'email' : 'username', value })
+                      showRegister ? setEmail(value) : setUsername(value)
+                    }}
+                    placeholder={showRegister ? "john@example.com" : "Enter your email or username"}
+                    className="pl-10 h-11 border-gray-200 transition-all"
+                    style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#F5981E'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = ''
+                      e.target.style.boxShadow = ''
+                    }}
+                  />
+                  <div className="absolute left-3 top-3.5" style={{ color: '#6E8EC9' }}>
+                    <Activity className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Username field for registration */}
+              {showRegister && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Username
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Choose a username"
+                      className="pl-10 h-11 border-gray-200 transition-all"
+                    style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#F5981E'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = ''
+                      e.target.style.boxShadow = ''
+                    }}
+                    />
+                    <div className="absolute left-3 top-3.5" style={{ color: '#6E8EC9' }}>
+                      <Users className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Password field with icon */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <FileText className="w-4 h-4" style={{ color: '#F5981E' }} />
+                  Password
+                </label>
+                <div className="relative">
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      console.log('Password changed:', { length: value.length })
+                      setPassword(value)
+                    }}
+                    placeholder="••••••••"
+                    className="pl-10 h-11 border-gray-200 transition-all"
+                    style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#F5981E'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = ''
+                      e.target.style.boxShadow = ''
+                    }}
+                  />
+                  <div className="absolute left-3 top-3.5" style={{ color: '#6E8EC9' }}>
+                    <FileText className="w-4 h-4" />
+                  </div>
+                </div>
+                {showRegister && password && (
+                  <div className="flex gap-1 mt-2">
+                    <div className={`h-1 flex-1 rounded-full transition-colors`}
+                      style={{ backgroundColor: password.length >= 8 ? '#1E9B5F' : '#E7ECEF' }}></div>
+                    <div className={`h-1 flex-1 rounded-full transition-colors`}
+                      style={{ backgroundColor: password.length >= 12 ? '#1E9B5F' : '#E7ECEF' }}></div>
+                    <div className={`h-1 flex-1 rounded-full transition-colors`}
+                      style={{ backgroundColor: password.length >= 16 ? '#1E9B5F' : '#E7ECEF' }}></div>
+                  </div>
+                )}
+              </div>
+
+
+              {/* Error message with better styling */}
+              {error && (
+                <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-200 animate-pulse">
+                  <div className="mt-0.5">⚠️</div>
+                  <div>{error}</div>
+                </div>
+              )}
+
+              {/* Submit button */}
+              <Button 
+                type="submit" 
+                className="w-full h-11 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
+                style={{ 
+                  background: 'linear-gradient(135deg, #F5981E 0%, #F5981E 100%)',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #2C4471 0%, #2C4471 100%)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #F5981E 0%, #F5981E 100%)'
+                }}
+                disabled={isSubmitting}
+                onClick={() => console.log('Button clicked!')}
+              >
+                {isSubmitting ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span className="animate-pulse">{showRegister ? 'Creating account...' : 'Signing in...'}</span>
+                  </div>
+                ) : (
+                  showRegister ? 'Create Account' : 'Sign In'
+                )}
               </Button>
 
-              <div className="text-center">
+              {/* Auth type indicator */}
+              <div className="text-center pt-2">
+                <p className="text-xs text-gray-500">
+                  {isSupabaseConfigured() ? '🔒 Secure cloud authentication' : '💾 Local authentication'}
+                </p>
+              </div>
+
+              {/* Toggle between login and register */}
+              <div className="text-center pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowRegister(!showRegister)}
-                  className="text-sm text-blue-600 hover:underline"
+                  onClick={() => {
+                    setShowRegister(!showRegister)
+                    setError('')
+                  }}
+                  className="text-sm font-medium hover:underline transition-colors"
+                  style={{ color: '#F5981E' }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#2C4471'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#F5981E'}
                 >
                   {showRegister 
                     ? 'Already have an account? Sign in' 
-                    : "Don't have an account? Register"}
+                    : "Don't have an account? Create one"}
                 </button>
               </div>
             </form>
@@ -245,12 +586,17 @@ function App() {
     )
   }
 
-  // Advanced Dashboard with Sidebar Navigation
-  return (
-    <ThemeProvider defaultTheme="light" defaultColorScheme="blue">
-      <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} />
-    </ThemeProvider>
-  )
+  // Show dashboard only when authenticated AND company is selected
+  if (isAuthenticated && companySelected) {
+    return (
+      <ThemeProvider defaultTheme="light" defaultColorScheme="pivoten">
+        <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} />
+      </ThemeProvider>
+    )
+  }
+
+  // Fallback (should not reach here)
+  return null
 }
 
 // Advanced Dashboard Component with Sidebar and Multiple Views
@@ -258,6 +604,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard')
   const [dashboardData, setDashboardData] = useState(null)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const lastLoadedCompany = useRef(null)
 
   // Load dashboard data when company changes (not when user object changes)
@@ -289,6 +636,22 @@ function AdvancedDashboard({ currentUser, onLogout }) {
     console.log('Loading dashboard data for company:', currentUser.company_name)
     setLoadingDashboard(true)
     try {
+      // Check if Wails runtime is available
+      if (!window.go || !window.go.main || !window.go.main.App) {
+        console.log('⚠️ Wails runtime not available - Run "wails dev" to access backend functions')
+        // Set minimal dashboard data for browser development
+        setDashboardData({
+          company: currentUser.company_name,
+          totalRevenue: 0,
+          totalExpenses: 0,
+          netIncome: 0,
+          wellCount: 0,
+          recentTransactions: [],
+          message: 'Backend not available - Run "wails dev" for full functionality'
+        })
+        return
+      }
+      
       const data = await GetDashboardData(currentUser.company_name)
       console.log('Dashboard data loaded:', data)
       setDashboardData(data)
@@ -334,81 +697,107 @@ function AdvancedDashboard({ currentUser, onLogout }) {
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
-      <Sidebar className="hidden lg:flex border-r">
-        <SidebarHeader className="border-b px-6 py-4">
-          <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
-        </SidebarHeader>
-        <SidebarContent>
+      <div 
+        className="hidden lg:flex flex-col border-r transition-all duration-300 bg-card"
+        style={{ width: isSidebarCollapsed ? '4rem' : '16rem' }}
+      >
+        <div className="border-b px-4 py-4 flex items-center justify-between h-16">
+          {!isSidebarCollapsed && (
+            <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
+          )}
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className={`p-2 hover:bg-accent rounded-md transition-colors ${isSidebarCollapsed ? 'mx-auto' : 'ml-auto'}`}
+          >
+            {isSidebarCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="flex-1 flex flex-col overflow-y-auto">
           <SidebarNav>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'dashboard'}
               onClick={() => setActiveView('dashboard')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Dashboard" : ""}
             >
-              <Home className="w-4 h-4" />
-              Dashboard
+              <Home className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Dashboard</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'operations'}
               onClick={() => setActiveView('operations')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Operations" : ""}
             >
-              <Activity className="w-4 h-4" />
-              Operations
+              <Activity className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Operations</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'financials'}
               onClick={() => setActiveView('financials')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Financials" : ""}
             >
-              <DollarSign className="w-4 h-4" />
-              Financials
+              <DollarSign className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Financials</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'data'}
               onClick={() => setActiveView('data')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Data Management" : ""}
             >
-              <Database className="w-4 h-4" />
-              Data Management
+              <Database className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Data Management</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'reporting'}
               onClick={() => setActiveView('reporting')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Reporting" : ""}
             >
-              <FileText className="w-4 h-4" />
-              Reporting
+              <FileText className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Reporting</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'utilities'}
               onClick={() => setActiveView('utilities')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Utilities" : ""}
             >
-              <Wrench className="w-4 h-4" />
-              Utilities
+              <Wrench className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Utilities</span>}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'settings'}
               onClick={() => setActiveView('settings')}
+              className="flex items-center gap-3"
+              title={isSidebarCollapsed ? "Settings" : ""}
             >
-              <Settings className="w-4 h-4" />
-              Settings
+              <Settings className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span>Settings</span>}
             </SidebarNavItem>
           </SidebarNav>
           <div className="mt-auto p-4 border-t">
             <Button 
               variant="ghost" 
-              className="w-full justify-start" 
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2' : 'justify-start'}`}
               onClick={onLogout}
+              title={isSidebarCollapsed ? "Logout" : ""}
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              <LogOut className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span className="ml-2">Logout</span>}
             </Button>
           </div>
-        </SidebarContent>
-      </Sidebar>
+        </div>
+      </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">

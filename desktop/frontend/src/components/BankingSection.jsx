@@ -11,6 +11,13 @@ import { Badge } from './ui/badge'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator 
+} from './ui/dropdown-menu'
+import { 
   CreditCard, 
   Building2, 
   ArrowUpRight, 
@@ -22,7 +29,10 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Calculator,
+  FileText,
+  TrendingUp
 } from 'lucide-react'
 
 export function BankingSection({ companyName, currentUser }) {
@@ -30,6 +40,8 @@ export function BankingSection({ companyName, currentUser }) {
   const [accounts, setAccounts] = useState([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [refreshingAccount, setRefreshingAccount] = useState(null)
+  const [activeTab, setActiveTab] = useState('accounts')
+  const [selectedAccountForReconciliation, setSelectedAccountForReconciliation] = useState(null)
 
   const [transactions, setTransactions] = useState([
     {
@@ -388,15 +400,17 @@ export function BankingSection({ companyName, currentUser }) {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="accounts" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="accounts">Bank Accounts</TabsTrigger>
-          <TabsTrigger value="reconciliation">Reconcile</TabsTrigger>
           <TabsTrigger value="outstanding">Outstanding Checks</TabsTrigger>
           <TabsTrigger value="cleared">Cleared Checks</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
             <TabsTrigger value="audit">Audit</TabsTrigger>
+          )}
+          {activeTab === 'reconciliation' && (
+            <TabsTrigger value="reconciliation">Reconcile</TabsTrigger>
           )}
         </TabsList>
 
@@ -559,9 +573,37 @@ export function BankingSection({ companyName, currentUser }) {
                       </Button>
                     )}
                     
-                    <Button size="sm" variant="outline">
-                      <MoreVertical className="w-4 h-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            setActiveTab('reconciliation')
+                            setSelectedAccountForReconciliation(account.accountNumber)
+                          }}
+                        >
+                          <Calculator className="w-4 h-4 mr-2" />
+                          Reconcile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <FileText className="w-4 h-4 mr-2" />
+                          Statement
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <TrendingUp className="w-4 h-4 mr-2" />
+                          Analytics
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem>
+                          <MoreVertical className="w-4 h-4 mr-2" />
+                          More Options
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
@@ -673,7 +715,15 @@ export function BankingSection({ companyName, currentUser }) {
 
         {/* Reconciliation Tab */}
         <TabsContent value="reconciliation" className="space-y-4">
-          <BankReconciliation companyName={companyName} />
+          <BankReconciliation 
+            companyName={companyName} 
+            currentUser={currentUser}
+            preSelectedAccount={selectedAccountForReconciliation}
+            onBack={() => {
+              setActiveTab('accounts')
+              setSelectedAccountForReconciliation(null)
+            }}
+          />
         </TabsContent>
 
         {/* Transfers Tab */}

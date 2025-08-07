@@ -220,6 +220,35 @@ Advanced bank reconciliation interface with real-time calculations, intelligent 
 - `calculateTotals()`: Enhanced calculation engine with real-time balance tracking
 - Auto-save system with intelligent debouncing and draft persistence
 
+## UI/UX Enhancements
+
+### Collapsible Sidebar Navigation
+The main application sidebar can be toggled between collapsed and expanded states to maximize screen space for data-intensive views like bank reconciliation.
+
+**Implementation Details**:
+- **Location**: `App.jsx` - `AdvancedDashboard` component
+- **Toggle Button**: Located in top-right of sidebar header (Menu icon when collapsed, ChevronLeft when expanded)
+- **Collapsed Width**: 4rem (64px) - shows only icons with tooltips
+- **Expanded Width**: 16rem (256px) - shows icons and labels
+- **State Management**: `isSidebarCollapsed` state in `AdvancedDashboard` component
+- **Responsive Design**: Hidden on mobile (lg:flex), always visible on desktop
+- **Smooth Transition**: 300ms CSS transition for width changes
+
+**Benefits**:
+- Maximizes horizontal space for wide tables and data grids
+- Particularly useful for bank reconciliation with side-by-side check matching
+- Maintains navigation accessibility while prioritizing content space
+- Smooth animation provides visual feedback during state changes
+
+### Direct Account Reconciliation Access
+Bank reconciliation can be accessed directly from bank account cards via the three-dot menu, eliminating the need to navigate through multiple tabs.
+
+**Implementation**:
+- **Location**: `BankingSection.jsx` - Bank account cards
+- **Access Point**: Three-dot dropdown menu on each bank account card
+- **Direct Navigation**: Clicking "Reconcile" immediately opens reconciliation for that specific account
+- **No Account Selection**: Since accessed from a specific card, account is pre-selected
+
 ## Next Steps
 
 - **Bank Statement Import** - Integrate with bank statement imports for automated reconciliation

@@ -237,13 +237,25 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 
 // Logout handles user logout
 func (a *App) Logout(token string) error {
+	fmt.Printf("Logout: Starting logout process\n")
+	debug.SimpleLog("Logout: Starting logout process")
+	
 	// Close OLE connection when user logs out
+	fmt.Printf("Logout: Calling CloseOLEConnection\n")
+	debug.SimpleLog("Logout: Calling CloseOLEConnection")
 	ole.CloseOLEConnection()
-	fmt.Printf("Logout: Closed OLE connection\n")
+	fmt.Printf("Logout: CloseOLEConnection completed\n")
+	debug.SimpleLog("Logout: CloseOLEConnection completed")
 	
 	if a.auth != nil {
-		return a.auth.Logout(token)
+		err := a.auth.Logout(token)
+		fmt.Printf("Logout: Auth logout completed, error: %v\n", err)
+		debug.SimpleLog(fmt.Sprintf("Logout: Auth logout completed, error: %v", err))
+		return err
 	}
+	
+	fmt.Printf("Logout: Complete\n")
+	debug.SimpleLog("Logout: Complete")
 	return nil
 }
 

@@ -348,29 +348,45 @@ func (c *DbApiClient) CloseDbc() error {
 
 // Close releases the OLE object and terminates the server process
 func (c *DbApiClient) Close() {
+	writeLog("DbApiClient.Close() called")
+	
 	if c.oleObject != nil {
-		// Try to close DBC first
-		c.CloseDbc()
+		writeLog("DbApiClient.Close(): oleObject is not nil, proceeding with cleanup")
 		
-		// Call Quit to terminate the OLE server process and release all file locks
-		// This is important to prevent "File access is denied" errors on re-login
-		result, err := oleutil.CallMethod(c.oleObject, "Quit")
-		if err != nil {
-			writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
+		// Try to close DBC first
+		writeLog("DbApiClient.Close(): Closing database")
+		c.CloseDbc()
+		writeLog("DbApiClient.Close(): Database closed")
+		
+		// Call the Release method to clean up resources
+		writeLog("DbApiClient.Close(): Calling Release method on OLE server")
+		releaseResult, releaseErr := oleutil.CallMethod(c.oleObject, "Release")
+		if releaseErr != nil {
+			writeLog(fmt.Sprintf("DbApiClient.Close(): Release failed: %v", releaseErr))
 		} else {
-			writeLog("Called Quit on OLE server")
-			if result != nil {
-				result.Clear()
+			writeLog("DbApiClient.Close(): Release method called successfully")
+			if releaseResult != nil {
+				releaseResult.Clear()
 			}
 		}
 		
-		// Release the OLE object
+		// Release the OLE object - this is the critical step
+		// The COM server will terminate when its reference count reaches zero
+		writeLog("DbApiClient.Close(): Releasing OLE object reference")
 		c.oleObject.Release()
 		c.oleObject = nil
+		writeLog("DbApiClient.Close(): OLE object released and set to nil")
+		
+		// Give Windows a moment to clean up the process
+		time.Sleep(100 * time.Millisecond)
 		
 		// Don't call CoUninitialize here - it should be called once per thread
 		// ole.CoUninitialize()
+	} else {
+		writeLog("DbApiClient.Close(): oleObject was already nil, nothing to close")
 	}
+	
+	writeLog("DbApiClient.Close(): Complete")
 }
 
 // ParseXMLToRows parses FoxPro XML result to rows

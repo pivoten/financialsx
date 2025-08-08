@@ -66,22 +66,28 @@ func runCOMThread() {
 			
 		case <-comClose:
 			// Explicit close request
-			writeLog("COM Thread: Explicit close requested")
+			writeLog("COM Thread: Explicit close requested via channel")
 			if comClient != nil {
+				writeLog(fmt.Sprintf("COM Thread: comClient exists, currentPath='%s'", currentPath))
+				
 				// Close database if open
 				if currentPath != "" {
+					writeLog("COM Thread: Closing database")
 					comClient.CloseDbc()
 					currentPath = ""
 					writeLog("COM Thread: Database closed")
 				}
 				
-				// Terminate the OLE server process to release all file locks
+				// Terminate the OLE server process
+				writeLog("COM Thread: Calling Close() on OLE client")
 				comClient.Close()
 				comClient = nil
-				writeLog("COM Thread: OLE client closed and terminated")
+				writeLog("COM Thread: OLE client closed and set to nil")
 				
-				// Don't recreate immediately - wait until actually needed
-				// This prevents multiple processes from being created
+				// Reset path to ensure clean state
+				currentPath = ""
+			} else {
+				writeLog("COM Thread: comClient was nil, nothing to close")
 			}
 			
 		case req := <-comRequests:
@@ -202,13 +208,20 @@ func PreloadOLEConnection(companyPath string) {
 
 // CloseOLEConnection explicitly closes the current OLE connection
 func CloseOLEConnection() {
-	// Non-blocking send to close channel
+	writeLog("CloseOLEConnection called")
+	
+	// Send close request via channel
 	select {
 	case comClose <- true:
-		writeLog("Close request sent")
+		writeLog("Close request sent via channel")
+		// Give it time to process and terminate the process
+		time.Sleep(200 * time.Millisecond)
 	default:
-		writeLog("Close request skipped - channel busy")
+		writeLog("Channel busy or COM thread not running")
+		// If channel is busy, the client might not exist anyway
 	}
+	
+	writeLog("CloseOLEConnection complete")
 }
 
 // SetIdleTimeout sets the idle timeout duration

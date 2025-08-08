@@ -1,7 +1,7 @@
 *----------------------------------------------------------
 * dbapi.prg  (Project name: Pivoten)
 * Build: Win32 EXE / COM server
-* Register: dbapi.exe /regserver
+* Register: pivoten.exe /regserver
 * ProgID: Pivoten.DbApi
 *----------------------------------------------------------
 
@@ -333,14 +333,40 @@ DEFINE CLASS DbApi AS Custom OLEPUBLIC
         RETURN .T.
     ENDFUNC
     
-    * Cleanly quit the OLE server process
+    * Cleanly release resources - server will terminate when all references are released
     FUNCTION Quit()
         * Close any open databases
         IF !EMPTY(DBC())
             CLOSE DATABASES ALL
         ENDIF
-        * Exit the process
-        QUIT
+        * Clear any remaining resources
+        CLEAR ALL
+        CLOSE ALL
+        RELEASE ALL
+        * Signal success - the server will terminate when COM releases it
+        RETURN .T.
+    ENDFUNC
+    
+    * Alternative terminate method - clean shutdown
+    FUNCTION Terminate()
+        * Close everything immediately
+        CLOSE ALL
+        CLEAR ALL
+        * Signal success - the server will terminate when COM releases it
+        RETURN .T.
+    ENDFUNC
+    
+    * Release method - clean up all resources
+    FUNCTION Release()
+        * Close any open databases
+        IF !EMPTY(DBC())
+            CLOSE DATABASES ALL
+        ENDIF
+        * Clear everything
+        CLEAR ALL
+        CLOSE ALL
+        RELEASE ALL
+        * Return success - server will terminate when COM releases it
         RETURN .T.
     ENDFUNC
     

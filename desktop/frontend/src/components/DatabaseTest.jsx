@@ -19,10 +19,15 @@ export function DatabaseTest({ currentUser }) {
   const [sortColumn, setSortColumn] = useState(null)
   const [sortDirection, setSortDirection] = useState('asc')
   
-  // Load tables on component mount
+  // Load tables on component mount and when currentUser changes
   useEffect(() => {
-    loadTables()
-  }, [])
+    // Small delay to ensure localStorage is populated
+    const timer = setTimeout(() => {
+      loadTables()
+    }, 100)
+    
+    return () => clearTimeout(timer)
+  }, [currentUser]) // Re-run when currentUser changes
 
   // Predefined test queries for common tables
   // Note: FoxPro requires ORDER BY when using TOP
@@ -45,6 +50,7 @@ export function DatabaseTest({ currentUser }) {
   }
 
   const loadTables = async () => {
+    console.log('loadTables called - checking for company info...')
     setLoadingTables(true)
     try {
       // Get company path from localStorage like other components
@@ -52,10 +58,23 @@ export function DatabaseTest({ currentUser }) {
       const companyName = localStorage.getItem('company_name')
       const companyIdentifier = companyPath || currentUser?.company_name || companyName
       
+      console.log('Company identifier:', companyIdentifier)
+      
+      if (!companyIdentifier) {
+        console.warn('No company identifier found, cannot load tables')
+        setLoadingTables(false)
+        return
+      }
+      
       console.log('Loading tables for company:', companyIdentifier)
       const result = await GetTableList(companyIdentifier)
+      console.log('GetTableList result:', result)
+      
       if (result.success && result.tables) {
+        console.log(`Successfully loaded ${result.tables.length} tables`)
         setTables(result.tables)
+      } else if (result.error) {
+        console.error('GetTableList returned error:', result.error)
       }
     } catch (err) {
       console.error('Failed to load tables:', err)
@@ -167,13 +186,17 @@ export function DatabaseTest({ currentUser }) {
                 className="flex-1 p-2 border rounded-md bg-white"
               >
                 <option value="">Choose a table to query</option>
+                {/* Show loading state in dropdown */}
+                {loadingTables && (
+                  <option disabled>Loading tables...</option>
+                )}
                 {/* Dynamic tables from database */}
-                {tables.length > 0 ? (
+                {!loadingTables && tables.length > 0 ? (
                   tables.map(table => (
                     <option key={table} value={table}>{table}</option>
                   ))
-                ) : (
-                  /* Fallback hardcoded options */
+                ) : !loadingTables ? (
+                  /* Fallback hardcoded options if no tables loaded */
                   <>
                     <option value="COA">Chart of Accounts (COA)</option>
                     <option value="CHECKS">Checks Register</option>
@@ -181,7 +204,7 @@ export function DatabaseTest({ currentUser }) {
                     <option value="VENDORS">Vendors</option>
                     <option value="WELLS">Wells</option>
                   </>
-                )}
+                ) : null}
                 <option value="CUSTOM">--- Custom SQL Query ---</option>
               </select>
               <Button

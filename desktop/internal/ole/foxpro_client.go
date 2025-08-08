@@ -352,9 +352,17 @@ func (c *DbApiClient) Close() {
 		// Try to close DBC first
 		c.CloseDbc()
 		
-		// Don't call Quit when using connection pool - we want to reuse connections
-		// Only call Quit if this is a standalone connection (not from pool)
-		// The pool will manage process lifecycle
+		// Call Quit to terminate the OLE server process and release all file locks
+		// This is important to prevent "File access is denied" errors on re-login
+		result, err := oleutil.CallMethod(c.oleObject, "Quit")
+		if err != nil {
+			writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
+		} else {
+			writeLog("Called Quit on OLE server")
+			if result != nil {
+				result.Clear()
+			}
+		}
 		
 		// Release the OLE object
 		c.oleObject.Release()

@@ -692,45 +692,6 @@ function AdvancedDashboard({ currentUser, onLogout }) {
     }
   }, [currentUser?.company_name, currentUser?.company_path])
 
-  // Expose test function to window for debugging
-  useEffect(() => {
-    window.testDashboardLoad = async () => {
-      console.log('🧪 Test dashboard load from console')
-      const companyPath = localStorage.getItem('company_path')
-      const companyName = localStorage.getItem('company_name')
-      const testIdentifier = companyPath || companyName
-      console.log('Test identifier:', testIdentifier)
-      
-      if (window.go && window.go.main && window.go.main.App) {
-        try {
-          console.log('Calling GetDashboardData...')
-          const result = await window.go.main.App.GetDashboardData(testIdentifier)
-          console.log('Result:', result)
-          return result
-        } catch (error) {
-          console.error('Error:', error)
-          return error
-        }
-      } else {
-        console.error('Wails runtime not available')
-        return 'Wails runtime not available'
-      }
-    }
-    
-    window.testLogging = async () => {
-      if (window.go && window.go.main && window.go.main.App) {
-        try {
-          const result = await window.go.main.App.TestLogging()
-          console.log('TestLogging result:', result)
-          return result
-        } catch (error) {
-          console.error('TestLogging error:', error)
-          return error
-        }
-      }
-    }
-  }, [])
-
   const loadDashboardData = async () => {
     console.log('🚀 loadDashboardData called')
     console.log('  currentUser:', currentUser)
@@ -1166,29 +1127,6 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         <main className="flex-1 overflow-auto p-6 bg-muted/30">
           {activeView === 'dashboard' && (
             <div className="space-y-6">
-              {/* Debug section - only show in development */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
-                <div className="text-sm font-medium mb-2">Debug Info:</div>
-                <div className="text-xs space-y-1">
-                  <div>Company Name: {currentUser?.company_name || 'Not set'}</div>
-                  <div>Company Path: {currentUser?.company_path || 'Not set'}</div>
-                  <div>LocalStorage company_name: {localStorage.getItem('company_name') || 'Not set'}</div>
-                  <div>LocalStorage company_path: {localStorage.getItem('company_path') || 'Not set'}</div>
-                  <div>Dashboard Data Loaded: {dashboardData ? 'Yes' : 'No'}</div>
-                </div>
-                <Button 
-                  onClick={() => {
-                    console.log('Manual dashboard load triggered')
-                    loadDashboardData()
-                  }}
-                  className="mt-2"
-                  size="sm"
-                  variant="outline"
-                >
-                  Manually Load Dashboard
-                </Button>
-              </div>
-              
               {loadingDashboard && (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">Loading dashboard data...</p>

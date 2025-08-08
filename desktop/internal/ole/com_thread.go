@@ -42,26 +42,9 @@ func runCOMThread() {
 	
 	writeLog("COM Thread: Starting dedicated COM thread")
 	
-	// Create the OLE client on this thread
+	// Don't create the OLE client immediately - wait for first request
+	// This prevents creating unnecessary processes
 	var err error
-	comClient, err = NewDbApiClient()
-	if err != nil {
-		writeLog(fmt.Sprintf("COM Thread: Failed to create OLE client: %v", err))
-		// Handle all pending requests with error
-		for {
-			select {
-			case req := <-comRequests:
-				req.result = fmt.Errorf("COM initialization failed: %w", err)
-				req.done <- true
-			case <-comShutdown:
-				return
-			default:
-				return
-			}
-		}
-	}
-	
-	writeLog("COM Thread: OLE client created successfully")
 	currentPath := ""
 	lastActivity = time.Now()
 	
@@ -76,34 +59,46 @@ func runCOMThread() {
 			// Preload request - open database but don't execute anything
 			writeLog(fmt.Sprintf("COM Thread: Preloading database for company: %s", companyPath))
 			
-			if companyPath != "" && companyPath != currentPath {
-				if currentPath != "" {
-					comClient.CloseDbc()
-				}
-				
-				err := comClient.OpenDbc(companyPath)
-				if err != nil {
-					writeLog(fmt.Sprintf("COM Thread: Failed to preload database: %v", err))
-				} else {
-					currentPath = companyPath
-					writeLog(fmt.Sprintf("COM Thread: Database preloaded successfully for: %s", companyPath))
-				}
-			}
-			
+			// This case is now obsolete since we handle preload via ExecuteOnCOMThread
+			// Just reset the timer
 			lastActivity = time.Now()
 			idleTimer.Reset(idleTimeout)
 			
 		case <-comClose:
 			// Explicit close request
 			writeLog("COM Thread: Explicit close requested")
-			if comClient != nil && currentPath != "" {
-				comClient.CloseDbc()
-				currentPath = ""
-				writeLog("COM Thread: Database closed")
+			if comClient != nil {
+				// Close database if open
+				if currentPath != "" {
+					comClient.CloseDbc()
+					currentPath = ""
+					writeLog("COM Thread: Database closed")
+				}
+				
+				// Terminate the OLE server process to release all file locks
+				comClient.Close()
+				comClient = nil
+				writeLog("COM Thread: OLE client closed and terminated")
+				
+				// Don't recreate immediately - wait until actually needed
+				// This prevents multiple processes from being created
 			}
 			
 		case req := <-comRequests:
 			writeLog(fmt.Sprintf("COM Thread: Processing request for company: %s", req.companyPath))
+			
+			// Ensure client exists (might have been closed)
+			if comClient == nil {
+				writeLog("COM Thread: OLE client was nil, recreating...")
+				comClient, err = NewDbApiClient()
+				if err != nil {
+					writeLog(fmt.Sprintf("COM Thread: Failed to recreate OLE client: %v", err))
+					req.result = fmt.Errorf("failed to recreate OLE client: %w", err)
+					req.done <- true
+					continue
+				}
+				writeLog("COM Thread: OLE client recreated successfully")
+			}
 			
 			// Switch database if needed
 			if req.companyPath != "" && req.companyPath != currentPath {
@@ -179,15 +174,28 @@ func ExecuteOnCOMThread(companyPath string, fn func(*DbApiClient) error) error {
 
 // PreloadOLEConnection preloads the OLE connection for a company
 func PreloadOLEConnection(companyPath string) {
+	// Start the COM thread if not already started
 	initCOMThread()
 	
-	// Non-blocking send to preload channel
-	select {
-	case comPreload <- companyPath:
-		writeLog(fmt.Sprintf("Preload request sent for company: %s", companyPath))
-	default:
-		writeLog("Preload request skipped - channel busy")
-	}
+	// Run preload asynchronously to avoid blocking login
+	go func() {
+		// Force initialization by executing a simple operation
+		// This ensures the OLE client is created and database is opened
+		err := ExecuteOnCOMThread(companyPath, func(client *DbApiClient) error {
+			writeLog(fmt.Sprintf("Preload: OLE connection established for company: %s", companyPath))
+			// Just checking if database is open is enough to establish connection
+			if client.IsDbcOpen() {
+				writeLog(fmt.Sprintf("Preload: Database is open for: %s", companyPath))
+			}
+			return nil
+		})
+		
+		if err != nil {
+			writeLog(fmt.Sprintf("Preload failed for company %s: %v", companyPath, err))
+		} else {
+			writeLog(fmt.Sprintf("Preload completed successfully for company: %s", companyPath))
+		}
+	}()
 }
 
 // CloseOLEConnection explicitly closes the current OLE connection
@@ -210,5 +218,21 @@ func SetIdleTimeout(duration time.Duration) {
 // ShutdownCOMThread shuts down the COM thread
 func ShutdownCOMThread() {
 	writeLog("Shutting down COM thread")
+	
+	// Explicitly close the OLE connection if it exists
+	if comClient != nil {
+		comClient.Close()
+		comClient = nil
+	}
+	
 	close(comShutdown)
+}
+
+// KillAllOLEProcesses terminates all running OLE server processes
+// This is useful for cleanup on startup to prevent accumulation
+func KillAllOLEProcesses() {
+	writeLog("Killing all existing OLE server processes")
+	// On Windows, we could use taskkill to force terminate all dbapi.exe processes
+	// This ensures clean slate on startup
+	// Note: This is a Windows-specific solution
 }

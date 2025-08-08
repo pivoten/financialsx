@@ -131,11 +131,13 @@ func runCOMThread() {
 		case <-idleTimer.C:
 			// Check if we've been idle too long
 			if time.Since(lastActivity) >= idleTimeout {
-				writeLog(fmt.Sprintf("COM Thread: Idle timeout reached (%v since last activity), closing database", time.Since(lastActivity)))
-				if currentPath != "" {
-					comClient.CloseDbc()
+				writeLog(fmt.Sprintf("COM Thread: Idle timeout reached (%v since last activity), closing OLE", time.Since(lastActivity)))
+				if comClient != nil {
+					// Close and terminate the OLE server to free resources
+					comClient.Close()
+					comClient = nil
 					currentPath = ""
-					writeLog("COM Thread: Database closed due to inactivity")
+					writeLog("COM Thread: OLE client closed due to inactivity")
 				}
 			}
 			idleTimer.Reset(idleTimeout)

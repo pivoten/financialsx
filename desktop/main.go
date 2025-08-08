@@ -171,9 +171,10 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 
 	a.currentUser = user
 	
-	// Preload OLE connection for the company after successful login
-	ole.PreloadOLEConnection(companyName)
-	fmt.Printf("Login: Preloaded OLE connection for company: %s\n", companyName)
+	// Don't preload OLE connection on login - creates duplicate processes
+	// OLE connection will be created on first actual database query
+	// ole.PreloadOLEConnection(companyName)
+	fmt.Printf("Login: Deferred OLE connection for company: %s\n", companyName)
 
 	return map[string]interface{}{
 		"user":    user,
@@ -223,9 +224,10 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 
 	a.currentUser = user
 	
-	// Preload OLE connection for the company after successful registration
-	ole.PreloadOLEConnection(companyName)
-	fmt.Printf("Register: Preloaded OLE connection for company: %s\n", companyName)
+	// Don't preload OLE connection on registration - creates duplicate processes
+	// OLE connection will be created on first actual database query
+	// ole.PreloadOLEConnection(companyName)
+	fmt.Printf("Register: Deferred OLE connection for company: %s\n", companyName)
 
 	return map[string]interface{}{
 		"user":    user,
@@ -268,10 +270,10 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
 		
-		// Close any existing OLE connection and preload for new company
+		// Close any existing OLE connection when switching companies
+		// Don't preload - let it create on first query to avoid duplicates
 		ole.CloseOLEConnection()
-		ole.PreloadOLEConnection(companyName)
-		fmt.Printf("ValidateSession: Switched OLE connection to company: %s\n", companyName)
+		fmt.Printf("ValidateSession: Closed OLE connection for company switch to: %s\n", companyName)
 	}
 	
 	user, err := a.auth.ValidateSession(token) // Remove companyName parameter

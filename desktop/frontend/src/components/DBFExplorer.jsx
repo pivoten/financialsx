@@ -81,16 +81,20 @@ export function DBFExplorer({ currentUser }) {
     try {
       // Get current company from localStorage (set during login)
       const companyName = localStorage.getItem('company_name')
+      const companyPath = localStorage.getItem('company_path')
       console.log('Loading company files, company_name from localStorage:', companyName)
+      console.log('Company path from localStorage:', companyPath)
       if (!companyName) {
         console.error('No company found in session')
         return
       }
       
-      setCurrentCompany(companyName)
+      // Use the actual data path if available, otherwise use company name (legacy)
+      const dataPath = companyPath || companyName
+      setCurrentCompany(dataPath)
       
-      // Load DBF files for the current company
-      const result = await GetDBFFiles(companyName)
+      // Load DBF files for the current company (now passing the data path)
+      const result = await GetDBFFiles(dataPath)
       setDbfFiles(result || [])
     } catch (error) {
       console.error('Failed to load DBF files:', error)
@@ -134,8 +138,12 @@ export function DBFExplorer({ currentUser }) {
       console.log('Parameters: company =', currentCompany, ', fileName =', fileName)
       
       // If currentCompany is empty, try to get it from localStorage again
-      let companyToUse = currentCompany || localStorage.getItem('company_name') || 'cantrellenergy'
+      // Use company_path if available, otherwise fall back to company_name
+      const companyPath = localStorage.getItem('company_path')
+      const companyName = localStorage.getItem('company_name')
+      let companyToUse = currentCompany || companyPath || companyName || 'cantrellenergy'
       console.log('Company to use for API call:', companyToUse)
+      console.log('(currentCompany:', currentCompany, ', companyPath:', companyPath, ', companyName:', companyName, ')')
       
       if (!companyToUse) {
         console.error('No company available for API call')

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { GetBankAccounts, GetDBFTableData, GetCachedBalances, RefreshAccountBalance, RefreshAllBalances } from '../../wailsjs/go/main/App'
+import { getCompanyDataPath, getCompanyName } from '../utils/companyPath'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { BankReconciliation } from './BankReconciliation'
 import { CheckAudit } from './CheckAudit'
@@ -130,7 +131,9 @@ export function BankingSection({ companyName, currentUser }) {
       if (typeof GetBankAccounts === 'function') {
         console.log('BankingSection: GetBankAccounts function is available, calling it...')
         try {
-          bankAccounts = await GetBankAccounts(companyName)
+          // Use the company data path for file operations
+          const dataPath = getCompanyDataPath()
+          bankAccounts = await GetBankAccounts(dataPath)
           console.log('BankingSection: GetBankAccounts response:', bankAccounts)
           console.log('BankingSection: GetBankAccounts response type:', typeof bankAccounts)
           console.log('BankingSection: GetBankAccounts response length:', bankAccounts?.length)
@@ -171,7 +174,9 @@ export function BankingSection({ companyName, currentUser }) {
       // Fallback: Try to read COA.dbf directly using existing function
       try {
         console.log('BankingSection: Using GetDBFTableData fallback...')
-        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
+        // Use the company data path for file operations
+        const dataPath = getCompanyDataPath()
+        const coaData = await GetDBFTableData(dataPath, 'COA.dbf')
         console.log('BankingSection: COA.dbf data loaded:', coaData)
         
         if (coaData && coaData.rows) {
@@ -230,7 +235,9 @@ export function BankingSection({ companyName, currentUser }) {
     
     try {
       // Get all cached balances at once
-      const cachedBalances = await GetCachedBalances(companyName)
+      // Use the company data path for all operations
+      const dataPath = getCompanyDataPath()
+      const cachedBalances = await GetCachedBalances(dataPath)
       console.log('BankingSection: Retrieved cached balances:', cachedBalances)
       
       // Handle null or undefined response
@@ -239,7 +246,7 @@ export function BankingSection({ companyName, currentUser }) {
         
         // Trigger refresh for all accounts
         for (const account of accountList) {
-          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+          RefreshAccountBalance(dataPath, account.accountNumber).catch(err => {
             console.error('Failed to refresh account balance for', account.accountNumber, ':', err)
           })
         }
@@ -297,7 +304,7 @@ export function BankingSection({ companyName, currentUser }) {
         } else {
           // No cached balance found - trigger a refresh
           console.log('BankingSection: No cached balance for account', account.accountNumber, '- will refresh')
-          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+          RefreshAccountBalance(dataPath, account.accountNumber).catch(err => {
             console.error('Failed to refresh account balance:', err)
           })
           
@@ -346,13 +353,31 @@ export function BankingSection({ companyName, currentUser }) {
     setRefreshingAccount(accountNumber)
     
     try {
-      await RefreshAccountBalance(companyName, accountNumber)
+      const dataPath = getCompanyDataPath()
+      
+      // Debug logging
+      console.log('refreshAccountBalance called with:', {
+        accountNumber,
+        dataPath,
+        company_path: localStorage.getItem('company_path'),
+        company_name: localStorage.getItem('company_name')
+      })
+      
+      if (!dataPath) {
+        throw new Error('No company data path available. Please select a company.')
+      }
+      
+      if (!accountNumber) {
+        throw new Error('No account number provided')
+      }
+      
+      await RefreshAccountBalance(dataPath, accountNumber)
       // Reload all account balances to reflect the update
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)
     } catch (error) {
       console.error('Failed to refresh account balance:', error)
-      alert('Failed to refresh balance: ' + error.message)
+      alert('Failed to refresh balance: ' + (error.message || error))
     } finally {
       setRefreshingAccount(null)
     }
@@ -363,13 +388,26 @@ export function BankingSection({ companyName, currentUser }) {
     setRefreshingAccount('all')
     
     try {
-      await RefreshAllBalances(companyName)
+      const dataPath = getCompanyDataPath()
+      
+      // Debug logging
+      console.log('refreshAllBalances called with:', {
+        dataPath,
+        company_path: localStorage.getItem('company_path'),
+        company_name: localStorage.getItem('company_name')
+      })
+      
+      if (!dataPath) {
+        throw new Error('No company data path available. Please select a company.')
+      }
+      
+      await RefreshAllBalances(dataPath)
       // Reload all account balances to reflect the updates
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)
     } catch (error) {
       console.error('Failed to refresh all balances:', error)
-      alert('Failed to refresh all balances: ' + error.message)
+      alert('Failed to refresh all balances: ' + (error.message || error))
     } finally {
       setRefreshingAccount(null)
     }

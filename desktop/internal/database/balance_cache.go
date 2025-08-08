@@ -78,12 +78,12 @@ func InitializeBalanceCache(db *DB) error {
 		outstanding_checks_total DECIMAL(15,2) NOT NULL DEFAULT 0.00,
 		outstanding_checks_count INTEGER NOT NULL DEFAULT 0,
 		outstanding_checks_last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		bank_balance DECIMAL(15,2) GENERATED ALWAYS AS (gl_balance + outstanding_checks_total) STORED,
+		bank_balance DECIMAL(15,2) NOT NULL DEFAULT 0.00,
 		is_active BOOLEAN NOT NULL DEFAULT TRUE,
 		is_bank_account BOOLEAN NOT NULL DEFAULT TRUE,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		metadata JSON DEFAULT '{}',
+		metadata TEXT DEFAULT '{}',
 		UNIQUE(company_name, account_number)
 	);
 	
@@ -119,7 +119,23 @@ func InitializeBalanceCache(db *DB) error {
 	
 	CREATE VIEW IF NOT EXISTS account_balance_summary AS
 	SELECT 
-		ab.*,
+		ab.id,
+		ab.company_name,
+		ab.account_number,
+		ab.account_name,
+		ab.account_type,
+		ab.gl_balance,
+		ab.gl_last_updated,
+		ab.gl_record_count,
+		ab.outstanding_checks_total,
+		ab.outstanding_checks_count,
+		ab.outstanding_checks_last_updated,
+		(ab.gl_balance + ab.outstanding_checks_total) as bank_balance,
+		ab.is_active,
+		ab.is_bank_account,
+		ab.created_at,
+		ab.updated_at,
+		ab.metadata,
 		ROUND((julianday('now') - julianday(ab.gl_last_updated)) * 24, 2) as gl_age_hours,
 		ROUND((julianday('now') - julianday(ab.outstanding_checks_last_updated)) * 24, 2) as checks_age_hours,
 		CASE 
@@ -243,12 +259,22 @@ func GetAllCachedBalances(db *DB, companyName string) ([]CachedBalance, error) {
 
 // RefreshGLBalance updates the GL balance by scanning GLMASTER.dbf
 func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error {
+	fmt.Printf("RefreshGLBalance: Starting for account %s in company %s\n", accountNumber, companyName)
+	
 	// Get current cached balance
 	currentBalance, err := GetCachedBalance(db, companyName, accountNumber)
+	if currentBalance != nil {
+		fmt.Printf("RefreshGLBalance: Found existing balance - GL: %.2f, Outstanding: %.2f\n", 
+			currentBalance.GLBalance, currentBalance.OutstandingTotal)
+	} else {
+		fmt.Printf("RefreshGLBalance: No existing balance found, will create new\n")
+	}
 	
 	// Calculate new GL balance (existing logic from GetAccountBalance)
+	fmt.Printf("RefreshGLBalance: Reading GLMASTER.dbf...\n")
 	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
 	if err != nil {
+		fmt.Printf("RefreshGLBalance: ERROR reading GLMASTER.dbf: %v\n", err)
 		return fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
 	}
 	
@@ -304,7 +330,10 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		}
 	}
 	
+	fmt.Printf("RefreshGLBalance: Processed %d records, total balance: %.2f\n", recordCount, totalBalance)
+	
 	// Update the cached balance - use UPSERT to handle race conditions
+	// Note: bank_balance is GENERATED and will auto-calculate as gl_balance + outstanding_checks_total
 	_, err = db.Exec(`
 		INSERT INTO account_balances 
 		(company_name, account_number, account_name, account_type, 
@@ -318,6 +347,7 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 	`, companyName, accountNumber, "", 1, totalBalance, recordCount)
 	
 	if err != nil {
+		fmt.Printf("RefreshGLBalance: UPSERT error: %v, trying fallback UPDATE\n", err)
 		// Fallback to simple UPDATE if INSERT OR REPLACE is not working
 		_, err = db.Exec(`
 			UPDATE account_balances 
@@ -513,6 +543,7 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		unclearedDeposits, unclearedChecks, depositCount, checkCount)
 	
 	// Use UPSERT to handle race conditions
+	// Note: bank_balance is GENERATED and will auto-calculate as gl_balance + outstanding_checks_total
 	_, err = db.Exec(`
 		INSERT INTO account_balances 
 		(company_name, account_number, account_name, account_type, 

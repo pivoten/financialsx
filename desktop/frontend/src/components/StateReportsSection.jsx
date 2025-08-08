@@ -9,6 +9,7 @@ export function StateReportsSection({ currentUser }) {
   const [states, setStates] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedState, setSelectedState] = useState('')
+  const [error, setError] = useState(null)
 
   // Mock states data - in the future this will come from WELLS.dbf analysis
   const mockStatesData = [
@@ -50,21 +51,30 @@ export function StateReportsSection({ currentUser }) {
   }, [currentUser])
 
   const loadStatesFromWells = async () => {
-    setLoading(true)
-    
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    try {
+      console.log('StateReportsSection: Loading states from wells...')
+      setLoading(true)
+      setError(null)
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1000))
     
     // In the future, this would call something like:
     // const wellsData = await GetDBFTableData(currentUser.company_name, 'WELLS.dbf')
     // const uniqueStates = extractUniqueStates(wellsData)
     // const statesWithReports = await generateStateReports(uniqueStates)
     
-    setStates(mockStatesData)
-    if (mockStatesData.length > 0) {
-      setSelectedState(mockStatesData[0].code)
+      setStates(mockStatesData)
+      if (mockStatesData.length > 0) {
+        setSelectedState(mockStatesData[0].code)
+      }
+      console.log('StateReportsSection: States loaded successfully')
+    } catch (err) {
+      console.error('StateReportsSection: Error loading states:', err)
+      setError(err.message || 'Failed to load state reports')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const getStatusColor = (status) => {
@@ -95,6 +105,26 @@ export function StateReportsSection({ currentUser }) {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
             <p className="text-muted-foreground">Analyzing wells data to determine state reporting requirements...</p>
           </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="border-red-200 bg-red-50">
+        <CardHeader>
+          <CardTitle className="text-red-800">Error Loading Reports</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-red-700">{error}</p>
+          <Button 
+            onClick={() => loadStatesFromWells()} 
+            className="mt-4"
+            variant="outline"
+          >
+            Try Again
+          </Button>
         </CardContent>
       </Card>
     )

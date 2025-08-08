@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Login, Register, GetCompanies, ValidateSession, GetDashboardData } from '../wailsjs/go/main/App'
+import { Login, Register, GetCompanies, GetCompanyList, ValidateSession, GetDashboardData } from '../wailsjs/go/main/App'
 import { supabase, isSupabaseConfigured, signIn, signUp } from './lib/supabase'
 import { Button } from './components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card'
@@ -8,15 +8,26 @@ import { Badge } from './components/ui/badge'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './components/ui/table'
 import { Sidebar, SidebarHeader, SidebarContent, SidebarNav, SidebarNavItem, SidebarNavGroup } from './components/ui/sidebar'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './components/ui/dropdown-menu'
 import { RevenueChart } from './components/charts/RevenueChart'
 import { ProductionChart } from './components/charts/ProductionChart'
 import { TransactionsTable } from './components/tables/TransactionsTable'
 import { DBFExplorer } from './components/DBFExplorer'
+import { DatabaseTest } from './components/DatabaseTest'
 import { UserManagement } from './components/UserManagement'
 import { StateReportsSection } from './components/StateReportsSection'
 import { BankingSection } from './components/BankingSection'
+import CompanyInformation from './components/CompanyInformation'
 import { ThemeProvider } from './components/theme-provider'
 import { ThemeSwitcher } from './components/theme-switcher'
+import pivotenLogo from './assets/pivoten-logo.png'
 import { 
   Home, 
   Database, 
@@ -37,7 +48,8 @@ import {
   Calendar,
   Wrench,
   Menu,
-  ChevronLeft
+  ChevronLeft,
+  Building2
 } from 'lucide-react'
 import './globals.css'
 
@@ -84,6 +96,7 @@ function App() {
     const token = localStorage.getItem('session_token')
     const authType = localStorage.getItem('auth_type')
     const savedCompany = localStorage.getItem('company_name')
+    const savedCompanyPath = localStorage.getItem('company_path')
     
     console.log('checkSession: Found stored session?', { hasToken: !!token, authType })
     
@@ -98,7 +111,8 @@ function App() {
           setCurrentUser({
             ...user,
             email: user.email,
-            username: user.email
+            username: user.email,
+            company_path: savedCompanyPath
           })
           setIsAuthenticated(true)
           
@@ -112,7 +126,10 @@ function App() {
           console.log('checkSession: Validating local session for company:', savedCompany)
           const user = await ValidateSession(token, savedCompany)
           console.log('checkSession: Session valid, user:', user)
-          setCurrentUser(user)
+          setCurrentUser({
+            ...user,
+            company_path: savedCompanyPath
+          })
           setIsAuthenticated(true)
           setSelectedCompany(savedCompany)
           setCompanySelected(true)
@@ -136,22 +153,44 @@ function App() {
         console.log('Wails runtime not available')
         // For testing without Wails, use mock data
         setCompanies([
-          { name: 'apollo', path: 'datafiles/apollo' },
-          { name: 'cantrellenergy', path: 'datafiles/cantrellenergy' },
-          { name: 'pivotenoperating', path: 'datafiles/pivotenoperating' }
+          { name: 'testdata', display_name: 'Pivoten Operating LLC', path: 'datafiles/testdata' },
+          { name: '00000198', display_name: 'Limecreek Energy, LLC', path: 'datafiles/limecreekenergydata' }
         ])
         return
       }
       
+      // Try to load companies from compmast.dbf first
+      try {
+        const companiesList = await GetCompanyList()
+        console.log('Loaded companies from compmast.dbf:', companiesList)
+        
+        if (companiesList && companiesList.length > 0) {
+          // Transform the data to match expected format
+          const transformedCompanies = companiesList.map(comp => ({
+            name: comp.company_id || comp.company_name,
+            display_name: comp.company_name,
+            path: comp.data_path,
+            address: comp.address1,
+            city: comp.city,
+            state: comp.state,
+            zip: comp.zip_code
+          }))
+          setCompanies(transformedCompanies)
+          return
+        }
+      } catch (dbfError) {
+        console.log('Could not load from compmast.dbf:', dbfError.message)
+      }
+      
+      // Fallback to GetCompanies if compmast.dbf is not available
       const companiesList = await GetCompanies()
       setCompanies(companiesList || [])
     } catch (error) {
       console.error('Failed to load companies:', error)
       // Set some default companies for testing
       setCompanies([
-        { name: 'apollo', path: 'datafiles/apollo' },
-        { name: 'cantrellenergy', path: 'datafiles/cantrellenergy' },
-        { name: 'pivotenoperating', path: 'datafiles/pivotenoperating' }
+        { name: 'testdata', display_name: 'Pivoten Operating LLC', path: 'datafiles/testdata' },
+        { name: '00000198', display_name: 'Limecreek Energy, LLC', path: 'datafiles/limecreekenergydata' }
       ])
     }
   }
@@ -245,14 +284,30 @@ function App() {
     }
   }
 
-  const handleCompanySelect = async (company) => {
+  const handleCompanySelect = async (companyObj) => {
     setError('')
     setIsSubmitting(true)
     
     try {
-      // Store selected company
-      localStorage.setItem('company_name', company)
-      setSelectedCompany(company)
+      // Store selected company info
+      const companyName = typeof companyObj === 'string' ? companyObj : companyObj.name
+      const companyPath = typeof companyObj === 'string' ? null : companyObj.path
+      
+      localStorage.setItem('company_name', companyName)
+      if (companyPath) {
+        localStorage.setItem('company_path', companyPath)
+      }
+      setSelectedCompany(companyName)
+      
+      // Initialize the SQLite database for this company (creates SQL folder if needed)
+      try {
+        console.log('Initializing company database for:', companyPath || companyName)
+        await window.go.main.App.InitializeCompanyDatabase(companyPath || companyName)
+        console.log('Company database initialized successfully')
+      } catch (dbError) {
+        console.error('Failed to initialize company database:', dbError)
+        // Non-fatal error - continue with company selection
+      }
       
       // For Supabase auth, we just need to set the company context
       // The actual data loading will happen in the dashboard
@@ -261,7 +316,8 @@ function App() {
       // Update current user with company info
       setCurrentUser(prev => ({
         ...prev,
-        company_name: company
+        company_name: companyName,
+        company_path: companyPath
       }))
     } catch (error) {
       setError('Failed to select company')
@@ -307,7 +363,7 @@ function App() {
           <CardHeader className="text-center space-y-1 pb-6">
             <div className="mx-auto mb-4">
               <img 
-                src="/src/assets/pivoten-logo.png" 
+                src={pivotenLogo} 
                 alt="Pivoten Logo" 
                 className="w-24 h-24 object-contain drop-shadow-md"
               />
@@ -331,7 +387,7 @@ function App() {
                   {companies.map((company) => (
                     <button
                       key={company.name}
-                      onClick={() => handleCompanySelect(company.name)}
+                      onClick={() => handleCompanySelect(company)}
                       disabled={isSubmitting}
                       className="w-full p-4 bg-white border-2 border-gray-200 rounded-lg hover:shadow-md transition-all text-left group"
                       onMouseEnter={(e) => {
@@ -348,9 +404,16 @@ function App() {
                             <Home className="w-6 h-6" style={{ color: '#6E8EC9' }} />
                           </div>
                           <div>
-                            <h3 className="font-semibold" style={{ color: '#2C4471' }}>{company.name}</h3>
-                            <p className="text-sm text-gray-500">
-                              {company.path || 'Company database'}
+                            <h3 className="font-semibold" style={{ color: '#2C4471' }}>
+                              {company.display_name || company.name}
+                            </h3>
+                            {company.address && (
+                              <p className="text-sm text-gray-600">
+                                {company.address}{company.city ? `, ${company.city}` : ''}{company.state ? `, ${company.state}` : ''} {company.zip || ''}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              ID: {company.name} • {company.path || `datafiles/${company.name}`}
                             </p>
                           </div>
                         </div>
@@ -397,7 +460,7 @@ function App() {
           <CardHeader className="text-center space-y-1 pb-8">
             <div className="mx-auto mb-6">
               <img 
-                src="/src/assets/pivoten-logo.png" 
+                src={pivotenLogo} 
                 alt="Pivoten Logo" 
                 className="w-28 h-28 object-contain drop-shadow-md"
               />
@@ -602,9 +665,11 @@ function App() {
 // Advanced Dashboard Component with Sidebar and Multiple Views
 function AdvancedDashboard({ currentUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard')
+  const [activeSubView, setActiveSubView] = useState('')
   const [dashboardData, setDashboardData] = useState(null)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true) // Start collapsed
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false) // Track hover state
   const lastLoadedCompany = useRef(null)
 
   // Load dashboard data when company changes (not when user object changes)
@@ -614,26 +679,84 @@ function AdvancedDashboard({ currentUser, onLogout }) {
     console.log('  company_name:', currentUser?.company_name)
     console.log('  lastLoadedCompany:', lastLoadedCompany.current)
     
+    // Get the company identifier (path or name)
+    const companyIdentifier = currentUser?.company_path || currentUser?.company_name
+    
     // Only load if company actually changed
-    if (currentUser?.company_name && currentUser.company_name !== lastLoadedCompany.current) {
-      console.log('  Company changed, loading dashboard data')
-      lastLoadedCompany.current = currentUser.company_name
+    if (companyIdentifier && companyIdentifier !== lastLoadedCompany.current) {
+      console.log('  Company changed, loading dashboard data for:', companyIdentifier)
+      lastLoadedCompany.current = companyIdentifier
       loadDashboardData()
     } else {
       console.log('  No company change or already loaded, skipping')
     }
-  }, [currentUser?.company_name])
+  }, [currentUser?.company_name, currentUser?.company_path])
+
+  // Expose test function to window for debugging
+  useEffect(() => {
+    window.testDashboardLoad = async () => {
+      console.log('🧪 Test dashboard load from console')
+      const companyPath = localStorage.getItem('company_path')
+      const companyName = localStorage.getItem('company_name')
+      const testIdentifier = companyPath || companyName
+      console.log('Test identifier:', testIdentifier)
+      
+      if (window.go && window.go.main && window.go.main.App) {
+        try {
+          console.log('Calling GetDashboardData...')
+          const result = await window.go.main.App.GetDashboardData(testIdentifier)
+          console.log('Result:', result)
+          return result
+        } catch (error) {
+          console.error('Error:', error)
+          return error
+        }
+      } else {
+        console.error('Wails runtime not available')
+        return 'Wails runtime not available'
+      }
+    }
+    
+    window.testLogging = async () => {
+      if (window.go && window.go.main && window.go.main.App) {
+        try {
+          const result = await window.go.main.App.TestLogging()
+          console.log('TestLogging result:', result)
+          return result
+        } catch (error) {
+          console.error('TestLogging error:', error)
+          return error
+        }
+      }
+    }
+  }, [])
 
   const loadDashboardData = async () => {
-    if (!currentUser?.company_name) return
+    console.log('🚀 loadDashboardData called')
+    console.log('  currentUser:', currentUser)
+    console.log('  company_name:', currentUser?.company_name)
+    console.log('  company_path:', currentUser?.company_path)
     
-    // Skip if we already have data for this company and it's not stale
-    if (dashboardData && dashboardData.company === currentUser.company_name) {
-      console.log('Dashboard data already loaded for company:', currentUser.company_name)
+    // Try to get company identifier from multiple sources
+    const companyIdentifier = currentUser?.company_path || 
+                              currentUser?.company_name || 
+                              localStorage.getItem('company_path') || 
+                              localStorage.getItem('company_name')
+    
+    console.log('  companyIdentifier resolved to:', companyIdentifier)
+    
+    if (!companyIdentifier) {
+      console.log('❌ No company identifier available, cannot load dashboard')
       return
     }
     
-    console.log('Loading dashboard data for company:', currentUser.company_name)
+    // Skip if we already have data for this company and it's not stale
+    if (dashboardData && dashboardData.company === companyIdentifier) {
+      console.log('Dashboard data already loaded for company:', companyIdentifier)
+      return
+    }
+    
+    console.log('Loading dashboard data for company:', companyIdentifier)
     setLoadingDashboard(true)
     try {
       // Check if Wails runtime is available
@@ -641,7 +764,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         console.log('⚠️ Wails runtime not available - Run "wails dev" to access backend functions')
         // Set minimal dashboard data for browser development
         setDashboardData({
-          company: currentUser.company_name,
+          company: companyIdentifier,
           totalRevenue: 0,
           totalExpenses: 0,
           netIncome: 0,
@@ -652,8 +775,9 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         return
       }
       
-      const data = await GetDashboardData(currentUser.company_name)
-      console.log('Dashboard data loaded:', data)
+      console.log('📞 Calling GetDashboardData with:', companyIdentifier)
+      const data = await GetDashboardData(companyIdentifier)
+      console.log('✅ Dashboard data loaded:', data)
       setDashboardData(data)
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
@@ -696,104 +820,131 @@ function AdvancedDashboard({ currentUser, onLogout }) {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Sidebar */}
+      {/* Auto-expanding Sidebar */}
       <div 
-        className="hidden lg:flex flex-col border-r transition-all duration-300 bg-card"
-        style={{ width: isSidebarCollapsed ? '4rem' : '16rem' }}
+        className={`hidden lg:flex flex-col border-r transition-all duration-300 ease-in-out bg-card shadow-sm ${
+          isSidebarHovered && isSidebarCollapsed ? 'w-64 shadow-lg' : isSidebarCollapsed ? 'w-16' : 'w-64'
+        }`}
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
       >
-        <div className="border-b px-4 py-4 flex items-center justify-between h-16">
-          {!isSidebarCollapsed && (
-            <h1 className="text-xl font-bold text-primary">FinancialsX</h1>
-          )}
-          <button
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className={`p-2 hover:bg-accent rounded-md transition-colors ${isSidebarCollapsed ? 'mx-auto' : 'ml-auto'}`}
-          >
-            {isSidebarCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
+        <div className="border-b px-4 py-4 flex items-center h-16">
+          <div className={`flex items-center transition-all duration-300 ${
+            (!isSidebarCollapsed || isSidebarHovered) ? 'w-full justify-between' : 'justify-center w-full'
+          }`}>
+            {(!isSidebarCollapsed || isSidebarHovered) && (
+              <span className="font-bold text-lg tracking-tight">FinancialsX</span>
+            )}
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="p-2 hover:bg-accent rounded-md transition-colors"
+            >
+              {(!isSidebarCollapsed || isSidebarHovered) ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <Menu className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </div>
         <div className="flex-1 flex flex-col overflow-y-auto">
           <SidebarNav>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'dashboard'}
-              onClick={() => setActiveView('dashboard')}
+              onClick={() => { setActiveView('dashboard'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Dashboard" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Dashboard" : ""}
             >
               <Home className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Dashboard</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Dashboard</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'operations'}
-              onClick={() => setActiveView('operations')}
+              onClick={() => { setActiveView('operations'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Operations" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Operations" : ""}
             >
               <Activity className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Operations</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Operations</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'financials'}
-              onClick={() => setActiveView('financials')}
+              onClick={() => { setActiveView('financials'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Financials" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Financials" : ""}
             >
               <DollarSign className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Financials</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Financials</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'data'}
-              onClick={() => setActiveView('data')}
+              onClick={() => { setActiveView('data'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Data Management" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Data Management" : ""}
             >
               <Database className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Data Management</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Data</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'reporting'}
-              onClick={() => setActiveView('reporting')}
+              onClick={() => { setActiveView('reporting'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Reporting" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Reporting" : ""}
             >
               <FileText className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Reporting</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Reporting</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'utilities'}
-              onClick={() => setActiveView('utilities')}
+              onClick={() => { setActiveView('utilities'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Utilities" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Utilities" : ""}
             >
               <Wrench className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Utilities</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Utilities</span>
+              )}
             </SidebarNavItem>
             <SidebarNavItem 
               href="#" 
               active={activeView === 'settings'}
-              onClick={() => setActiveView('settings')}
+              onClick={() => { setActiveView('settings'); setActiveSubView(''); }}
               className="flex items-center gap-3"
-              title={isSidebarCollapsed ? "Settings" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Settings" : ""}
             >
               <Settings className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span>Settings</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Settings</span>
+              )}
             </SidebarNavItem>
           </SidebarNav>
           <div className="mt-auto p-4 border-t">
             <Button 
               variant="ghost" 
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2' : 'justify-start'}`}
+              className={`w-full ${isSidebarCollapsed && !isSidebarHovered ? 'justify-center px-2' : 'justify-start'}`}
               onClick={onLogout}
-              title={isSidebarCollapsed ? "Logout" : ""}
+              title={isSidebarCollapsed && !isSidebarHovered ? "Logout" : ""}
             >
               <LogOut className="w-4 h-4 flex-shrink-0" />
-              {!isSidebarCollapsed && <span className="ml-2">Logout</span>}
+              {(!isSidebarCollapsed || isSidebarHovered) && (
+                <span className="ml-3 text-sm font-medium">Logout</span>
+              )}
             </Button>
           </div>
         </div>
@@ -801,29 +952,205 @@ function AdvancedDashboard({ currentUser, onLogout }) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
+        {/* Header with Navigation */}
         <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight">
-                {activeView === 'dashboard' && 'Dashboard'}
-                {activeView === 'operations' && 'Operations'}
-                {activeView === 'financials' && 'Financials'}
-                {activeView === 'data' && 'Data Management'}
-                {activeView === 'reporting' && 'Reporting'}
-                {activeView === 'utilities' && 'Utilities'}
-                {activeView === 'settings' && 'Settings'}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {activeView === 'dashboard' && 'Overview of your financial data'}
-                {activeView === 'operations' && 'Manage wells, production, and field operations'}
-                {activeView === 'financials' && 'Financial transactions, analytics, and accounting'}
-                {activeView === 'data' && 'Database maintenance and data management'}
-                {activeView === 'reporting' && 'Reports, compliance, and documentation'}
-                {activeView === 'utilities' && 'Tools, calculators, and system utilities'}
-                {activeView === 'settings' && 'System configuration and user management'}
-              </p>
+            <div className="flex items-center gap-6">
+              {/* Section Navigation Dropdown */}
+              {activeView !== 'dashboard' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      {activeView === 'operations' && <><Activity className="w-4 h-4" /> Operations</>}
+                      {activeView === 'financials' && <><DollarSign className="w-4 h-4" /> Financials</>}
+                      {activeView === 'data' && <><Database className="w-4 h-4" /> Data Management</>}
+                      {activeView === 'reporting' && <><FileText className="w-4 h-4" /> Reporting</>}
+                      {activeView === 'utilities' && <><Wrench className="w-4 h-4" /> Utilities</>}
+                      {activeView === 'settings' && <><Settings className="w-4 h-4" /> Settings</>}
+                      <ChevronLeft className="w-4 h-4 rotate-270" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    {activeView === 'operations' && (
+                      <>
+                        <DropdownMenuLabel>Operations Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('wells')}>
+                          <Activity className="mr-2 h-4 w-4" />
+                          <span>Wells Management</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('production')}>
+                          <TrendingUp className="mr-2 h-4 w-4" />
+                          <span>Production Tracking</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('field-ops')}>
+                          <Wrench className="mr-2 h-4 w-4" />
+                          <span>Field Operations</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('maintenance')}>
+                          <Settings className="mr-2 h-4 w-4" />
+                          <span>Maintenance</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {activeView === 'financials' && (
+                      <>
+                        <DropdownMenuLabel>Financial Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('transactions')}>
+                          <DollarSign className="mr-2 h-4 w-4" />
+                          <span>Transactions</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('revenue')}>
+                          <TrendingUp className="mr-2 h-4 w-4" />
+                          <span>Revenue Analysis</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('expenses')}>
+                          <Calculator className="mr-2 h-4 w-4" />
+                          <span>Expense Management</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('analytics')}>
+                          <BarChart3 className="mr-2 h-4 w-4" />
+                          <span>Financial Analytics</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('banking')}>
+                          <Home className="mr-2 h-4 w-4" />
+                          <span>Banking</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('accounting')}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          <span>Accounting Tools</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('financial-settings')}>
+                          <Settings className="mr-2 h-4 w-4" />
+                          <span>Settings</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {activeView === 'data' && (
+                      <>
+                        <DropdownMenuLabel>Data Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('dbf-explorer')}>
+                          <Database className="mr-2 h-4 w-4" />
+                          <span>DBF Explorer</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('import')}>
+                          <Upload className="mr-2 h-4 w-4" />
+                          <span>Import Data</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('export')}>
+                          <Download className="mr-2 h-4 w-4" />
+                          <span>Export Data</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('backup')}>
+                          <Archive className="mr-2 h-4 w-4" />
+                          <span>Backup & Restore</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('maintenance')}>
+                          <Wrench className="mr-2 h-4 w-4" />
+                          <span>Database Maintenance</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {activeView === 'reporting' && (
+                      <>
+                        <DropdownMenuLabel>Reports Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('state')}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          <span>State Reports</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('financial')}>
+                          <DollarSign className="mr-2 h-4 w-4" />
+                          <span>Financial Reports</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('production')}>
+                          <TrendingUp className="mr-2 h-4 w-4" />
+                          <span>Production Reports</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('custom')}>
+                          <FileSearch className="mr-2 h-4 w-4" />
+                          <span>Custom Reports</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('audit')}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          <span>Audit Trail</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {activeView === 'utilities' && (
+                      <>
+                        <DropdownMenuLabel>Utilities Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('calculator')}>
+                          <Calculator className="mr-2 h-4 w-4" />
+                          <span>Calculators</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('converter')}>
+                          <Activity className="mr-2 h-4 w-4" />
+                          <span>Unit Converter</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('scheduler')}>
+                          <Calendar className="mr-2 h-4 w-4" />
+                          <span>Task Scheduler</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('tools')}>
+                          <Wrench className="mr-2 h-4 w-4" />
+                          <span>Data Tools</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {activeView === 'settings' && (
+                      <>
+                        <DropdownMenuLabel>Settings Menu</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setActiveSubView('users')}>
+                          <Users className="mr-2 h-4 w-4" />
+                          <span>User Management</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('appearance')}>
+                          <Settings className="mr-2 h-4 w-4" />
+                          <span>Appearance</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('system')}>
+                          <Database className="mr-2 h-4 w-4" />
+                          <span>System Configuration</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setActiveSubView('security')}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          <span>Security Settings</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              
+              {/* Page Title */}
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  {activeView === 'dashboard' && 'Dashboard'}
+                  {activeView === 'operations' && (activeSubView || 'Operations Dashboard')}
+                  {activeView === 'financials' && (activeSubView || 'Financial Dashboard')}
+                  {activeView === 'data' && (activeSubView || 'Data Management Dashboard')}
+                  {activeView === 'reporting' && (activeSubView || 'Reports Dashboard')}
+                  {activeView === 'utilities' && (activeSubView || 'Utilities Dashboard')}
+                  {activeView === 'settings' && (activeSubView || 'Settings Dashboard')}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {activeView === 'dashboard' && 'Overview of your financial data'}
+                  {activeView === 'operations' && 'Manage wells, production, and field operations'}
+                  {activeView === 'financials' && 'Financial transactions, analytics, and accounting'}
+                  {activeView === 'data' && 'Database maintenance and data management'}
+                  {activeView === 'reporting' && 'Reports, compliance, and documentation'}
+                  {activeView === 'utilities' && 'Tools, calculators, and system utilities'}
+                  {activeView === 'settings' && 'System configuration and user management'}
+                </p>
+              </div>
             </div>
+            
             <div className="flex items-center space-x-4">
               <span className="text-sm text-muted-foreground">
                 Welcome, {currentUser?.username}
@@ -839,6 +1166,29 @@ function AdvancedDashboard({ currentUser, onLogout }) {
         <main className="flex-1 overflow-auto p-6 bg-muted/30">
           {activeView === 'dashboard' && (
             <div className="space-y-6">
+              {/* Debug section - only show in development */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
+                <div className="text-sm font-medium mb-2">Debug Info:</div>
+                <div className="text-xs space-y-1">
+                  <div>Company Name: {currentUser?.company_name || 'Not set'}</div>
+                  <div>Company Path: {currentUser?.company_path || 'Not set'}</div>
+                  <div>LocalStorage company_name: {localStorage.getItem('company_name') || 'Not set'}</div>
+                  <div>LocalStorage company_path: {localStorage.getItem('company_path') || 'Not set'}</div>
+                  <div>Dashboard Data Loaded: {dashboardData ? 'Yes' : 'No'}</div>
+                </div>
+                <Button 
+                  onClick={() => {
+                    console.log('Manual dashboard load triggered')
+                    loadDashboardData()
+                  }}
+                  className="mt-2"
+                  size="sm"
+                  variant="outline"
+                >
+                  Manually Load Dashboard
+                </Button>
+              </div>
+              
               {loadingDashboard && (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">Loading dashboard data...</p>
@@ -898,13 +1248,89 @@ function AdvancedDashboard({ currentUser, onLogout }) {
 
           {activeView === 'operations' && (
             <div className="space-y-6">
-              <Tabs defaultValue="wells" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="wells">Wells</TabsTrigger>
-                  <TabsTrigger value="production">Production</TabsTrigger>
-                  <TabsTrigger value="field-ops">Field Operations</TabsTrigger>
-                  <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
-                </TabsList>
+              {/* Operations Dashboard */}
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('wells')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Wells Management</p>
+                          <h3 className="text-2xl font-bold">Active Wells</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Manage well information</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Activity className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('production')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Production</p>
+                          <h3 className="text-2xl font-bold">Tracking</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Monitor oil & gas production</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <TrendingUp className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('field-ops')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Field Ops</p>
+                          <h3 className="text-2xl font-bold">Operations</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Field activities & schedules</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Wrench className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('maintenance')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Maintenance</p>
+                          <h3 className="text-2xl font-bold">Equipment</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Track maintenance schedules</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Settings className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView && (
+                <Tabs value={activeSubView} onValueChange={setActiveSubView} className="w-full">
+                  <TabsList className="hidden">
+                    <TabsTrigger value="wells">Wells</TabsTrigger>
+                    <TabsTrigger value="production">Production</TabsTrigger>
+                    <TabsTrigger value="field-ops">Field Operations</TabsTrigger>
+                    <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
+                  </TabsList>
                 <TabsContent value="wells" className="space-y-4">
                   <Card>
                     <CardHeader>
@@ -956,20 +1382,105 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </Card>
                 </TabsContent>
               </Tabs>
+              )}
             </div>
           )}
 
           {activeView === 'financials' && (
             <div className="space-y-6">
-              <Tabs defaultValue="transactions" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="transactions">Transactions</TabsTrigger>
-                  <TabsTrigger value="revenue">Revenue</TabsTrigger>
-                  <TabsTrigger value="expenses">Expenses</TabsTrigger>
-                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
-                  <TabsTrigger value="banking">Banking</TabsTrigger>
-                  <TabsTrigger value="accounting">Accounting</TabsTrigger>
-                </TabsList>
+              {/* Financial Dashboard */}
+              {!activeSubView && (
+                <div>
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+                    <Card 
+                      className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                      onClick={() => setActiveSubView('transactions')}
+                    >
+                      <CardContent className="p-8">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Transactions</p>
+                            <h3 className="text-2xl font-bold">Recent Activity</h3>
+                            <p className="text-sm text-muted-foreground mt-2">View and manage transactions</p>
+                          </div>
+                          <div className="p-3 bg-primary/10 rounded-lg">
+                            <DollarSign className="w-5 h-5 text-primary" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card 
+                      className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                      onClick={() => setActiveSubView('banking')}
+                    >
+                      <CardContent className="p-8">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Banking</p>
+                            <h3 className="text-2xl font-bold">Accounts</h3>
+                            <p className="text-sm text-muted-foreground mt-2">Bank accounts and reconciliation</p>
+                          </div>
+                          <div className="p-3 bg-primary/10 rounded-lg">
+                            <Home className="w-5 h-5 text-primary" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card 
+                      className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                      onClick={() => setActiveSubView('analytics')}
+                    >
+                      <CardContent className="p-8">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Analytics</p>
+                            <h3 className="text-2xl font-bold">Insights</h3>
+                            <p className="text-sm text-muted-foreground mt-2">Financial trends and analysis</p>
+                          </div>
+                          <div className="p-3 bg-primary/10 rounded-lg">
+                            <BarChart3 className="w-5 h-5 text-primary" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  {/* Quick Stats */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Revenue Overview</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <RevenueChart />
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Recent Transactions</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-center py-8 text-muted-foreground">
+                          Click Transactions above to view details
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView && (
+                <Tabs value={activeSubView} onValueChange={setActiveSubView} className="w-full">
+                  <TabsList className="hidden">
+                    <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                    <TabsTrigger value="revenue">Revenue</TabsTrigger>
+                    <TabsTrigger value="expenses">Expenses</TabsTrigger>
+                    <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                    <TabsTrigger value="banking">Banking</TabsTrigger>
+                    <TabsTrigger value="accounting">Accounting</TabsTrigger>
+                    <TabsTrigger value="financial-settings">Settings</TabsTrigger>
+                  </TabsList>
                 <TabsContent value="transactions" className="space-y-4">
                   <TransactionsTable />
                 </TabsContent>
@@ -1018,7 +1529,7 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                   </div>
                 </TabsContent>
                 <TabsContent value="banking" className="space-y-4">
-                  <BankingSection companyName={currentUser?.company_name} currentUser={currentUser} />
+                  <BankingSection companyName={currentUser?.company_path || currentUser?.company_name} currentUser={currentUser} />
                 </TabsContent>
                 <TabsContent value="accounting" className="space-y-4">
                   <Card>
@@ -1033,24 +1544,143 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                     </CardContent>
                   </Card>
                 </TabsContent>
+                <TabsContent value="financial-settings" className="space-y-4">
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <CompanyInformation currentUser={currentUser} />
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Database Testing</CardTitle>
+                        <CardDescription>Test OLE/COM Database Connection</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button 
+                          onClick={() => {
+                            setActiveView('data')
+                            setActiveSubView('database-test')
+                          }}
+                          className="w-full"
+                        >
+                          <Database className="mr-2 h-4 w-4" />
+                          Open Database Test Tool
+                        </Button>
+                        <p className="text-sm text-muted-foreground mt-2">
+                          Test your Visual FoxPro OLE automation and run database queries.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
               </Tabs>
+              )}
             </div>
           )}
 
           {activeView === 'data' && (
             <div className="space-y-6">
-              <Tabs defaultValue="dbf-explorer" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="dbf-explorer">DBF Explorer</TabsTrigger>
-                  <TabsTrigger value="import">Import</TabsTrigger>
-                  <TabsTrigger value="export">Export</TabsTrigger>
-                  <TabsTrigger value="backup">Backup</TabsTrigger>
-                  <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
-                </TabsList>
-                <TabsContent value="dbf-explorer" className="space-y-4">
+              {/* Data Management Dashboard */}
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('dbf-explorer')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Database</p>
+                          <h3 className="text-2xl font-bold">DBF Explorer</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Browse and edit DBF files</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Database className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('import')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Data</p>
+                          <h3 className="text-2xl font-bold">Import</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Import external data</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Upload className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('export')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Data</p>
+                          <h3 className="text-2xl font-bold">Export</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Export data to files</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Download className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('backup')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">System</p>
+                          <h3 className="text-2xl font-bold">Backup</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Backup and restore data</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Archive className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('maintenance')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Database</p>
+                          <h3 className="text-2xl font-bold">Maintenance</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Optimize database</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Wrench className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView === 'dbf-explorer' && (
+                <div className="space-y-4">
                   <DBFExplorer currentUser={currentUser} />
-                </TabsContent>
-                <TabsContent value="import" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'database-test' && (
+                <div className="space-y-4">
+                  <DatabaseTest currentUser={currentUser} />
+                </div>
+              )}
+              {activeSubView === 'import' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Data Import</CardTitle>
@@ -1069,8 +1699,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="export" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'export' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Data Export</CardTitle>
@@ -1095,8 +1727,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="backup" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'backup' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Backup & Restore</CardTitle>
@@ -1123,8 +1757,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="maintenance" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'maintenance' && (
+                <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <Card>
                       <CardHeader>
@@ -1155,25 +1791,112 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </CardContent>
                     </Card>
                   </div>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
             </div>
           )}
 
           {activeView === 'reporting' && (
             <div className="space-y-6">
-              <Tabs defaultValue="state" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="state">State Reports</TabsTrigger>
-                  <TabsTrigger value="financial">Financial Reports</TabsTrigger>
-                  <TabsTrigger value="production">Production Reports</TabsTrigger>
-                  <TabsTrigger value="custom">Custom Reports</TabsTrigger>
-                  <TabsTrigger value="audit">Audit Trail</TabsTrigger>
-                </TabsList>
-                <TabsContent value="state" className="space-y-4">
+              {/* Reports Dashboard */}
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('state')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Compliance</p>
+                          <h3 className="text-2xl font-bold">State Reports</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Generate state reports</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('financial')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Accounting</p>
+                          <h3 className="text-2xl font-bold">Financial Reports</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Financial statements</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <DollarSign className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('production')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Operations</p>
+                          <h3 className="text-2xl font-bold">Production Reports</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Well production data</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <TrendingUp className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('custom')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Analytics</p>
+                          <h3 className="text-2xl font-bold">Custom Reports</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Build custom reports</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <BarChart3 className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('audit')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Security</p>
+                          <h3 className="text-2xl font-bold">Audit Trail</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Activity and change logs</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Shield className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView === 'state' && (
+                <div className="space-y-4">
                   <StateReportsSection currentUser={currentUser} />
-                </TabsContent>
-                <TabsContent value="financial" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'financial' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Financial Reports</CardTitle>
@@ -1185,8 +1908,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="production" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'production' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Production Reports</CardTitle>
@@ -1198,8 +1923,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="custom" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'custom' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Custom Report Builder</CardTitle>
@@ -1211,8 +1938,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="audit" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'audit' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Audit Trail</CardTitle>
@@ -1240,24 +1969,95 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
             </div>
           )}
 
           {activeView === 'settings' && (
             <div className="space-y-6">
-              <Tabs defaultValue="users" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="users">User Management</TabsTrigger>
-                  <TabsTrigger value="appearance">Appearance</TabsTrigger>
-                  <TabsTrigger value="system">System</TabsTrigger>
-                  <TabsTrigger value="security">Security</TabsTrigger>
-                </TabsList>
-                <TabsContent value="users" className="space-y-4">
+              {/* Settings Dashboard */}
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('users')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Users</p>
+                          <h3 className="text-2xl font-bold">Management</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Manage user accounts</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Users className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('appearance')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Appearance</p>
+                          <h3 className="text-2xl font-bold">Theme</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Customize look and feel</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Settings className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('system')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">System</p>
+                          <h3 className="text-2xl font-bold">Configuration</h3>
+                          <p className="text-sm text-muted-foreground mt-2">System-wide settings</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Database className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('security')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Security</p>
+                          <h3 className="text-2xl font-bold">Policies</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Security settings</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView === 'users' && (
+                <div className="space-y-4">
                   <UserManagement currentUser={currentUser} />
-                </TabsContent>
-                <TabsContent value="appearance" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'appearance' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Appearance Settings</CardTitle>
@@ -1292,8 +2092,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="system" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'system' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>System Configuration</CardTitle>
@@ -1307,8 +2109,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="security" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'security' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Security Settings</CardTitle>
@@ -1320,21 +2124,90 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
             </div>
           )}
 
           {activeView === 'utilities' && (
             <div className="space-y-6">
-              <Tabs defaultValue="calculator" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="calculator">Calculator</TabsTrigger>
-                  <TabsTrigger value="converter">Converter</TabsTrigger>
-                  <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
-                  <TabsTrigger value="tools">Data Tools</TabsTrigger>
-                </TabsList>
-                <TabsContent value="calculator" className="space-y-4">
+              {/* Utilities Dashboard */}
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('calculator')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Calculators</p>
+                          <h3 className="text-2xl font-bold">Financial</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Various calculation tools</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Calculator className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('converter')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Converter</p>
+                          <h3 className="text-2xl font-bold">Units</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Convert between units</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Activity className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('scheduler')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Scheduler</p>
+                          <h3 className="text-2xl font-bold">Tasks</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Automated scheduling</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Calendar className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card 
+                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    onClick={() => setActiveSubView('tools')}
+                  >
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Data Tools</p>
+                          <h3 className="text-2xl font-bold">Utilities</h3>
+                          <p className="text-sm text-muted-foreground mt-2">Data validation tools</p>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                          <Wrench className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              
+              {/* Sub-views */}
+              {activeSubView === 'calculator' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Financial Calculators</CardTitle>
@@ -1369,8 +2242,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="converter" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'converter' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Unit Converter</CardTitle>
@@ -1382,8 +2257,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="scheduler" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'scheduler' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Task Scheduler</CardTitle>
@@ -1414,8 +2291,10 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-                <TabsContent value="tools" className="space-y-4">
+                </div>
+              )}
+              {activeSubView === 'tools' && (
+                <div className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>Data Tools</CardTitle>
@@ -1438,8 +2317,8 @@ function AdvancedDashboard({ currentUser, onLogout }) {
                       </div>
                     </CardContent>
                   </Card>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
             </div>
           )}
         </main>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { GetOutstandingChecks, GetBankAccounts, UpdateDBFRecord, GetDBFTableData } from '../../wailsjs/go/main/App'
+import { getCompanyDataPath, getCompanyName } from '../utils/companyPath'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
@@ -97,12 +98,18 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
 
   // Load bank accounts - robust version with fallback like BankingSection
   const loadBankAccounts = async () => {
-    console.log('OutstandingChecks: loadBankAccounts called with companyName:', companyName)
-    console.log('OutstandingChecks: currentUser object:', currentUser)
+    // Get the company path directly from localStorage if not passed as prop
+    const dataPath = getCompanyDataPath()
     
-    if (!companyName) {
-      console.log('OutstandingChecks: No company name provided, companyName is:', companyName)
-      console.log('OutstandingChecks: currentUser.company_name is:', currentUser?.company_name)
+    console.log('OutstandingChecks: loadBankAccounts called with:', {
+      companyName,
+      dataPath,
+      company_path: localStorage.getItem('company_path'),
+      company_name: localStorage.getItem('company_name')
+    })
+    
+    if (!dataPath) {
+      console.log('OutstandingChecks: No company data path available')
       return
     }
     
@@ -113,7 +120,8 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
       if (typeof GetBankAccounts === 'function') {
         console.log('OutstandingChecks: GetBankAccounts function is available, calling it...')
         try {
-          bankAccountsData = await GetBankAccounts(companyName)
+          // Use the dataPath we already have
+          bankAccountsData = await GetBankAccounts(dataPath)
           console.log('OutstandingChecks: GetBankAccounts response:', bankAccountsData)
           console.log('OutstandingChecks: GetBankAccounts response type:', typeof bankAccountsData)
           console.log('OutstandingChecks: GetBankAccounts response length:', bankAccountsData?.length)
@@ -140,7 +148,8 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
       // Fallback: Try to read COA.dbf directly using GetDBFTableData
       try {
         console.log('OutstandingChecks: Using GetDBFTableData fallback...')
-        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
+        // Use the dataPath we already have
+        const coaData = await GetDBFTableData(dataPath, 'COA.dbf')
         console.log('OutstandingChecks: COA.dbf data loaded:', coaData)
         
         if (coaData && coaData.rows) {
@@ -178,7 +187,21 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
 
   // Load outstanding checks
   const loadOutstandingChecks = async () => {
-    if (!companyName) return
+    // Get the company path directly from localStorage if not passed as prop
+    const dataPath = getCompanyDataPath()
+    
+    console.log('loadOutstandingChecks called with:', {
+      companyName,
+      dataPath,
+      company_path: localStorage.getItem('company_path'),
+      company_name: localStorage.getItem('company_name')
+    })
+    
+    if (!dataPath) {
+      console.error('No company data path available')
+      setError('No company selected. Please select a company first.')
+      return
+    }
     
     setLoading(true)
     setError('')
@@ -188,7 +211,7 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
       const accountFilter = selectedAccount === 'all' ? '' : selectedAccount
       console.log('Loading outstanding checks for account:', accountFilter || 'all')
       
-      const result = await GetOutstandingChecks(companyName, accountFilter)
+      const result = await GetOutstandingChecks(dataPath, accountFilter)
       
       if (result.status === 'error') {
         setError(result.error || 'Failed to load outstanding checks')
@@ -214,11 +237,17 @@ const OutstandingChecks = ({ companyName, currentUser }) => {
 
   // Load data when component mounts or dependencies change
   useEffect(() => {
-    loadBankAccounts()
+    const dataPath = getCompanyDataPath()
+    if (dataPath) {
+      loadBankAccounts()
+    }
   }, [companyName])
 
   useEffect(() => {
-    loadOutstandingChecks()
+    const dataPath = getCompanyDataPath()
+    if (dataPath) {
+      loadOutstandingChecks()
+    }
   }, [companyName, selectedAccount])
 
   // Filter and sort checks

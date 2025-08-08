@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // getDatafilesPath returns the path to the datafiles directory
@@ -38,31 +38,70 @@ type DB struct {
 }
 
 func New(companyName string) (*DB, error) {
-	datafilesPath, err := getDatafilesPath()
-	if err != nil {
-		return nil, err
-	}
+	var dbPath string
 	
-	dbPath := filepath.Join(datafilesPath, companyName, "sql", "financialsx.db")
+	// Check if companyName is an absolute path (from compmast.dbf)
+	if filepath.IsAbs(companyName) {
+		// If it's an absolute path, use it directly
+		// The path is like: c:\program files (x86)\pivoten\financials\datafiles\limecreekenergyllcdata\
+		dbPath = filepath.Join(companyName, "sql", "financialsx.db")
+		fmt.Printf("Database: Using absolute path for SQL: %s\n", dbPath)
+	} else {
+		// Otherwise, use the relative path under datafiles
+		datafilesPath, err := getDatafilesPath()
+		if err != nil {
+			return nil, err
+		}
+		dbPath = filepath.Join(datafilesPath, companyName, "sql", "financialsx.db")
+		fmt.Printf("Database: Using relative path for SQL: %s\n", dbPath)
+	}
 	
 	// Create directory if it doesn't exist
 	dbDir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
+	
+	fmt.Printf("Database: Created/verified SQL directory: %s\n", dbDir)
 
-	conn, err := sql.Open("sqlite3", dbPath)
+	// Open SQLite database (this creates the file if it doesn't exist)
+	// Using modernc.org/sqlite which is a pure Go implementation
+	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to open database at %s: %w", dbPath, err)
 	}
+	
+	// Test the connection to ensure the database file is actually created
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to connect to database at %s: %w", dbPath, err)
+	}
+	
+	// Set WAL mode for better concurrency
+	_, err = conn.Exec("PRAGMA journal_mode=WAL")
+	if err != nil {
+		// Non-fatal, just log it
+		fmt.Printf("Database: Warning - could not set WAL mode: %v\n", err)
+	}
+	
+	// Set busy timeout
+	_, err = conn.Exec("PRAGMA busy_timeout=5000")
+	if err != nil {
+		// Non-fatal, just log it
+		fmt.Printf("Database: Warning - could not set busy timeout: %v\n", err)
+	}
+	
+	fmt.Printf("Database: Successfully opened database at: %s\n", dbPath)
 
 	db := &DB{conn: conn}
 	
 	// Initialize schema
 	if err := db.initSchema(); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("failed to initialize schema at %s: %w", dbPath, err)
 	}
+	
+	fmt.Printf("Database: Schema initialized successfully\n")
 
 	return db, nil
 }

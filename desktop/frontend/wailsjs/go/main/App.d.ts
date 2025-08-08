@@ -43,6 +43,10 @@ export function GetClosingStatus(arg1:string):Promise<string>;
 
 export function GetCompanies():Promise<Array<company.Company>>;
 
+export function GetCompanyInfo(arg1:string):Promise<Record<string, any>>;
+
+export function GetCompanyList():Promise<Array<Record<string, any>>>;
+
 export function GetConfig():Promise<Record<string, any>>;
 
 export function GetDBFFiles(arg1:string):Promise<Array<string>>;
@@ -67,9 +71,15 @@ export function GetReconciliationDraft(arg1:string,arg2:string):Promise<Record<s
 
 export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function GetTableList(arg1:string):Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
+export function InitializeCompanyDatabase(arg1:string):Promise<void>;
+
+export function LogError(arg1:string,arg2:string):Promise<void>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
@@ -103,7 +113,15 @@ export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
 
+export function TestDatabaseQuery(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function TestLogging():Promise<string>;
+
+export function TestOLEConnection():Promise<Record<string, any>>;
+
 export function UnmatchTransaction(arg1:number):Promise<Record<string, any>>;
+
+export function UpdateCompanyInfo(arg1:string):Promise<Record<string, any>>;
 
 export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;
 

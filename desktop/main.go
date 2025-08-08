@@ -641,11 +641,14 @@ func (a *App) TestDatabaseQuery(companyName, query string) (map[string]interface
 	fmt.Printf("TestDatabaseQuery: Testing OLE server (Pivoten.DbApi)...\n")
 	debug.SimpleLog("TestDatabaseQuery: Testing OLE server connection")
 	
-	// Try OLE connection
-	client, err := ole.NewDbApiClient()
+	// Get connection from pool instead of creating new
+	pool := ole.GetPool()
+	pool.SetCompanyPath(companyName)
+	
+	client, err := pool.Acquire()
 	if err != nil {
-		fmt.Printf("TestDatabaseQuery: Failed to connect to OLE server: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: OLE connection failed: %v", err))
+		fmt.Printf("TestDatabaseQuery: Failed to get OLE connection from pool: %v\n", err)
+		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: OLE pool connection failed: %v", err))
 		
 		return map[string]interface{}{
 			"success": false,
@@ -655,7 +658,7 @@ func (a *App) TestDatabaseQuery(companyName, query string) (map[string]interface
 			"progId":  "Pivoten.DbApi",
 		}, nil
 	}
-	defer client.Close()
+	defer pool.Release(client) // Return to pool instead of closing
 	
 	fmt.Printf("TestDatabaseQuery: OLE server connected successfully!\n")
 	debug.SimpleLog("TestDatabaseQuery: OLE server connected")
@@ -832,10 +835,13 @@ func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("GetTableList: Getting tables for company: %s\n", companyName)
 	debug.SimpleLog(fmt.Sprintf("GetTableList: Getting tables for company: %s", companyName))
 	
-	// Use OLE to get actual table list from DBC
-	client, err := ole.NewDbApiClient()
+	// Get connection from pool
+	pool := ole.GetPool()
+	pool.SetCompanyPath(companyName)
+	
+	client, err := pool.Acquire()
 	if err != nil {
-		fmt.Printf("GetTableList: Failed to connect to OLE server: %v\n", err)
+		fmt.Printf("GetTableList: Failed to get OLE connection from pool: %v\n", err)
 		// Fall back to hardcoded list if OLE not available
 		tables := []string{
 			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
@@ -848,7 +854,7 @@ func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
 			"source":  "hardcoded",
 		}, nil
 	}
-	defer client.Close()
+	defer pool.Release(client)
 	
 	// Open the database
 	if err := client.OpenDbc(companyName); err != nil {
@@ -4642,6 +4648,15 @@ func main() {
 	
 	// Create an instance of the app structure
 	app := NewApp()
+
+	// Initialize OLE connection pool
+	ole.InitializePool(3) // Max 3 connections
+	defer func() {
+		// Clean up OLE pool on shutdown
+		if pool := ole.GetPool(); pool != nil {
+			pool.CloseAll()
+		}
+	}()
 
 	// Create application with options
 	err := wails.Run(&options.App{

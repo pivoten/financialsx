@@ -354,10 +354,11 @@ func (c *DbApiClient) Close() {
 		
 		// Call Quit to terminate the OLE server process
 		// This prevents multiple dbapi.exe processes from accumulating
-		_, err := oleutil.CallMethod(c.oleObject, "Quit")
-		if err != nil {
-			writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
-		}
+		// NOTE: Uncomment after rebuilding dbapi.exe with Quit() method
+		// _, err := oleutil.CallMethod(c.oleObject, "Quit")
+		// if err != nil {
+		// 	writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
+		// }
 		
 		// Release the OLE object
 		c.oleObject.Release()

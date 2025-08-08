@@ -352,13 +352,9 @@ func (c *DbApiClient) Close() {
 		// Try to close DBC first
 		c.CloseDbc()
 		
-		// Call Quit to terminate the OLE server process
-		// This prevents multiple dbapi.exe processes from accumulating
-		// NOTE: Uncomment after rebuilding dbapi.exe with Quit() method
-		// _, err := oleutil.CallMethod(c.oleObject, "Quit")
-		// if err != nil {
-		// 	writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
-		// }
+		// Don't call Quit when using connection pool - we want to reuse connections
+		// Only call Quit if this is a standalone connection (not from pool)
+		// The pool will manage process lifecycle
 		
 		// Release the OLE object
 		c.oleObject.Release()

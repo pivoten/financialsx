@@ -641,14 +641,30 @@ func (a *App) TestDatabaseQuery(companyName, query string) (map[string]interface
 	fmt.Printf("TestDatabaseQuery: Testing OLE server (Pivoten.DbApi)...\n")
 	debug.SimpleLog("TestDatabaseQuery: Testing OLE server connection")
 	
-	// Get connection from pool instead of creating new
-	pool := ole.GetPool()
-	pool.SetCompanyPath(companyName)
+	// Execute on dedicated COM thread to avoid threading issues
+	var jsonResult string
+	var queryErr error
 	
-	client, err := pool.Acquire()
+	err := ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
+		fmt.Printf("TestDatabaseQuery: Executing on COM thread\n")
+		debug.SimpleLog("TestDatabaseQuery: Using COM thread for OLE connection")
+		
+		// Note: Ping method would be called here if implemented in OLE client
+		fmt.Printf("TestDatabaseQuery: OLE connection established\n")
+		debug.SimpleLog("TestDatabaseQuery: OLE connection established")
+		
+		// Database should already be open via ExecuteOnCOMThread
+		fmt.Printf("TestDatabaseQuery: Database is open on COM thread\n")
+		
+		// Execute the query via OLE using JSON
+		fmt.Printf("TestDatabaseQuery: Executing SQL query via OLE (JSON)...\n")
+		jsonResult, queryErr = client.QueryToJson(query)
+		return queryErr
+	})
+	
 	if err != nil {
-		fmt.Printf("TestDatabaseQuery: Failed to get OLE connection from pool: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: OLE pool connection failed: %v", err))
+		fmt.Printf("TestDatabaseQuery: Failed to use singleton OLE connection: %v\n", err)
+		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: OLE singleton connection failed: %v", err))
 		
 		return map[string]interface{}{
 			"success": false,
@@ -658,44 +674,17 @@ func (a *App) TestDatabaseQuery(companyName, query string) (map[string]interface
 			"progId":  "Pivoten.DbApi",
 		}, nil
 	}
-	defer pool.Release(client) // Return to pool instead of closing
 	
-	fmt.Printf("TestDatabaseQuery: OLE server connected successfully!\n")
-	debug.SimpleLog("TestDatabaseQuery: OLE server connected")
-	
-	// Note: Ping method would be called here if implemented in OLE client
-	fmt.Printf("TestDatabaseQuery: OLE connection established\n")
-	debug.SimpleLog("TestDatabaseQuery: OLE connection established")
-	
-	// Open the database for the company
-	fmt.Printf("TestDatabaseQuery: Opening database for company: %s\n", companyName)
-	if err := client.OpenDbc(companyName); err != nil {
-		fmt.Printf("TestDatabaseQuery: Failed to open DBC: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: Failed to open DBC: %v", err))
-		
-		// Get last error from OLE server if available
-		lastError := client.GetLastError()
-		
-		return map[string]interface{}{
-			"success":   false,
-			"error":     fmt.Sprintf("Failed to open database: %v", err),
-			"lastError": lastError,
-			"database":  companyName,
-			"query":     query,
-		}, nil
-	}
-	
-	fmt.Printf("TestDatabaseQuery: Database opened successfully\n")
-	
-	// Execute the query via OLE using JSON
-	fmt.Printf("TestDatabaseQuery: Executing SQL query via OLE (JSON)...\n")
-	jsonResult, err := client.QueryToJson(query)
 	if err != nil {
 		fmt.Printf("TestDatabaseQuery: Query execution failed: %v\n", err)
 		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: Query failed: %v", err))
 		
 		// Get last error from OLE server if available
-		lastError := client.GetLastError()
+		var lastError string
+		ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
+			lastError = client.GetLastError()
+			return nil
+		})
 		
 		return map[string]interface{}{
 			"success":   false,
@@ -835,13 +824,22 @@ func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("GetTableList: Getting tables for company: %s\n", companyName)
 	debug.SimpleLog(fmt.Sprintf("GetTableList: Getting tables for company: %s", companyName))
 	
-	// Get connection from pool
-	pool := ole.GetPool()
-	pool.SetCompanyPath(companyName)
+	// Execute on dedicated COM thread to avoid threading issues
+	var jsonResult string
+	var tableErr error
 	
-	client, err := pool.Acquire()
+	err := ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
+		fmt.Printf("GetTableList: Executing on COM thread\n")
+		debug.SimpleLog("GetTableList: Using COM thread for OLE connection")
+		
+		// Database should already be open via ExecuteOnCOMThread
+		// Use the new JSON method to get table list
+		jsonResult, tableErr = client.GetTableListSimple()
+		return tableErr
+	})
+	
 	if err != nil {
-		fmt.Printf("GetTableList: Failed to get OLE connection from pool: %v\n", err)
+		fmt.Printf("GetTableList: Failed to use singleton OLE connection: %v\n", err)
 		// Fall back to hardcoded list if OLE not available
 		tables := []string{
 			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
@@ -854,19 +852,7 @@ func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
 			"source":  "hardcoded",
 		}, nil
 	}
-	defer pool.Release(client)
 	
-	// Open the database
-	if err := client.OpenDbc(companyName); err != nil {
-		fmt.Printf("GetTableList: Failed to open DBC: %v\n", err)
-		return map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to open database: %v", err),
-		}, nil
-	}
-	
-	// Use the new JSON method to get table list
-	jsonResult, err := client.GetTableListSimple()
 	if err != nil {
 		fmt.Printf("GetTableList: Failed to get table list: %v\n", err)
 		// Fall back to hardcoded list
@@ -4649,13 +4635,11 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Initialize OLE connection pool
-	ole.InitializePool(3) // Max 3 connections
+	// Using dedicated COM thread to avoid threading issues
+	// The COM thread will be initialized on first use
 	defer func() {
-		// Clean up OLE pool on shutdown
-		if pool := ole.GetPool(); pool != nil {
-			pool.CloseAll()
-		}
+		// Shutdown the COM thread on application exit
+		ole.ShutdownCOMThread()
 	}()
 
 	// Create application with options

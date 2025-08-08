@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"github.com/go-ole/go-ole/oleutil"
 )
 
 // Connection represents a pooled OLE connection
@@ -61,29 +62,18 @@ func (p *ConnectionPool) Acquire() (*DbApiClient, error) {
 	// First, try to find an available existing connection
 	for _, conn := range p.connections {
 		if !conn.inUse {
+			writeLog(fmt.Sprintf("Pool: Found available connection #%d", conn.id))
 			conn.inUse = true
 			conn.lastUsed = time.Now()
-			writeLog(fmt.Sprintf("Pool: Reusing connection #%d", conn.id))
 			
-			// Test if connection is still alive
-			if conn.client.IsDbcOpen() || p.companyPath == "" {
-				return conn.client, nil
-			}
-			
-			// Connection lost, need to reconnect
-			writeLog(fmt.Sprintf("Pool: Connection #%d lost, reconnecting...", conn.id))
-			if p.companyPath != "" {
-				if err := conn.client.OpenDbc(p.companyPath); err != nil {
-					writeLog(fmt.Sprintf("Pool: Failed to reconnect #%d: %v", conn.id, err))
-					// Remove bad connection
-					p.removeConnection(conn)
-					// Try to create a new one instead
-					return p.createNewConnection()
-				}
-			}
+			// Just return the connection - don't try to reopen database
+			// The connection should already be set up properly
+			writeLog(fmt.Sprintf("Pool: Reusing connection #%d (total pool size: %d)", conn.id, p.currentSize))
 			return conn.client, nil
 		}
 	}
+	
+	writeLog(fmt.Sprintf("Pool: No available connections (all %d in use)", p.currentSize))
 
 	// No available connections, create a new one if under limit
 	if p.currentSize < p.maxSize {
@@ -190,6 +180,10 @@ func (p *ConnectionPool) removeConnection(conn *Connection) {
 
 // CloseAll closes all connections in the pool
 func (p *ConnectionPool) CloseAll() {
+	if p == nil {
+		return
+	}
+	
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	
@@ -197,6 +191,11 @@ func (p *ConnectionPool) CloseAll() {
 	
 	for _, conn := range p.connections {
 		if conn.client != nil {
+			// For final cleanup, we should call Quit to terminate the processes
+			// Since we're shutting down, we want to clean up all OLE servers
+			if conn.client.oleObject != nil {
+				oleutil.CallMethod(conn.client.oleObject, "Quit")
+			}
 			conn.client.Close()
 		}
 	}

@@ -11,6 +11,8 @@ export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<s
 
 export function ClearMatchesAndRerun(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 
+export function CloseOLEConnection():Promise<Record<string, any>>;
+
 export function CommitReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<auth.User>;
@@ -89,6 +91,8 @@ export function ManualMatchTransaction(arg1:number,arg2:string,arg3:number):Prom
 
 export function MigrateReconciliationData(arg1:string):Promise<Record<string, any>>;
 
+export function PreloadOLEConnection(arg1:string):Promise<Record<string, any>>;
+
 export function RefreshAccountBalance(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function RefreshAllBalances(arg1:string):Promise<Record<string, any>>;
@@ -110,6 +114,8 @@ export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Pr
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
+
+export function SetOLEIdleTimeout(arg1:number):Promise<Record<string, any>>;
 
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
 

@@ -170,6 +170,10 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 	}
 
 	a.currentUser = user
+	
+	// Preload OLE connection for the company after successful login
+	ole.PreloadOLEConnection(companyName)
+	fmt.Printf("Login: Preloaded OLE connection for company: %s\n", companyName)
 
 	return map[string]interface{}{
 		"user":    user,
@@ -218,6 +222,10 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 	}
 
 	a.currentUser = user
+	
+	// Preload OLE connection for the company after successful registration
+	ole.PreloadOLEConnection(companyName)
+	fmt.Printf("Register: Preloaded OLE connection for company: %s\n", companyName)
 
 	return map[string]interface{}{
 		"user":    user,
@@ -227,6 +235,10 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 
 // Logout handles user logout
 func (a *App) Logout(token string) error {
+	// Close OLE connection when user logs out
+	ole.CloseOLEConnection()
+	fmt.Printf("Logout: Closed OLE connection\n")
+	
 	if a.auth != nil {
 		return a.auth.Logout(token)
 	}
@@ -255,6 +267,11 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Close any existing OLE connection and preload for new company
+		ole.CloseOLEConnection()
+		ole.PreloadOLEConnection(companyName)
+		fmt.Printf("ValidateSession: Switched OLE connection to company: %s\n", companyName)
 	}
 	
 	user, err := a.auth.ValidateSession(token) // Remove companyName parameter
@@ -614,6 +631,37 @@ func (a *App) LogError(errorMessage string, stackTrace string) {
 		logger.WriteError("Frontend", fmt.Sprintf("Error: %s\nStack: %s", errorMessage, stackTrace))
 	}
 	fmt.Printf("Frontend Error: %s\n", errorMessage)
+}
+
+// PreloadOLEConnection preloads the OLE connection for a company
+func (a *App) PreloadOLEConnection(companyName string) map[string]interface{} {
+	ole.PreloadOLEConnection(companyName)
+	fmt.Printf("PreloadOLEConnection: Requested for company: %s\n", companyName)
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("OLE connection preloaded for %s", companyName),
+	}
+}
+
+// CloseOLEConnection closes the current OLE connection
+func (a *App) CloseOLEConnection() map[string]interface{} {
+	ole.CloseOLEConnection()
+	fmt.Printf("CloseOLEConnection: Connection closed\n")
+	return map[string]interface{}{
+		"success": true,
+		"message": "OLE connection closed",
+	}
+}
+
+// SetOLEIdleTimeout sets the idle timeout for OLE connections
+func (a *App) SetOLEIdleTimeout(minutes int) map[string]interface{} {
+	timeout := time.Duration(minutes) * time.Minute
+	ole.SetIdleTimeout(timeout)
+	fmt.Printf("SetOLEIdleTimeout: Set to %d minutes\n", minutes)
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Idle timeout set to %d minutes", minutes),
+	}
 }
 
 // TestDatabaseQuery executes a test query using Pivoten.DbApi

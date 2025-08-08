@@ -18,6 +18,10 @@ export function ClearMatchesAndRerun(arg1, arg2, arg3) {
   return window['go']['main']['App']['ClearMatchesAndRerun'](arg1, arg2, arg3);
 }
 
+export function CloseOLEConnection() {
+  return window['go']['main']['App']['CloseOLEConnection']();
+}
+
 export function CommitReconciliation(arg1, arg2) {
   return window['go']['main']['App']['CommitReconciliation'](arg1, arg2);
 }
@@ -174,6 +178,10 @@ export function MigrateReconciliationData(arg1) {
   return window['go']['main']['App']['MigrateReconciliationData'](arg1);
 }
 
+export function PreloadOLEConnection(arg1) {
+  return window['go']['main']['App']['PreloadOLEConnection'](arg1);
+}
+
 export function RefreshAccountBalance(arg1, arg2) {
   return window['go']['main']['App']['RefreshAccountBalance'](arg1, arg2);
 }
@@ -216,6 +224,10 @@ export function SearchDBFTable(arg1, arg2, arg3) {
 
 export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function SetOLEIdleTimeout(arg1) {
+  return window['go']['main']['App']['SetOLEIdleTimeout'](arg1);
 }
 
 export function TestAPIKey(arg1, arg2) {

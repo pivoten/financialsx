@@ -18,6 +18,10 @@ export function ClearMatchesAndRerun(arg1, arg2, arg3) {
   return window['go']['main']['App']['ClearMatchesAndRerun'](arg1, arg2, arg3);
 }
 
+export function CloseOLEConnection() {
+  return window['go']['main']['App']['CloseOLEConnection']();
+}
+
 export function CommitReconciliation(arg1, arg2) {
   return window['go']['main']['App']['CommitReconciliation'](arg1, arg2);
 }
@@ -82,6 +86,14 @@ export function GetCompanies() {
   return window['go']['main']['App']['GetCompanies']();
 }
 
+export function GetCompanyInfo(arg1) {
+  return window['go']['main']['App']['GetCompanyInfo'](arg1);
+}
+
+export function GetCompanyList() {
+  return window['go']['main']['App']['GetCompanyList']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -130,12 +142,24 @@ export function GetReconciliationHistory(arg1, arg2) {
   return window['go']['main']['App']['GetReconciliationHistory'](arg1, arg2);
 }
 
+export function GetTableList(arg1) {
+  return window['go']['main']['App']['GetTableList'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
 export function ImportBankStatement(arg1, arg2, arg3) {
   return window['go']['main']['App']['ImportBankStatement'](arg1, arg2, arg3);
+}
+
+export function InitializeCompanyDatabase(arg1) {
+  return window['go']['main']['App']['InitializeCompanyDatabase'](arg1);
+}
+
+export function LogError(arg1, arg2) {
+  return window['go']['main']['App']['LogError'](arg1, arg2);
 }
 
 export function Login(arg1, arg2, arg3) {
@@ -152,6 +176,10 @@ export function ManualMatchTransaction(arg1, arg2, arg3) {
 
 export function MigrateReconciliationData(arg1) {
   return window['go']['main']['App']['MigrateReconciliationData'](arg1);
+}
+
+export function PreloadOLEConnection(arg1) {
+  return window['go']['main']['App']['PreloadOLEConnection'](arg1);
 }
 
 export function RefreshAccountBalance(arg1, arg2) {
@@ -198,12 +226,32 @@ export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
 }
 
+export function SetOLEIdleTimeout(arg1) {
+  return window['go']['main']['App']['SetOLEIdleTimeout'](arg1);
+}
+
 export function TestAPIKey(arg1, arg2) {
   return window['go']['main']['App']['TestAPIKey'](arg1, arg2);
 }
 
+export function TestDatabaseQuery(arg1, arg2) {
+  return window['go']['main']['App']['TestDatabaseQuery'](arg1, arg2);
+}
+
+export function TestLogging() {
+  return window['go']['main']['App']['TestLogging']();
+}
+
+export function TestOLEConnection() {
+  return window['go']['main']['App']['TestOLEConnection']();
+}
+
 export function UnmatchTransaction(arg1) {
   return window['go']['main']['App']['UnmatchTransaction'](arg1);
+}
+
+export function UpdateCompanyInfo(arg1) {
+  return window['go']['main']['App']['UpdateCompanyInfo'](arg1);
 }
 
 export function UpdateDBFRecord(arg1, arg2, arg3, arg4, arg5) {

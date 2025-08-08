@@ -1,0 +1,78 @@
+INSTRUCTIONS TO BUILD DBAPI.EXE IN VISUAL FOXPRO
+==================================================
+
+1. OPEN VISUAL FOXPRO 9.0
+   - Start Visual FoxPro 9.0 on Windows
+
+2. CREATE NEW PROJECT
+   - File > New > Project
+   - Name: dbapi
+   - Save in your desired location
+
+3. ADD THE PROGRAM FILE
+   - In Project Manager, click "Code" tab
+   - Click "Programs"
+   - Click "Add..."
+   - Browse to and select: dbapi.prg
+   - Click "Add"
+
+4. SET BUILD OPTIONS
+   - In Project Manager, click "Build..." button
+   - Build Action: Win32 executable / COM server (exe)
+   - Check "Regenerate Component IDs" 
+   - Version Information:
+     - Comments: Pivoten Database API COM Server
+     - Company Name: Pivoten
+     - File Description: Database API for FinancialsX
+     - Product Name: Pivoten.DbApi
+     - Version: 1.0.1
+
+5. BUILD THE EXE
+   - Click "OK" to build
+   - Choose output location (e.g., C:\Pivoten\dbapi.exe)
+   - Wait for build to complete
+
+6. REGISTER THE COM SERVER
+   - Open Command Prompt as Administrator
+   - Navigate to the folder containing dbapi.exe
+   - Run: dbapi.exe /regserver
+   - You should see: "Registration successful" or similar message
+
+7. VERIFY REGISTRATION
+   - In Registry Editor (regedit), check:
+     HKEY_CLASSES_ROOT\Pivoten.DbApi
+   - Should see the CLSID and other registration info
+
+8. TEST THE COM SERVER
+   - Return to FinancialsX application
+   - Run: wails dev
+   - Test the Database Test feature
+   - Should now connect successfully using JSON methods
+
+TROUBLESHOOTING
+===============
+
+If build fails with errors:
+- Ensure all FoxPro syntax is correct
+- Check that all functions end with ENDFUNC
+- Verify array declarations use proper syntax
+- Make sure ON ERROR handlers are properly set
+
+If registration fails:
+- Must run as Administrator
+- Check Windows Defender/Antivirus isn't blocking
+- Try unregistering first: dbapi.exe /unregserver
+- Then register again: dbapi.exe /regserver
+
+If COM connection fails from Go:
+- Verify registration succeeded
+- Check that Pivoten.DbApi appears in registry
+- Ensure dbapi.exe is not blocked by Windows
+- Try running the Go app as Administrator for testing
+
+NOTES
+=====
+- The dbapi.prg file has been updated to use JSON instead of XML
+- New methods added: QueryToJson, GetTableListSimple, GetTableCount
+- All TRY/CATCH blocks removed, using ON ERROR instead
+- File operations now use Windows temp directory

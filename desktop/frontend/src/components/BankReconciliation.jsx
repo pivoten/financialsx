@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getCompanyDataPath, getCompanyName } from '../utils/companyPath'
 import { 
   GetDBFTableData, 
   UpdateDBFRecord, 
@@ -224,7 +225,9 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
       if (typeof GetBankAccounts === 'function') {
         console.log('GetBankAccounts function is available, calling it...')
         try {
-          const accounts = await GetBankAccounts(companyName)
+          // Use the company data path for file operations
+          const dataPath = getCompanyDataPath()
+          const accounts = await GetBankAccounts(dataPath)
           console.log('GetBankAccounts response:', accounts)
           console.log('GetBankAccounts response type:', typeof accounts)
           console.log('GetBankAccounts response length:', accounts?.length)
@@ -255,7 +258,9 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
       console.log('Primary method failed, trying fallback...')
       // Fallback: Try to read COA.dbf directly using existing function
       try {
-        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
+        // Use the company data path for file operations
+        const dataPath = getCompanyDataPath()
+        const coaData = await GetDBFTableData(dataPath, 'COA.dbf')
         console.log('COA.dbf data loaded:', coaData)
         
         if (coaData && coaData.data) {
@@ -310,7 +315,9 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
       const accountFilter = selectedAccount
       console.log('BankReconciliation: Loading checks for account:', accountFilter)
       
-      const result = await GetOutstandingChecks(companyName, accountFilter)
+      // Use the company data path for file operations
+      const dataPath = getCompanyDataPath()
+      const result = await GetOutstandingChecks(dataPath, accountFilter)
       
       console.log('BankReconciliation: GetOutstandingChecks response:', result)
       

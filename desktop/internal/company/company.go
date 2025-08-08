@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
+	"github.com/pivoten/financialsx/desktop/internal/debug"
 )
 
 // Cache the datafiles path to avoid repeated directory scanning
@@ -18,6 +19,24 @@ var (
 	cachedDatafilesPath string
 	datafilesPathMutex  sync.RWMutex
 )
+
+// writeErrorLog writes error messages to a log file
+func writeErrorLog(message string) {
+	exePath, _ := os.Executable()
+	logDir := filepath.Join(filepath.Dir(exePath), "logs")
+	os.MkdirAll(logDir, 0755)
+	
+	dateStamp := time.Now().Format("2006-01-02")
+	logPath := filepath.Join(logDir, fmt.Sprintf("financialsx_dbf_%s.log", dateStamp))
+	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	file.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
+}
 
 // getDatafilesPath returns the path to the datafiles directory
 // It looks for the directory in multiple locations to handle both dev and production scenarios
@@ -213,22 +232,47 @@ func CreateCompanyDirectory(name string) error {
 
 // GetDBFFiles returns a list of DBF files in the company directory
 func GetDBFFiles(companyName string) ([]string, error) {
-	datafilesPath, err := getDatafilesPath()
-	if err != nil {
-		return nil, err
-	}
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Called with: %s", companyName))
 	
-	companyPath := filepath.Join(datafilesPath, companyName)
+	// First, try to get the company path from the provided parameter
+	// This could be either the company name (legacy) or the actual data path
+	var companyPath string
+	
+	// Check if companyName looks like a full path (absolute)
+	if filepath.IsAbs(companyName) {
+		// It's an absolute path, use it directly
+		companyPath = companyName
+		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using absolute path: %s", companyPath))
+		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using absolute path: %s", companyPath))
+	} else if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
+		// It's a relative path - make it relative to executable directory
+		exePath, _ := os.Executable()
+		exeDir := filepath.Dir(exePath)
+		companyPath = filepath.Join(exeDir, companyName)
+		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using relative path: %s (resolved to: %s)", companyName, companyPath))
+		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using relative path: %s -> %s", companyName, companyPath))
+	} else {
+		// Legacy mode - use the old datafiles structure
+		datafilesPath, err := getDatafilesPath()
+		if err != nil {
+			return nil, err
+		}
+		companyPath = filepath.Join(datafilesPath, companyName)
+		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using legacy path: %s", companyPath))
+		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using legacy path: %s", companyPath))
+	}
 	
 	// Check if company directory exists
 	if _, err := os.Stat(companyPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("company directory does not exist: %s", companyName)
+		debug.LogError("GetDBFFiles", fmt.Errorf("company directory does not exist: %s", companyPath))
+		return nil, fmt.Errorf("company directory does not exist: %s", companyPath)
 	}
+	debug.LogInfo("GetDBFFiles", "Company directory exists")
 	
 	// Find all DBF files (case insensitive)
 	var dbfFiles []string
 	
-	err = filepath.Walk(companyPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(companyPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -246,7 +290,124 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		return nil, fmt.Errorf("failed to scan directory: %w", err)
 	}
 	
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d DBF files", len(dbfFiles)))
 	return dbfFiles, nil
+}
+
+// ReadDBFFileDirectly reads a DBF file from a specific path without company context
+func ReadDBFFileDirectly(filePath, searchTerm string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
+	// Use defer/recover to prevent crashes
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("PANIC RECOVERED in ReadDBFFileDirectly %s: %v\n", filePath, r)
+		}
+	}()
+	
+	fmt.Printf("ReadDBFFileDirectly: %s - reading actual DBF data\n", filePath)
+	
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("DBF file does not exist: %s", filePath)
+	}
+	
+	// Open the DBF file using the same API as ReadDBFFile
+	table, err := dbase.OpenTable(&dbase.Config{
+		Filename:   filePath,
+		TrimSpaces: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open DBF file: %w", err)
+	}
+	defer table.Close()
+	
+	// Get column names
+	var columns []string
+	for _, column := range table.Columns() {
+		columns = append(columns, column.Name())
+	}
+	
+	// Get total record count from header
+	totalRecords := table.Header().RecordsCount()
+	fmt.Printf("Total records in file: %d\n", totalRecords)
+	debug.LogInfo("ReadDBFFileDirectly", fmt.Sprintf("DBF header shows %d total records", totalRecords))
+	
+	// Read all rows
+	var rows []map[string]interface{}
+	totalCount := 0
+	skipped := 0
+	searchLower := strings.ToLower(searchTerm)
+	isSearching := searchTerm != ""
+	
+	for !table.EOF() {
+		row, err := table.Next()
+		if err != nil {
+			break
+		}
+		
+		if row.Deleted {
+			continue
+		}
+		
+		// Convert row to map
+		rowData := make(map[string]interface{})
+		matchFound := false
+		
+		for _, column := range table.Columns() {
+			field := row.FieldByName(column.Name())
+			if field != nil {
+				value := field.GetValue()
+				rowData[column.Name()] = value
+				
+				// Check if this field matches the search term
+				if isSearching && !matchFound && value != nil {
+					fieldStr := strings.ToLower(fmt.Sprintf("%v", value))
+					if strings.Contains(fieldStr, searchLower) {
+						matchFound = true
+					}
+				}
+			} else {
+				rowData[column.Name()] = ""
+			}
+		}
+		
+		// Skip if searching and no match found
+		if isSearching && !matchFound {
+			continue
+		}
+		
+		totalCount++
+		
+		// Apply pagination
+		if offset > 0 && skipped < offset {
+			skipped++
+			continue
+		}
+		
+		if limit > 0 && len(rows) >= limit {
+			continue
+		}
+		
+		rows = append(rows, rowData)
+	}
+	
+	// Build column info for output
+	columnInfo := []map[string]interface{}{}
+	for _, colName := range columns {
+		columnInfo = append(columnInfo, map[string]interface{}{
+			"name": colName,
+			"type": "string", // We don't have type info readily available
+		})
+	}
+	
+	return map[string]interface{}{
+		"columns":     columnInfo,
+		"rows":        rows,
+		"totalCount":  totalCount,
+		"offset":      offset,
+		"limit":       limit,
+		"searchTerm":  searchTerm,
+		"fileName":    filepath.Base(filePath),
+	}, nil
 }
 
 // ReadDBFFile reads a DBF file and returns its structure and data with pagination and sorting
@@ -260,19 +421,47 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 	}()
 	
 	fmt.Printf("ReadDBFFile: %s/%s - reading actual DBF data\n", companyName, fileName)
+	debug.LogInfo("ReadDBFFile", fmt.Sprintf("Called with company=%s, file=%s", companyName, fileName))
 	
-	datafilesPath, err := getDatafilesPath()
-	if err != nil {
-		return nil, err
+	var filePath string
+	
+	// Log the incoming parameters
+	writeErrorLog(fmt.Sprintf("ReadDBFFile: START - company='%s', file='%s'", companyName, fileName))
+	
+	// Check if companyName looks like a full path (absolute)
+	if filepath.IsAbs(companyName) {
+		// It's an absolute path, use it directly
+		filePath = filepath.Join(companyName, fileName)
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Detected absolute path, result: %s", filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using absolute path: %s", filePath))
+	} else if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") || strings.Contains(companyName, "\\") {
+		// It's a relative path - make it relative to executable directory
+		exePath, _ := os.Executable()
+		exeDir := filepath.Dir(exePath)
+		filePath = filepath.Join(exeDir, companyName, fileName)
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Detected relative path, company='%s', exeDir='%s', result='%s'", companyName, exeDir, filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using relative path: %s -> %s", companyName, filePath))
+	} else {
+		// Legacy mode - use the old datafiles structure
+		datafilesPath, err := getDatafilesPath()
+		if err != nil {
+			writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
+			return nil, err
+		}
+		filePath = filepath.Join(datafilesPath, companyName, fileName)
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using legacy mode, datafilesPath='%s', result='%s'", datafilesPath, filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using legacy path: %s", filePath))
 	}
-	
-	filePath := filepath.Join(datafilesPath, companyName, fileName)
 	fmt.Printf("Full file path: %s\n", filePath)
 	
 	// Check if file exists
 	if _, err := os.Stat(filePath); err != nil {
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: DBF file does not exist at path %s: %v", filePath, err))
+		debug.LogError("ReadDBFFile", fmt.Errorf("DBF file does not exist at path %s: %v", filePath, err))
 		return nil, fmt.Errorf("DBF file does not exist: %s", fileName)
 	}
+	writeErrorLog(fmt.Sprintf("ReadDBFFile: File exists at: %s", filePath))
+	debug.LogInfo("ReadDBFFile", fmt.Sprintf("File exists at: %s", filePath))
 	
 	// Open the DBF file using the correct API
 	fmt.Printf("Attempting to open DBF file...\n")
@@ -297,6 +486,7 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 	// Get total record count from header
 	totalRecords := table.Header().RecordsCount()
 	fmt.Printf("Total records in file: %d\n", totalRecords)
+	debug.LogInfo("ReadDBFFile", fmt.Sprintf("DBF header shows %d total records in %s", totalRecords, fileName))
 	
 	// Read and potentially sort all records first (for server-side sorting)
 	var allRows [][]interface{}
@@ -490,6 +680,8 @@ func UpdateDBFRecord(companyName, fileName string, rowIndex, colIndex int, value
 // GetDashboardData returns lightweight dashboard data with well types
 func GetDashboardData(companyName string) (map[string]interface{}, error) {
 	fmt.Printf("Getting dashboard data for company: %s\n", companyName)
+	writeErrorLog(fmt.Sprintf("GetDashboardData: Called with company: %s", companyName))
+	debug.LogInfo("GetDashboardData", fmt.Sprintf("Called with company: %s", companyName))
 	
 	dashboard := map[string]interface{}{
 		"company": companyName,
@@ -499,10 +691,18 @@ func GetDashboardData(companyName string) (map[string]interface{}, error) {
 	}
 	
 	// Get well types for top cards (lightweight operation)
+	writeErrorLog("GetDashboardData: Getting well types...")
+	debug.LogInfo("GetDashboardData", "Getting well types...")
 	if wellTypes, err := getWellTypes(companyName); err == nil {
 		dashboard["wellTypes"] = wellTypes
+		writeErrorLog(fmt.Sprintf("GetDashboardData: Got %d well types", len(wellTypes)))
+		debug.LogInfo("GetDashboardData", fmt.Sprintf("Got %d well types", len(wellTypes)))
+	} else {
+		writeErrorLog(fmt.Sprintf("GetDashboardData: Failed to get well types: %v", err))
+		debug.LogError("GetDashboardData", fmt.Errorf("failed to get well types: %v", err))
 	}
 	
+	writeErrorLog(fmt.Sprintf("GetDashboardData: Returning dashboard: %+v", dashboard))
 	return dashboard, nil
 }
 
@@ -668,11 +868,15 @@ func parseNumber(value interface{}) (float64, error) {
 // getWellTypes returns a lightweight summary of well types from WELLS.DBF
 func getWellTypes(companyName string) ([]map[string]interface{}, error) {
 	fmt.Printf("getWellTypes: Reading WELLS.dbf for company: %s\n", companyName)
+	writeErrorLog(fmt.Sprintf("getWellTypes: Reading WELLS.dbf for company: %s", companyName))
+	debug.LogInfo("getWellTypes", fmt.Sprintf("Reading WELLS.dbf for company: %s", companyName))
 	
 	// Read WELLS.DBF file
 	wellsData, err := ReadDBFFile(companyName, "WELLS.dbf", "", 0, 0, "", "")
 	if err != nil {
 		fmt.Printf("getWellTypes: Failed to read WELLS.dbf: %v\n", err)
+		writeErrorLog(fmt.Sprintf("getWellTypes: Failed to read WELLS.dbf: %v", err))
+		debug.LogError("getWellTypes", fmt.Errorf("failed to read WELLS.dbf: %v", err))
 		return nil, fmt.Errorf("failed to read WELLS.dbf: %w", err)
 	}
 	

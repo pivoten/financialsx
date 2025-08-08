@@ -346,13 +346,25 @@ func (c *DbApiClient) CloseDbc() error {
 	return nil
 }
 
-// Close releases the OLE object
+// Close releases the OLE object and terminates the server process
 func (c *DbApiClient) Close() {
 	if c.oleObject != nil {
 		// Try to close DBC first
 		c.CloseDbc()
+		
+		// Call Quit to terminate the OLE server process
+		// This prevents multiple dbapi.exe processes from accumulating
+		_, err := oleutil.CallMethod(c.oleObject, "Quit")
+		if err != nil {
+			writeLog(fmt.Sprintf("Warning: Failed to call Quit: %v", err))
+		}
+		
+		// Release the OLE object
 		c.oleObject.Release()
-		ole.CoUninitialize()
+		c.oleObject = nil
+		
+		// Don't call CoUninitialize here - it should be called once per thread
+		// ole.CoUninitialize()
 	}
 }
 

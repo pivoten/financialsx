@@ -333,6 +333,17 @@ DEFINE CLASS DbApi AS Custom OLEPUBLIC
         RETURN .T.
     ENDFUNC
     
+    * Cleanly quit the OLE server process
+    FUNCTION Quit()
+        * Close any open databases
+        IF !EMPTY(DBC())
+            CLOSE DATABASES ALL
+        ENDIF
+        * Exit the process
+        QUIT
+        RETURN .T.
+    ENDFUNC
+    
     * Simple test to return table count
     FUNCTION GetTableCount()
         IF EMPTY(DBC())

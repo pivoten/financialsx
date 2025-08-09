@@ -1,0 +1,60 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, feat/ci ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    defaults:
+      run:
+        working-directory: ./desktop
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install frontend dependencies
+        working-directory: ./desktop/frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./desktop/frontend
+        run: npm run build
+
+      - name: Build Wails app
+        uses: dAppServer/wails-build-action@v2.2
+        with:
+          build-name: desktop
+          build-platform: windows/amd64
+          wails-version: latest
+          go-version: '1.21'
+          node-version: '18'
+          wails-build-webview2: 'embed'
+          package: false
+          sign: false
+          nsis: false
+          upload: true
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-amd64
+          path: |
+            desktop/build/bin/*
+            !desktop/build/bin/*.syso

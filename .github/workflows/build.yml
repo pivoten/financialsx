@@ -23,6 +23,7 @@ jobs:
         build:
           - name: 'financialsx'
             platform: 'windows/amd64'
+            platform_name: 'windows-amd64'
             os: 'windows-latest'
 
     runs-on: ${{ matrix.build.os }}
@@ -51,7 +52,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.build.name }}-${{ replace(matrix.build.platform, '/', '-') }}
+          name: ${{ matrix.build.name }}-${{ matrix.build.platform_name }}
           path: desktop/build/bin/*
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')

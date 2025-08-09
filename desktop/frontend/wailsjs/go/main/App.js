@@ -238,8 +238,16 @@ export function SearchDBFTable(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchDBFTable'](arg1, arg2, arg3);
 }
 
+export function SelectDataFolder() {
+  return window['go']['main']['App']['SelectDataFolder']();
+}
+
 export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function SetDataPath(arg1) {
+  return window['go']['main']['App']['SetDataPath'](arg1);
 }
 
 export function SetDebugMode(arg1) {

@@ -2,12 +2,15 @@ import React, { useState } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Input } from './ui/input'
+import { Label } from './ui/label'
+import { User, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import pivotenLogo from '../assets/pivoten-logo.png'
 import logger from '../services/logger'
 
 interface LoginFormProps {
   onLogin: (e: React.FormEvent<HTMLFormElement>) => void
-  onRegister: (e: React.FormEvent<HTMLFormElement>) => void
+  onRequestLogin: () => void
+  onResetPassword: () => void
   username: string
   setUsername: (value: string) => void
   email: string
@@ -20,7 +23,8 @@ interface LoginFormProps {
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onLogin,
-  onRegister,
+  onRequestLogin,
+  onResetPassword,
   username,
   setUsername,
   email,
@@ -30,119 +34,119 @@ const LoginForm: React.FC<LoginFormProps> = ({
   error,
   isSubmitting
 }) => {
-  const [showRegister, setShowRegister] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    logger.debug('Form submitted', { showRegister })
-    if (showRegister) {
-      onRegister(e)
-    } else {
-      onLogin(e)
-    }
+    logger.debug('Login form submitted')
+    onLogin(e)
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-background via-muted to-background flex items-center justify-center p-6">
+      <Card className="w-full max-w-md shadow-lg border-border/60">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4">
-            <img 
-              src={pivotenLogo} 
-              alt="Pivoten" 
-              className="w-20 h-20 object-contain"
+          <div className="mx-auto mb-3">
+            <img
+              src={pivotenLogo}
+              alt="Pivoten"
+              style={{ width: '60px', height: '60px', objectFit: 'contain' }}
             />
           </div>
-          <CardTitle className="text-2xl">Pivoten FinancialsX</CardTitle>
+          <CardTitle className="text-2xl tracking-tight">Pivoten FinancialsX</CardTitle>
           <CardDescription>
-            {showRegister ? 'Create your account' : 'Sign in to your account'}
+            Sign in to access your financial data
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email or Username */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {showRegister ? 'Email' : 'Email or Username'}
-              </label>
-              <Input
-                type={showRegister ? 'email' : 'text'}
-                value={showRegister ? email : username}
-                onChange={(e) => {
-                  if (showRegister) {
-                    setEmail(e.target.value)
-                  } else {
-                    setUsername(e.target.value)
-                  }
-                }}
-                placeholder={showRegister ? 'john@example.com' : 'Enter your email or username'}
-                required
-                disabled={isSubmitting}
-              />
-            </div>
-
-            {/* Username for registration */}
-            {showRegister && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Username
-                </label>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="auth-identifier">Email</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <Mail className="h-4 w-4" />
+                </span>
                 <Input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Choose a username"
+                  id="auth-identifier"
+                  type="email"
+                  value={email || username}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    setUsername(e.target.value)
+                  }}
+                  placeholder="name@company.com"
+                  autoComplete="email"
                   required
                   disabled={isSubmitting}
+                  className="w-full pl-10"
                 />
               </div>
-            )}
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                disabled={isSubmitting}
-              />
             </div>
 
-            {/* Error message */}
+            <div className="space-y-2">
+              <Label htmlFor="auth-password">Password</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <Lock className="h-4 w-4" />
+                </span>
+                <Input
+                  id="auth-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  required
+                  disabled={isSubmitting}
+                  className="w-full pl-10 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={isSubmitting}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
             {error && (
-              <div className="text-sm text-red-600 bg-red-50 p-2 rounded">
-                {error}
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4" />
+                <span>{error}</span>
               </div>
             )}
 
-            {/* Submit button */}
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Please wait...' : (showRegister ? 'Create Account' : 'Sign In')}
+              {isSubmitting ? 'Please wait...' : 'Sign In'}
             </Button>
 
-            {/* Toggle between login and register */}
-            <div className="text-center text-sm">
-              <span className="text-gray-600">
-                {showRegister ? 'Already have an account?' : "Don't have an account?"}
-              </span>{' '}
+            <div className="flex justify-between text-sm">
               <button
                 type="button"
-                className="text-blue-600 hover:underline font-medium"
-                onClick={() => setShowRegister(!showRegister)}
+                className="text-primary hover:underline font-medium"
+                onClick={onResetPassword}
                 disabled={isSubmitting}
               >
-                {showRegister ? 'Sign in' : 'Create one'}
+                Reset Password
+              </button>
+              <button
+                type="button"
+                className="text-primary hover:underline font-medium"
+                onClick={onRequestLogin}
+                disabled={isSubmitting}
+              >
+                Request Login
               </button>
             </div>
+
+            <div className="text-center text-xs text-muted-foreground">Powered by Pivoten</div>
           </form>
         </CardContent>
       </Card>

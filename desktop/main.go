@@ -39,6 +39,7 @@ type App struct {
 	currentUser *auth.User
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
+	dataBasePath string // Base path where compmast.dbf is located
 }
 
 // NewApp creates a new App application struct
@@ -965,29 +966,137 @@ func min(a, b int) int {
 	return b
 }
 
+// getSavedDataPath retrieves the saved data path from a config file
+func (a *App) getSavedDataPath() string {
+	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// saveDataPath saves the data path to a config file for future use
+func (a *App) saveDataPath(path string) {
+	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
+	os.WriteFile(configPath, []byte(path), 0644)
+}
+
+// SelectDataFolder opens a dialog for the user to select the folder containing compmast.dbf
+func (a *App) SelectDataFolder() (string, error) {
+	// This will trigger a folder selection dialog in the frontend
+	// The frontend will call back with the selected path
+	return "", fmt.Errorf("TRIGGER_FOLDER_DIALOG")
+}
+
+// SetDataPath sets the data path after user selection and verifies compmast.dbf exists
+func (a *App) SetDataPath(folderPath string) error {
+	// Verify compmast.dbf exists in the selected folder
+	compMastPath := filepath.Join(folderPath, "compmast.dbf")
+	if _, err := os.Stat(compMastPath); os.IsNotExist(err) {
+		return fmt.Errorf("compmast.dbf not found in selected folder")
+	}
+	
+	// Save the path for future use
+	a.dataBasePath = folderPath
+	a.saveDataPath(folderPath)
+	
+	fmt.Printf("SetDataPath: Data path set to: %s\n", folderPath)
+	debug.LogInfo("SetDataPath", fmt.Sprintf("Data path set to: %s", folderPath))
+	
+	return nil
+}
+
+// findCompmastDBF recursively searches for compmast.dbf file
+func findCompmastDBF(startPath string, maxDepth int) string {
+	if maxDepth <= 0 {
+		return ""
+	}
+	
+	var result string
+	filepath.Walk(startPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue walking
+		}
+		
+		// Skip hidden directories and common non-data directories
+		if info.IsDir() && (strings.HasPrefix(info.Name(), ".") || 
+			info.Name() == "node_modules" || 
+			info.Name() == "build" ||
+			info.Name() == "dist") {
+			return filepath.SkipDir
+		}
+		
+		// Check if this is compmast.dbf (case-insensitive)
+		if !info.IsDir() && strings.EqualFold(info.Name(), "compmast.dbf") {
+			result = path
+			return filepath.SkipDir // Stop walking once found
+		}
+		
+		// Limit depth to prevent excessive searching
+		relPath, _ := filepath.Rel(startPath, path)
+		depth := len(strings.Split(relPath, string(filepath.Separator)))
+		if depth > maxDepth {
+			return filepath.SkipDir
+		}
+		
+		return nil
+	})
+	
+	return result
+}
+
 // GetCompanyList reads the compmast.dbf file to get available companies
 func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
-	fmt.Println("GetCompanyList: Reading compmast.dbf for company list")
-	debug.LogInfo("GetCompanyList", "Reading compmast.dbf for company list")
+	fmt.Println("GetCompanyList: Searching for compmast.dbf...")
+	debug.LogInfo("GetCompanyList", "Searching for compmast.dbf...")
 	
-	// Get the executable directory as the base path
-	exePath, err := os.Executable()
+	// Start from current working directory
+	workDir, err := os.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get executable path: %w", err)
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
-	exeDir := filepath.Dir(exePath)
 	
-	// Construct path to compmast.dbf in datafiles folder
-	compMastPath := filepath.Join(exeDir, "datafiles", "compmast.dbf")
-	fmt.Printf("GetCompanyList: Looking for compmast.dbf at: %s\n", compMastPath)
-	debug.LogInfo("GetCompanyList", fmt.Sprintf("Looking for compmast.dbf at: %s", compMastPath))
+	// Search for compmast.dbf recursively (max depth 5 to avoid deep searches)
+	compMastPath := findCompmastDBF(workDir, 5)
 	
-	// Check if file exists
-	if _, err := os.Stat(compMastPath); os.IsNotExist(err) {
-		fmt.Printf("GetCompanyList: compmast.dbf not found at %s\n", compMastPath)
-		debug.LogError("GetCompanyList", fmt.Errorf("compmast.dbf not found at %s", compMastPath))
-		return nil, fmt.Errorf("compmast.dbf not found in datafiles directory")
+	// If not found in working directory, try from parent directory
+	if compMastPath == "" {
+		parentDir := filepath.Dir(workDir)
+		compMastPath = findCompmastDBF(parentDir, 3)
 	}
+	
+	// If still not found, try from executable directory
+	if compMastPath == "" {
+		exePath, _ := os.Executable()
+		exeDir := filepath.Dir(exePath)
+		compMastPath = findCompmastDBF(exeDir, 3)
+	}
+	
+	// If still not found, check if we have a saved path from previous selection
+	if compMastPath == "" {
+		savedPath := a.getSavedDataPath()
+		if savedPath != "" {
+			testPath := filepath.Join(savedPath, "compmast.dbf")
+			if _, err := os.Stat(testPath); err == nil {
+				compMastPath = testPath
+				fmt.Printf("GetCompanyList: Using saved path: %s\n", compMastPath)
+			}
+		}
+	}
+	
+	if compMastPath == "" {
+		fmt.Println("GetCompanyList: compmast.dbf not found, user needs to select folder")
+		debug.LogError("GetCompanyList", fmt.Errorf("compmast.dbf not found"))
+		return nil, fmt.Errorf("NEED_FOLDER_SELECTION")
+	}
+	
+	// Store the base path for future company data access
+	a.dataBasePath = filepath.Dir(compMastPath)
+	a.saveDataPath(a.dataBasePath)
+	
+	fmt.Printf("GetCompanyList: Found compmast.dbf at: %s\n", compMastPath)
+	debug.LogInfo("GetCompanyList", fmt.Sprintf("Found compmast.dbf at: %s", compMastPath))
 	debug.LogInfo("GetCompanyList", "compmast.dbf found")
 	
 	// Read the DBF file directly (not company-specific)

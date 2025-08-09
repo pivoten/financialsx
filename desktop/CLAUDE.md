@@ -688,9 +688,48 @@ Currently, audit results are only stored in React state. When users navigate awa
 
 ---
 
-**Last Updated**: August 6, 2025
+## TypeScript Migration Notes
+
+### Tailwind Configuration Fix
+When converting from JavaScript (.jsx) to TypeScript (.tsx), ensure the Tailwind configuration is updated:
+```javascript
+// tailwind.config.js
+content: [
+  './src/**/*.{ts,tsx,js,jsx}',  // Must include .ts and .tsx extensions
+]
+```
+Without this, Tailwind won't scan TypeScript files and CSS utility classes won't be generated.
+
+## Company Data Location
+
+### Automatic Discovery
+The application uses recursive search to find `compmast.dbf`:
+1. Searches from current working directory (max depth: 5)
+2. If not found, searches from parent directory (max depth: 3)
+3. If not found, searches from executable directory (max depth: 3)
+4. If not found, checks previously saved data path
+
+### Manual Folder Selection
+If `compmast.dbf` cannot be found automatically:
+1. User sees "Cannot find company data files" message
+2. "Select Data Folder" button appears
+3. User selects folder containing `compmast.dbf`
+4. Path is validated and saved for future sessions
+5. Company folders are resolved relative to this location
+
+### Data Path Persistence
+- Selected path saved to: `{OS_TEMP_DIR}/financialsx_datapath.txt`
+- Automatically reused in future sessions
+- Company data paths resolved relative to `compmast.dbf` location
+
+---
+
+**Last Updated**: August 9, 2025
 **Key Fix Applied**: Changed data structure key from "data" to "rows" for DBF file reading
-**Latest Enhancement**: Implemented SQLite-based Bank Reconciliation System with JSON field extensibility
+**TypeScript Migration**: Converted frontend from JavaScript to TypeScript, fixed Tailwind configuration
+**Latest Enhancements**: 
+- Implemented SQLite-based Bank Reconciliation System with JSON field extensibility
+- Added recursive search for compmast.dbf with user-selectable fallback
 **Major Features Added**:
 - **SQLite Reconciliation System**: Enterprise-grade database persistence replacing localStorage
 - **CIDCHEC-Based Tracking**: Reliable check identification across sessions using unique IDs
@@ -699,4 +738,5 @@ Currently, audit results are only stored in React state. When users navigate awa
 - **6 New API Endpoints**: Full draft workflow with save/load/commit/history capabilities
 - **Migration Framework**: Structure for importing existing CHECKREC.DBF data
 - **Auto-Save Functionality**: Database persistence with user feedback
-**Status**: Bank Reconciliation system upgraded to SQLite with modern architecture, ready for production use
+- **Company Data Discovery**: Recursive search with manual folder selection fallback
+**Status**: Application fully functional with TypeScript, automatic company discovery, and modern reconciliation system

@@ -121,7 +121,11 @@ export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Pr
 
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
+export function SelectDataFolder():Promise<string>;
+
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
+
+export function SetDataPath(arg1:string):Promise<void>;
 
 export function SetDebugMode(arg1:boolean):Promise<Record<string, any>>;
 

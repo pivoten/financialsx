@@ -56,6 +56,7 @@ jobs:
           restore-keys: |
             wails-${{ runner.os }}-
       - name: Install Wails
+        shell: bash
         run: |
           if [ ! -f ~/go/bin/wails ]; then
             go install github.com/wailsapp/wails/v2/cmd/wails@latest

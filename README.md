@@ -9,35 +9,35 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
 - Go 1.21+ installed and on your PATH. Verify with \`go version\`.
 - Node.js (LTS) and npm or pnpm. Verify with \`node -v\` and \`npm -v\`.
 - Wails CLI installed: 
-  \`\`\`bash
+```bash
   go install github.com/wailsapp/wails/v2/cmd/wails@latest
-  \`\`\`
+```
   Ensure \`$(go env GOPATH)/bin\` is in your PATH (e.g., add \`export PATH=$PATH:$(go env GOPATH)/bin\` to \`~/.zshrc\`).
 
 ### Initialize project
 1. Set module path, for example:
-   \`\`\`bash
+ ```bash
    go mod init github.com/pivoten/financialsx
-   \`\`\`
+ ```
 2. Create and switch to bootstrap branch:
-   \`\`\`bash
+ ```bash
    git checkout -b wails-bootstrap
-   \`\`\`
+ ```
 3. Initialize Wails app:
-   \`\`\`bash
+ ```bash
    wails init -n claude
-   \`\`\`
+ ```
    Choose React + Vite frontend when prompted.
 4. Install frontend dependencies:
-   \`\`\`bash
+ ```bash
    cd claude/frontend
    npm install
    cd ../..
-   \`\`\`
+ ```
 5. Run in development mode:
-   \`\`\`bash
+ ```bash
    wails dev
-   \`\`\`
+ ```
 
 ## Common commands
 - Run: \`go run .\` or \`go run main.go\`
@@ -46,11 +46,11 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
 - Format: \`go fmt ./...\`
 - Lint: \`golangci-lint run\`
 - Commit scaffold:
-  \`\`\`bash
+```bash
   git add .
   git commit -m "Bootstrap Wails + React desktop app"
   git push --set-upstream origin wails-bootstrap
-  \`\`\`
+```
 
 ## Next steps
 - Add sample Go binding (Greeter) and call from React to verify integration.

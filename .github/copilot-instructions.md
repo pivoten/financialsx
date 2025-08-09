@@ -42,3 +42,9 @@ Concise, repo-specific guidance for working on this Wails (Go + React) desktop c
 - Heavy GL scans are slow; prefer cache + explicit refresh actions.
 
 See `desktop/CLAUDE.md` and `desktop/README.md` for full details and field mappings.
+
+## Docs highlights
+- DBF dates (`desktop/DBF_DATE_PARSING.md`): Prefer time.Time from go-dbase; if strings, try multiple formats. Outstanding checks cache currently ignores date; when touching `RefreshOutstandingChecks`, add a configurable date cutoff.
+- Supabase auth (`desktop/SUPABASE_AUTH_SETUP.md`): Optional cloud auth. Toggle in `frontend/src/config/supabase.config.js` via `useSupabaseAuth`. Local SQLite auth remains the fallback; backend JWT validation is optional.
+- Windows/OLE (`desktop/WINDOWS_DEPLOYMENT.md`): OLE COM ProgID `Pivoten.DbApi` built from `desktop/dbapi.prg`, requires WebView2 + VFP runtime and registration (`/regserver`). Keep OLE lazy; use native DBF reads elsewhere.
+- DBF fields (`desktop/docs/DBF_FIELDS.md`): Keys—GL: `CACCTNO`, `NDEBITS`, `NCREDITS` (balance = debits - credits). COA: `LBANKACCT`. CHECKS: `LCLEARED`, `LVOID`, `DCHECKDATE`, `NAMOUNT`.

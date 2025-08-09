@@ -3,7 +3,7 @@ name: Wails Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main ] # this can be removed when we put on branch protection
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]

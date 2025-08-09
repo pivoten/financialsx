@@ -31,6 +31,8 @@ export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
 
+export function GetAuthState():Promise<Record<string, any>>;
+
 export function GetBalanceHistory(arg1:string,arg2:string,arg3:number):Promise<Array<Record<string, any>>>;
 
 export function GetBankAccounts(arg1:string):Promise<Array<Record<string, any>>>;
@@ -70,6 +72,8 @@ export function GetMatchedTransactions(arg1:string,arg2:string):Promise<Record<s
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetPlatform():Promise<Record<string, any>>;
 
 export function GetRecentBankStatements(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 

@@ -58,6 +58,10 @@ export function GetAllUsers() {
   return window['go']['main']['App']['GetAllUsers']();
 }
 
+export function GetAuthState() {
+  return window['go']['main']['App']['GetAuthState']();
+}
+
 export function GetBalanceHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetBalanceHistory'](arg1, arg2, arg3);
 }
@@ -136,6 +140,10 @@ export function GetNetDistributionStatus(arg1, arg2) {
 
 export function GetOutstandingChecks(arg1, arg2) {
   return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
+}
+
+export function GetPlatform() {
+  return window['go']['main']['App']['GetPlatform']();
 }
 
 export function GetRecentBankStatements(arg1, arg2) {

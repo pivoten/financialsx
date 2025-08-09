@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '18'
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.9.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
       - name: Build
         run: wails build -platform ${{ matrix.build.platform }}
 

@@ -3,7 +3,8 @@ name: Wails Build
 
 on:
   push:
-    branches: [ main, feat/ci ]
+    branches: [ main ]
+    tags: [ 'v*' ]
 
 env:
   # Necessary for most environments as build failure can occur due to OOM issues
@@ -17,7 +18,7 @@ jobs:
       matrix:
         build:
           - name: 'App'
-            platform:  'windows/amd64'
+            platform: 'windows/amd64'
             os: 'windows-latest'
 
     runs-on: ${{ matrix.build.os }}
@@ -30,10 +31,11 @@ jobs:
       - name: Build wails
         uses: dAppServer/wails-build-action@main
         id: build
+        working-directory: './desktop'
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          package: true
+          # Only publish a package if we are creating a tag, otherwise we just want to run a build to make sure it works
+          package: ${{ startsWith(github.ref, 'refs/tags/') }}
           go-version: '1.21'
           wails-version: 'v2.9.0'
-          project-directory: './desktop'

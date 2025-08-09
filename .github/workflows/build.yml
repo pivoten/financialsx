@@ -1,0 +1,59 @@
+# https://wails.io/docs/guides/crossplatform-build/
+name: Wails Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  # Necessary for most environments as build failure can occur due to OOM issues
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
+jobs:
+  build:
+    strategy:
+      # Failure in one platform build won't impact the others
+      fail-fast: false
+      matrix:
+        build:
+          - name: 'App'
+            platform: 'windows/amd64'
+            os: 'windows-latest'
+
+    runs-on: ${{ matrix.build.os }}
+    defaults:
+      run:
+        working-directory: ./desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Build
+        run: wails build -platform ${{ matrix.build.platform }}
+
+        # Run the two following steps if we created a tag
+      - name: Upload artifacts
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build.name }}-${{ matrix.build.platform }}
+          path: build/bin/*
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/bin/*

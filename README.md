@@ -121,6 +121,11 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
   git push --set-upstream origin wails-bootstrap
   ```
 
+## Test github action locally
+* `brew install act`
+* `act` or if you are on Apple M-series chi `act --container-architecture linux/amd`
+* or, you might have to run
+* `act -P macos-latest=nektos/act-environments-ubuntu:18.04`
 ## Next steps
 - Add sample Go binding (Greeter) and call from React to verify integration.
 - Integrate DBF ingestion logic and persist into SQLite.

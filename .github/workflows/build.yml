@@ -4,9 +4,6 @@ name: Wails Build
 on:
   push:
     branches: [ main, feat/ci ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
 
 env:
   # Necessary for most environments as build failure can occur due to OOM issues

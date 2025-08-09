@@ -27,11 +27,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
+      
+      - name: Copy desktop files to root
+        run: |
+          cp -r desktop/* .
+          
       - name: Build wails
         uses: dAppServer/wails-build-action@main
         id: build
-        working-directory: './desktop'
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}

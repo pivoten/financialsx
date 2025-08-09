@@ -39,6 +39,42 @@ financialsx/
 └── go.mod                   # Root module: github.com/pivoten/financialsx
 ```
 
+## Performance Optimizations
+
+### Startup Caching
+The application caches frequently-used values at startup to improve performance:
+
+#### Platform Detection
+- **Cached at startup**: `platform` and `isWindows` fields in App struct
+- **Benefits**: Avoids repeated `runtime.GOOS` calls throughout the application
+- **Access**: Available via `GetPlatform()` API for frontend if needed
+
+#### Authentication State Caching
+- **Cached on login**: Authentication and permission states
+- **Fields cached**:
+  - `isAuthenticated` - Whether user is logged in
+  - `isAdmin` - Admin privileges flag
+  - `isRoot` - Root privileges flag
+  - `userRole` - Role name string
+  - `permissions` - Map of permission strings to boolean values
+- **Benefits**: 
+  - Permission checks are O(1) map lookups instead of repeated function calls
+  - Reduces overhead on every API call that checks permissions
+  - Especially beneficial for frequently-checked permissions
+- **Updates**: Cache is refreshed on login/logout via `updateAuthCache()`
+- **Access**: Available via `GetAuthState()` API for frontend
+
+#### Helper Methods
+- `hasPermission(permission string)`: Fast cached permission check
+- `updateAuthCache()`: Refreshes all cached auth values from current user
+
+### Recommended Patterns
+When adding new features that require frequent checks:
+1. Cache the value at appropriate lifecycle points (startup, login, etc.)
+2. Create helper methods for cached access
+3. Update cache when state changes
+4. Expose via API if frontend needs access
+
 ## Architecture Notes
 
 - **Wails**: Desktop framework providing Go backend with React frontend
@@ -248,6 +284,57 @@ Bank reconciliation can be accessed directly from bank account cards via the thr
 - **Access Point**: Three-dot dropdown menu on each bank account card
 - **Direct Navigation**: Clicking "Reconcile" immediately opens reconciliation for that specific account
 - **No Account Selection**: Since accessed from a specific card, account is pre-selected
+
+## Company Data Location
+
+### Automatic Discovery
+The application uses recursive search to find `compmast.dbf`:
+1. Searches from current working directory (max depth: 5)
+2. If not found, searches from parent directory (max depth: 3)
+3. If not found, searches from executable directory (max depth: 3)
+4. If not found, checks previously saved data path
+
+### Manual Folder Selection
+If `compmast.dbf` cannot be found automatically:
+1. User sees "Cannot find company data files" message
+2. "Select Data Folder" button appears
+3. User selects folder containing `compmast.dbf`
+4. Path is validated and saved for future sessions
+5. Company folders are resolved relative to this location
+
+### Data Path Persistence
+- Selected path saved to: `{OS_TEMP_DIR}/financialsx_datapath.txt`
+- Automatically reused in future sessions
+- Company data paths resolved relative to `compmast.dbf` location
+
+### Platform-Specific Path Resolution (IMPORTANT)
+
+The application handles company paths differently based on the operating system:
+
+#### macOS/Linux
+- **Company folders are ALWAYS relative to the compmast.dbf location**
+- When reading CDATAPATH from compmast.dbf, only the folder name is extracted
+- Example: If CDATAPATH is `c:\program files\data\company1\`, only `company1` is used
+- The actual path becomes: `{compmast_directory}/company1/`
+- This ensures portability when DBF files are created on Windows but used on Mac/Linux
+
+#### Windows
+- **Uses the full path from CDATAPATH field**
+- Supports both absolute paths (e.g., `C:\DataFiles\Company1\`) and relative paths
+- Relative paths are resolved from the executable directory
+- Maintains compatibility with legacy Visual FoxPro systems
+
+#### Implementation Details
+- **Platform detection at startup**: The application detects the OS platform once during startup and stores it in the App struct
+- **Cached platform variables**: The `internal/company` package caches `isWindows` and `platform` variables to avoid repeated `runtime.GOOS` checks
+- **Path normalization**: The `normalizeCompanyPath()` function in `internal/company/company.go` handles platform-specific path conversion
+- **Consistent application**: Applied across all DBF operations:
+  - `GetDBFFiles()` - Lists DBF files in company directory
+  - `ReadDBFFile()` - Reads DBF file contents
+  - `CreateCompanyDirectory()` - Creates SQL folder structure
+  - `GetCompanyList()` - Returns normalized paths for frontend
+- **SQL folder location**: Ensures SQL folder and SQLite database are created in the correct location based on platform
+- **Frontend access**: Platform info available via `GetPlatform()` API for frontend if needed
 
 ## Next Steps
 

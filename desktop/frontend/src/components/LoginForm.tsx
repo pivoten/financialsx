@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
-import { User, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import pivotenLogo from '../assets/pivoten-logo.png'
 import logger from '../services/logger'
 
@@ -34,6 +35,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
   error,
   isSubmitting
 }) => {
+  const { t } = useTranslation()
   const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -53,15 +55,15 @@ const LoginForm: React.FC<LoginFormProps> = ({
               style={{ width: '60px', height: '60px', objectFit: 'contain' }}
             />
           </div>
-          <CardTitle className="text-2xl tracking-tight">Pivoten FinancialsX</CardTitle>
+          <CardTitle className="text-2xl tracking-tight">{t('login.title')}</CardTitle>
           <CardDescription>
-            Sign in to access your financial data
+            {t('login.subtitle')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="auth-identifier">Email</Label>
+              <Label htmlFor="auth-identifier">{t('common.email', 'Email')}</Label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <Mail className="h-4 w-4" />
@@ -84,7 +86,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="auth-password">Password</Label>
+              <Label htmlFor="auth-password">{t('login.password')}</Label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <Lock className="h-4 w-4" />
@@ -124,7 +126,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
               className="w-full"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Please wait...' : 'Sign In'}
+              {isSubmitting ? t('common.loading') : t('login.signIn')}
             </Button>
 
             <div className="flex justify-between text-sm">
@@ -134,7 +136,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
                 onClick={onResetPassword}
                 disabled={isSubmitting}
               >
-                Reset Password
+                {t('login.resetPassword')}
               </button>
               <button
                 type="button"
@@ -142,11 +144,11 @@ const LoginForm: React.FC<LoginFormProps> = ({
                 onClick={onRequestLogin}
                 disabled={isSubmitting}
               >
-                Request Login
+                {t('login.requestAccess')}
               </button>
             </div>
 
-            <div className="text-center text-xs text-muted-foreground">Powered by Pivoten</div>
+            <div className="text-center text-xs text-muted-foreground">{t('app.copyright', '© 2025 Pivoten. All rights reserved.')}</div>
           </form>
         </CardContent>
       </Card>

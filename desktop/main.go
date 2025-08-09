@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,17 @@ type App struct {
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
 	dataBasePath string // Base path where compmast.dbf is located
+	
+	// Platform detection (cached at startup)
+	platform     string // Operating system: "windows", "darwin", "linux"
+	isWindows    bool   // Convenience flag for Windows platform
+	
+	// Authentication state (cached after login)
+	isAuthenticated bool                    // Whether user is logged in
+	isAdmin        bool                    // Whether user has admin privileges
+	isRoot         bool                    // Whether user has root privileges
+	permissions    map[string]bool         // Cached permission set
+	userRole       string                  // Cached role name
 }
 
 // NewApp creates a new App application struct
@@ -52,9 +64,14 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	
+	// Detect and store platform information at startup
+	a.platform = runtime.GOOS
+	a.isWindows = (runtime.GOOS == "windows")
+	
 	// Initialize debug logging (SimpleLog will auto-initialize if needed)
 	debug.SimpleLog("=== App.startup called ===")
 	debug.LogInfo("App", "Application starting up")
+	debug.SimpleLog(fmt.Sprintf("Platform detected: %s (isWindows: %v)", a.platform, a.isWindows))
 	
 	// Log environment info
 	exePath, _ := os.Executable()
@@ -63,10 +80,95 @@ func (a *App) startup(ctx context.Context) {
 	debug.SimpleLog(fmt.Sprintf("Executable path: %s", exePath))
 	debug.SimpleLog(fmt.Sprintf("Executable dir: %s", exeDir))
 	debug.SimpleLog(fmt.Sprintf("Working dir: %s", cwd))
-	debug.SimpleLog(fmt.Sprintf("OS: %s", os.Getenv("OS")))
+	debug.SimpleLog(fmt.Sprintf("OS env: %s", os.Getenv("OS")))
 	debug.SimpleLog(fmt.Sprintf("PROCESSOR_ARCHITECTURE: %s", os.Getenv("PROCESSOR_ARCHITECTURE")))
 	
 	debug.SimpleLog("=== App.startup completed ===")
+}
+
+// updateAuthCache updates cached authentication state from current user
+func (a *App) updateAuthCache() {
+	if a.currentUser == nil {
+		a.isAuthenticated = false
+		a.isAdmin = false
+		a.isRoot = false
+		a.permissions = make(map[string]bool)
+		a.userRole = ""
+		debug.LogInfo("Auth", "Auth cache cleared (no user)")
+		return
+	}
+	
+	a.isAuthenticated = true
+	a.isAdmin = a.currentUser.IsAdmin()
+	a.isRoot = a.currentUser.IsRoot
+	a.userRole = a.currentUser.RoleName
+	
+	// Cache all permissions for fast lookup
+	a.permissions = make(map[string]bool)
+	commonPerms := []string{
+		"database.read", "database.write", "database.maintain",
+		"dbf.read", "dbf.write",
+		"users.read", "users.create", "users.update", "users.manage_roles",
+		"settings.read", "settings.write",
+	}
+	
+	for _, perm := range commonPerms {
+		a.permissions[perm] = a.currentUser.HasPermission(perm)
+	}
+	
+	debug.LogInfo("Auth", fmt.Sprintf("Auth cache updated - User: %s, Role: %s, Admin: %v, Root: %v", 
+		a.currentUser.Username, a.userRole, a.isAdmin, a.isRoot))
+}
+
+// hasPermission checks cached permissions (faster than calling user.HasPermission)
+func (a *App) hasPermission(permission string) bool {
+	if !a.isAuthenticated {
+		return false
+	}
+	
+	// Root and admin bypass most permission checks
+	if a.isRoot || a.isAdmin {
+		return true
+	}
+	
+	// Check cached permissions
+	if allowed, exists := a.permissions[permission]; exists {
+		return allowed
+	}
+	
+	// If not cached, check directly and cache result
+	if a.currentUser != nil {
+		allowed := a.currentUser.HasPermission(permission)
+		a.permissions[permission] = allowed
+		return allowed
+	}
+	
+	return false
+}
+
+// GetPlatform returns the current platform information
+func (a *App) GetPlatform() map[string]interface{} {
+	return map[string]interface{}{
+		"platform": a.platform,
+		"isWindows": a.isWindows,
+		"arch": runtime.GOARCH,
+	}
+}
+
+// GetAuthState returns the current authentication state
+func (a *App) GetAuthState() map[string]interface{} {
+	return map[string]interface{}{
+		"isAuthenticated": a.isAuthenticated,
+		"isAdmin": a.isAdmin,
+		"isRoot": a.isRoot,
+		"userRole": a.userRole,
+		"username": func() string {
+			if a.currentUser != nil {
+				return a.currentUser.Username
+			}
+			return ""
+		}(),
+	}
 }
 
 // Greet returns a greeting for the given name
@@ -172,6 +274,9 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 
 	a.currentUser = user
 	
+	// Update cached authentication state
+	a.updateAuthCache()
+	
 	// Don't preload OLE connection on login - creates duplicate processes
 	// OLE connection will be created on first actual database query
 	// ole.PreloadOLEConnection(companyName)
@@ -247,6 +352,10 @@ func (a *App) Logout(token string) error {
 	ole.CloseOLEConnection()
 	fmt.Printf("Logout: CloseOLEConnection completed\n")
 	debug.SimpleLog("Logout: CloseOLEConnection completed")
+	
+	// Clear current user and cached auth state
+	a.currentUser = nil
+	a.updateAuthCache()
 	
 	if a.auth != nil {
 		err := a.auth.Logout(token)
@@ -1117,6 +1226,33 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 	// Transform the data for frontend consumption
 	companies := []map[string]interface{}{}
 	for _, row := range rows {
+		dataPath := ""
+		if cdatapath, ok := row["CDATAPATH"].(string); ok {
+			dataPath = cdatapath
+		}
+		
+		// Platform-specific path handling:
+		// On macOS/Linux: Company folders are always relative to compmast.dbf location
+		// On Windows: Use the absolute/relative path from CDATAPATH
+		if !a.isWindows && dataPath != "" {
+			// On Mac/Linux, extract just the folder name from the path
+			// Handle both Windows-style paths (from Windows-created DBF) and Unix paths
+			if strings.Contains(dataPath, "\\") {
+				// Windows path - extract last component
+				parts := strings.Split(dataPath, "\\")
+				for i := len(parts) - 1; i >= 0; i-- {
+					if parts[i] != "" {
+						dataPath = parts[i]
+						break
+					}
+				}
+			} else if strings.Contains(dataPath, "/") {
+				// Unix path - extract last component
+				dataPath = filepath.Base(dataPath)
+			}
+			// If it's just a folder name, keep it as is
+		}
+		
 		company := map[string]interface{}{
 			"company_id":   row["CIDCOMP"],
 			"company_name": row["CPRODUCER"],
@@ -1125,7 +1261,7 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 			"city":         row["CCITY"],
 			"state":        row["CSTATE"],
 			"zip_code":     row["CZIPCODE"],
-			"data_path":    row["CDATAPATH"],
+			"data_path":    dataPath,
 		}
 		companies = append(companies, company)
 	}

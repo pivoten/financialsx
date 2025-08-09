@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         build:
-          - name: 'App'
+          - name: 'financialsx'
             platform: 'windows/amd64'
             os: 'windows-latest'
 

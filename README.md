@@ -6,13 +6,13 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
 ## Quick start
 
 ### Prerequisites
-- Go 1.21+ installed and on your PATH. Verify with \`go version\`.
-- Node.js (LTS) and npm or pnpm. Verify with \`node -v\` and \`npm -v\`.
+- Go 1.21+ installed and on your PATH. Verify with `go version`.
+- Node.js (LTS) and npm or pnpm. Verify with `node -v` and `npm -v`.
 - Wails CLI installed: 
 ```bash
   go install github.com/wailsapp/wails/v2/cmd/wails@latest
 ```
-  Ensure \`$(go env GOPATH)/bin\` is in your PATH (e.g., add \`export PATH=$PATH:$(go env GOPATH)/bin\` to \`~/.zshrc\`).
+  Ensure `$(go env GOPATH)/bin` is in your PATH (e.g., add `export PATH=$PATH:$(go env GOPATH)/bin` to `~/.zshrc`).
 
 ### Initialize project
 1. Set module path, for example:
@@ -40,11 +40,11 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
  ```
 
 ## Common commands
-- Run: \`go run .\` or \`go run main.go\`
-- Build binary: \`go build -o financialsx\`
-- Test: \`go test ./...\`
-- Format: \`go fmt ./...\`
-- Lint: \`golangci-lint run\`
+- Run: `go run .` or `go run main.go`
+- Build binary: `go build -o financialsx`
+- Test: `go test ./...`
+- Format: `go fmt ./...`
+- Lint: `golangci-lint run`
 - Commit scaffold:
 ```bash
   git add .
@@ -59,7 +59,7 @@ Modern desktop companion app to the legacy Visual FoxPro Accounting Manager. Use
 - Define and implement first feature (State Reporting) behind a feature flag.
 
 ## Notes
-The authoritative spec lives in \`claude.md\` in the canvas; that document contains architecture, standards, and detailed bootstrap instructions.
+The authoritative spec lives in `claude.md` in the canvas; that document contains architecture, standards, and detailed bootstrap instructions.
 EOF
 # financialsx
 Pivoten Financials X - Enhanced Legacy

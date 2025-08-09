@@ -30,8 +30,7 @@ jobs:
       
       - name: Copy desktop files to root
         run: |
-          cp -r desktop/* .
-          
+          cp -rf desktop/* .
       - name: Build wails
         uses: dAppServer/wails-build-action@main
         id: build

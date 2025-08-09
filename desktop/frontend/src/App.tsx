@@ -510,7 +510,6 @@ function App() {
 										}}
 										placeholder={showRegister ? "john@example.com" : "Enter your email or username"}
 										className="pl-10 h-11 border-gray-200 transition-all"
-										style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
 										onFocus={(e) => {
 											e.target.style.borderColor = '#F5981E'
 											e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'
@@ -540,7 +539,6 @@ function App() {
 											onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
 											placeholder="Choose a username"
 											className="pl-10 h-11 border-gray-200 transition-all"
-										style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
 										onFocus={(e) => {
 											e.target.style.borderColor = '#F5981E'
 											e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'
@@ -574,7 +572,6 @@ function App() {
 										}}
 										placeholder="••••••••"
 										className="pl-10 h-11 border-gray-200 transition-all"
-										style={{ '--tw-ring-color': 'rgba(245, 152, 30, 0.2)' }}
 										onFocus={(e) => {
 											e.target.style.borderColor = '#F5981E'
 											e.target.style.boxShadow = '0 0 0 3px rgba(245, 152, 30, 0.1)'

@@ -142,7 +142,7 @@ const OutstandingChecksSimple = ({ companyName, currentUser }: OutstandingChecks
 
   const handleRowClick = (check: CheckRecord) => { setSelectedCheck(check); setEditedCheck({ ...check }); setEditMode(false) }
   const handleRefresh = () => { loadOutstandingChecks('') }
-  const handleSaveEdit = async () => { logger.debug('Save edit', { checkId: editedCheck?.id }); setSelectedCheck(null); setEditMode(false) }
+  const handleSaveEdit = async () => { logger.debug('Save edit', { checkNumber: editedCheck?.checkNumber }); setSelectedCheck(null); setEditMode(false) }
 
   const totalAmount = outstandingChecks.reduce((sum, check) => sum + (check.amount || 0), 0)
   const staleCount = outstandingChecks.filter(check => { const days = calculateDaysOutstanding(check.date); return days !== 'N/A' && days > 90 }).length

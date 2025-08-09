@@ -51,7 +51,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.build.name }}-${{ matrix.build.platform }}
+          name: ${{ matrix.build.name }}-${{ replace(matrix.build.platform, '/', '-') }}
           path: desktop/build/bin/*
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')

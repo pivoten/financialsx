@@ -477,11 +477,11 @@ function App() {
 
 				<Card className="w-full max-w-md relative backdrop-blur-sm bg-white/90 shadow-2xl border border-white/50">
 					<CardHeader className="text-center space-y-1 pb-8">
-						<div className="mx-auto mb-6">
+						<div className="mx-auto mb-4">
 							<img 
 								src={pivotenLogo} 
 								alt="Pivoten Logo" 
-								className="w-28 h-28 object-contain drop-shadow-md"
+								className="w-16 h-16 object-contain drop-shadow-md"
 							/>
 						</div>
 						<CardDescription className="text-gray-600 text-base">

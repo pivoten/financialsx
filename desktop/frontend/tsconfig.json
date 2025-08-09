@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    
+    // Gradual strict mode - enable these one by one as you fix errors
+    "strict": false,                       // Master switch - turn on when ready
+    "noImplicitAny": true,                 // ✅ Start here - no implicit any
+    "strictNullChecks": false,             // TODO: Enable after fixing nulls
+    "strictFunctionTypes": false,          // TODO: Enable after fixing function types
+    "strictBindCallApply": false,          // TODO: Enable after other strict checks
+    "strictPropertyInitialization": false, // TODO: Enable for class properties
+    "noImplicitThis": true,                // ✅ No implicit this
+    "alwaysStrict": true,                  // ✅ Use strict mode in emitted JS
+    
+    // Additional checks
+    "noUnusedLocals": false,               // TODO: Enable to catch unused vars
+    "noUnusedParameters": false,           // TODO: Enable to catch unused params
+    "noImplicitReturns": true,             // ✅ All code paths must return
+    "noFallthroughCasesInSwitch": true,    // ✅ Prevent switch fallthrough bugs
+    "noUncheckedIndexedAccess": false,     // TODO: Enable for safer array access
+    "noImplicitOverride": false,           // TODO: Enable for clearer inheritance
+    "noPropertyAccessFromIndexSignature": false, // TODO: Enable for safer property access
+    
+    // Module settings
+    "skipLibCheck": true,
+    "allowJs": false,
+    "checkJs": false,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src", "index.html"],
+  "exclude": ["node_modules", "dist"]
+}

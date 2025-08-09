@@ -59,7 +59,11 @@ export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:nu
 
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
+export function GetDebugMode():Promise<boolean>;
+
 export function GetLastReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetLogFilePath():Promise<string>;
 
 export function GetMatchedTransactions(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -81,7 +85,11 @@ export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise
 
 export function InitializeCompanyDatabase(arg1:string):Promise<void>;
 
+export function InitializeLogging(arg1:boolean):Promise<Record<string, any>>;
+
 export function LogError(arg1:string,arg2:string):Promise<void>;
+
+export function LogMessage(arg1:string,arg2:string,arg3:string,arg4:Record<string, any>):Promise<Record<string, any>>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
@@ -114,6 +122,8 @@ export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Pr
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
+
+export function SetDebugMode(arg1:boolean):Promise<Record<string, any>>;
 
 export function SetOLEIdleTimeout(arg1:number):Promise<Record<string, any>>;
 

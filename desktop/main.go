@@ -4656,6 +4656,107 @@ func (a *App) UpdateCompanyInfo(companyDataJSON string) (map[string]interface{},
 	}, nil
 }
 
+// ============================================================================
+// Logging Methods
+// ============================================================================
+
+// InitializeLogging sets up the logging system
+func (a *App) InitializeLogging(debugMode bool) map[string]interface{} {
+	// Get user's home directory for log storage
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   "Failed to get home directory: " + err.Error(),
+		}
+	}
+
+	// Create logs directory in user's app data
+	logDir := filepath.Join(homeDir, ".financialsx", "logs")
+	
+	// Initialize the logger
+	logger := logger.GetLogger()
+	if err := logger.Initialize(debugMode, logDir); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   "Failed to initialize logger: " + err.Error(),
+		}
+	}
+
+	// Clean logs older than 30 days
+	go logger.CleanOldLogs(30)
+
+	return map[string]interface{}{
+		"success": true,
+		"logDir":  logDir,
+		"debugMode": debugMode,
+	}
+}
+
+// LogMessage logs a message from the frontend
+func (a *App) LogMessage(level, message, component string, data map[string]interface{}) map[string]interface{} {
+	logger := logger.GetLogger()
+	
+	// Add user context if available
+	if a.currentUser != nil {
+		if data == nil {
+			data = make(map[string]interface{})
+		}
+		data["userId"] = a.currentUser.ID
+		data["username"] = a.currentUser.Username
+		data["companyName"] = a.currentUser.CompanyName
+	}
+
+	if err := logger.Log(level, message, component, data); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		}
+	}
+
+	return map[string]interface{}{
+		"success": true,
+	}
+}
+
+// SetDebugMode enables or disables debug logging
+func (a *App) SetDebugMode(enabled bool) map[string]interface{} {
+	logger := logger.GetLogger()
+	
+	if err := logger.SetDebugMode(enabled); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error":   "Failed to set debug mode: " + err.Error(),
+		}
+	}
+
+	// Save preference to config
+	if err := config.SetDebugMode(enabled); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"error": fmt.Sprintf("Failed to save debug mode preference: %v", err),
+		}
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"debugMode": enabled,
+	}
+}
+
+// GetDebugMode returns the current debug mode status
+func (a *App) GetDebugMode() bool {
+	return logger.GetLogger().GetDebugMode()
+}
+
+// GetLogFilePath returns the path to the current log file
+func (a *App) GetLogFilePath() string {
+	homeDir, _ := os.UserHomeDir()
+	logDir := filepath.Join(homeDir, ".financialsx", "logs")
+	filename := fmt.Sprintf("financialsx_%s.log", time.Now().Format("2006-01-02"))
+	return filepath.Join(logDir, filename)
+}
+
 func main() {
 	// Initialize simple debug logging first (for Windows debugging)
 	debug.SimpleLog("=== FinancialsX Desktop Starting ===")

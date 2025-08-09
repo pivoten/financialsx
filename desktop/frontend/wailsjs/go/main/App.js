@@ -114,8 +114,16 @@ export function GetDashboardData(arg1) {
   return window['go']['main']['App']['GetDashboardData'](arg1);
 }
 
+export function GetDebugMode() {
+  return window['go']['main']['App']['GetDebugMode']();
+}
+
 export function GetLastReconciliation(arg1, arg2) {
   return window['go']['main']['App']['GetLastReconciliation'](arg1, arg2);
+}
+
+export function GetLogFilePath() {
+  return window['go']['main']['App']['GetLogFilePath']();
 }
 
 export function GetMatchedTransactions(arg1, arg2) {
@@ -158,8 +166,16 @@ export function InitializeCompanyDatabase(arg1) {
   return window['go']['main']['App']['InitializeCompanyDatabase'](arg1);
 }
 
+export function InitializeLogging(arg1) {
+  return window['go']['main']['App']['InitializeLogging'](arg1);
+}
+
 export function LogError(arg1, arg2) {
   return window['go']['main']['App']['LogError'](arg1, arg2);
+}
+
+export function LogMessage(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['LogMessage'](arg1, arg2, arg3, arg4);
 }
 
 export function Login(arg1, arg2, arg3) {
@@ -224,6 +240,10 @@ export function SearchDBFTable(arg1, arg2, arg3) {
 
 export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function SetDebugMode(arg1) {
+  return window['go']['main']['App']['SetDebugMode'](arg1);
 }
 
 export function SetOLEIdleTimeout(arg1) {

@@ -22,22 +22,23 @@ jobs:
             os: 'windows-latest'
 
     runs-on: ${{ matrix.build.os }}
+    defaults:
+      run:
+        working-directory: ./desktop
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
-      - name: Copy desktop files to root
-        run: |
-          cp -rf desktop/* .
-      - name: Build wails
-        uses: dAppServer/wails-build-action@main
-        id: build
+      - name: Setup Go
+        uses: actions/setup-go@v4
         with:
-          build-name: ${{ matrix.build.name }}
-          build-platform: ${{ matrix.build.platform }}
-          # Only publish a package if we are creating a tag, otherwise we just want to run a build to make sure it works
-          package: ${{ startsWith(github.ref, 'refs/tags/') }}
           go-version: '1.21'
-          wails-version: 'v2.9.0'
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.9.0
+      - name: Build
+        run: wails build -platform ${{ matrix.build.platform }}

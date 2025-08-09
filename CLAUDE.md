@@ -185,7 +185,7 @@ CREATE TABLE balance_history (
 
 ## CI/CD
 * This project uses github actions to produce builds to help distribute the application. Make sure `.github/workflows/build.yml` is kept up to date with the proper versions and build processes.
-* These two versions in the build step should really be looked at and made sure they are right `go-version` and `wails-version`
+* These two versions in the build step should really be looked at and made sure they are right `go-version`, `node-version` and the wails go package version
 
 ## Bank Reconciliation System
 

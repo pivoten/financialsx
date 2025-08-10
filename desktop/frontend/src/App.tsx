@@ -20,6 +20,15 @@ import { CheckAudit } from './components/CheckAudit'
 import { UserManagement } from './components/UserManagement'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
+import { DashboardCard } from './components/DashboardCard'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from './components/ui/breadcrumb'
 import { 
   Building2, 
   FolderOpen, 
@@ -446,6 +455,44 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
   const getPageTitle = () => {
     if (activeView === 'dashboard') return 'Dashboard'
     
+    // Sub-view titles
+    if (activeSubView) {
+      const subViewTitles: Record<string, string> = {
+        // Financials
+        'banking': 'Banking',
+        'transactions': 'Transactions',
+        'revenue': 'Revenue Analysis',
+        'expenses': 'Expense Management',
+        'analytics': 'Financial Analytics',
+        'accounting': 'Accounting Tools',
+        // Data
+        'dbf-explorer': 'DBF Explorer',
+        'import': 'Import Data',
+        'export': 'Export Data',
+        'backup': 'Backup & Restore',
+        'maintenance': 'Database Maintenance',
+        // Settings
+        'users': 'User Management',
+        'appearance': 'Appearance',
+        'system': 'System Configuration',
+        'security': 'Security Settings',
+        // Operations
+        'wells': 'Well Management',
+        'production': 'Production Data',
+        'field-ops': 'Field Operations',
+        // Reporting
+        'state': 'State Reports',
+        'financial': 'Financial Reports',
+        'custom': 'Custom Reports',
+        'audit': 'Audit Trail',
+        // Utilities
+        'calculators': 'Calculators',
+        'converters': 'Converters',
+        'tools': 'System Tools'
+      }
+      return subViewTitles[activeSubView] || activeSubView
+    }
+    
     const viewTitles: Record<string, string> = {
       operations: 'Operations Dashboard',
       financials: 'Financial Dashboard', 
@@ -455,7 +502,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
       settings: 'Settings Dashboard'
     }
     
-    return activeSubView || viewTitles[activeView] || 'Dashboard'
+    return viewTitles[activeView] || 'Dashboard'
   }
 
   const getPageDescription = () => {
@@ -554,6 +601,52 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="border-b bg-white px-6 py-4">
+          {/* Breadcrumbs */}
+          <div className="mb-3">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink 
+                    onClick={() => {
+                      setActiveView('dashboard')
+                      setActiveSubView('')
+                    }}
+                  >
+                    Dashboard
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                {activeView !== 'dashboard' && (
+                  <>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem>
+                      {activeSubView ? (
+                        <BreadcrumbLink
+                          onClick={() => setActiveSubView('')}
+                        >
+                          {menuItems.find(item => item.id === activeView)?.label}
+                        </BreadcrumbLink>
+                      ) : (
+                        <BreadcrumbPage>
+                          {menuItems.find(item => item.id === activeView)?.label}
+                        </BreadcrumbPage>
+                      )}
+                    </BreadcrumbItem>
+                  </>
+                )}
+                {activeSubView && (
+                  <>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem>
+                      <BreadcrumbPage>
+                        {getPageTitle()}
+                      </BreadcrumbPage>
+                    </BreadcrumbItem>
+                  </>
+                )}
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+          
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
               {/* Section Navigation Dropdown */}
@@ -679,7 +772,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
               
               {/* Page Title */}
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight">{getPageTitle()}</h2>
+                <h2 className="text-xl font-semibold tracking-tight">{getPageTitle()}</h2>
                 <p className="text-sm text-gray-500">{getPageDescription()}</p>
               </div>
             </div>
@@ -792,83 +885,30 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             <div className="space-y-6">
               {!activeSubView && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  <Card 
-                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
+                  <DashboardCard
+                    title="Accounts"
+                    subtitle="Banking"
+                    description="Bank accounts and reconciliation"
+                    icon={Home}
                     onClick={() => setActiveSubView('banking')}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 mb-4">
-                            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Banking</span>
-                          </div>
-                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Accounts</h3>
-                          <p className="text-sm text-gray-600 leading-relaxed">Bank accounts and reconciliation</p>
-                        </div>
-                        <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg">
-                          <Home className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
-                      <div className="mt-6 flex items-center text-blue-600">
-                        <span className="text-xs font-medium">View Details</span>
-                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card 
-                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Activity"
+                    subtitle="Transactions"
+                    description="View and manage transactions"
+                    icon={DollarSign}
                     onClick={() => setActiveSubView('transactions')}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-green-50 mb-4">
-                            <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">Transactions</span>
-                          </div>
-                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Activity</h3>
-                          <p className="text-sm text-gray-600 leading-relaxed">View and manage transactions</p>
-                        </div>
-                        <div className="p-3 bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg">
-                          <DollarSign className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
-                      <div className="mt-6 flex items-center text-green-600">
-                        <span className="text-xs font-medium">View Details</span>
-                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card 
-                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Analysis"
+                    subtitle="Revenue"
+                    description="Revenue streams and trends"
+                    icon={TrendingUp}
                     onClick={() => setActiveSubView('revenue')}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-purple-50 mb-4">
-                            <span className="text-xs font-semibold text-purple-700 uppercase tracking-wider">Revenue</span>
-                          </div>
-                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Analysis</h3>
-                          <p className="text-sm text-gray-600 leading-relaxed">Revenue streams and trends</p>
-                        </div>
-                        <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg">
-                          <TrendingUp className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
-                      <div className="mt-6 flex items-center text-purple-600">
-                        <span className="text-xs font-medium">View Details</span>
-                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    accentColor="gray"
+                  />
                 </div>
               )}
               
@@ -892,23 +932,46 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             <div className="space-y-6">
               {!activeSubView && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  <Card 
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                  <DashboardCard
+                    title="Browse"
+                    subtitle="DBF Explorer"
+                    description="View and edit DBF files"
+                    icon={Database}
                     onClick={() => setActiveSubView('dbf-explorer')}
-                  >
-                    <CardContent className="p-8">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-gray-500">DBF Explorer</p>
-                          <h3 className="text-2xl font-bold">Browse</h3>
-                          <p className="text-sm text-gray-500 mt-2">View and edit DBF files</p>
-                        </div>
-                        <div className="p-3 bg-orange-100 rounded-lg">
-                          <Database className="w-5 h-5 text-orange-600" />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Import"
+                    subtitle="Data Import"
+                    description="Import data from external sources"
+                    icon={Upload}
+                    onClick={() => setActiveSubView('import')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Export"
+                    subtitle="Data Export"
+                    description="Export data to various formats"
+                    icon={Download}
+                    onClick={() => setActiveSubView('export')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Backup"
+                    subtitle="Backup & Restore"
+                    description="Backup and restore database"
+                    icon={Archive}
+                    onClick={() => setActiveSubView('backup')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Maintenance"
+                    subtitle="Database"
+                    description="Database optimization and repair"
+                    icon={Wrench}
+                    onClick={() => setActiveSubView('maintenance')}
+                    accentColor="gray"
+                  />
                 </div>
               )}
               
@@ -921,23 +984,38 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             <div className="space-y-6">
               {!activeSubView && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  <Card 
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                  <DashboardCard
+                    title="Management"
+                    subtitle="Users"
+                    description="Manage user accounts and roles"
+                    icon={Users}
                     onClick={() => setActiveSubView('users')}
-                  >
-                    <CardContent className="p-8">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-gray-500">Users</p>
-                          <h3 className="text-2xl font-bold">Management</h3>
-                          <p className="text-sm text-gray-500 mt-2">Manage user accounts</p>
-                        </div>
-                        <div className="p-3 bg-orange-100 rounded-lg">
-                          <Users className="w-5 h-5 text-orange-600" />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Appearance"
+                    subtitle="Interface"
+                    description="Customize interface and themes"
+                    icon={Settings}
+                    onClick={() => setActiveSubView('appearance')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Configuration"
+                    subtitle="System"
+                    description="System settings and preferences"
+                    icon={Database}
+                    onClick={() => setActiveSubView('system')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Security"
+                    subtitle="Access Control"
+                    description="Security and access settings"
+                    icon={Shield}
+                    onClick={() => setActiveSubView('security')}
+                    accentColor="gray"
+                  />
                 </div>
               )}
               
@@ -945,17 +1023,122 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             </div>
           )}
 
-          {/* Placeholder for other sections */}
-          {(activeView === 'operations' || activeView === 'reporting' || activeView === 'utilities') && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{menuItems.find(item => item.id === activeView)?.label}</CardTitle>
-                <CardDescription>{getPageDescription()}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-500">This section is coming soon</p>
-              </CardContent>
-            </Card>
+          {/* Operations Section */}
+          {activeView === 'operations' && (
+            <div className="space-y-6">
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  <DashboardCard
+                    title="Wells"
+                    subtitle="Well Management"
+                    description="Manage wells and production data"
+                    icon={Activity}
+                    onClick={() => setActiveSubView('wells')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Production"
+                    subtitle="Production Data"
+                    description="Track production volumes and metrics"
+                    icon={TrendingUp}
+                    onClick={() => setActiveSubView('production')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Field Ops"
+                    subtitle="Field Operations"
+                    description="Field operations and maintenance"
+                    icon={Wrench}
+                    onClick={() => setActiveSubView('field-ops')}
+                    accentColor="gray"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Reporting Section */}
+          {activeView === 'reporting' && (
+            <div className="space-y-6">
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  <DashboardCard
+                    title="State Reports"
+                    subtitle="Compliance"
+                    description="State regulatory reports"
+                    icon={FileText}
+                    onClick={() => setActiveSubView('state')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Financial"
+                    subtitle="Reports"
+                    description="Financial statements and reports"
+                    icon={DollarSign}
+                    onClick={() => setActiveSubView('financial')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Production"
+                    subtitle="Reports"
+                    description="Production and revenue reports"
+                    icon={TrendingUp}
+                    onClick={() => setActiveSubView('production')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Custom"
+                    subtitle="Reports"
+                    description="Create custom reports"
+                    icon={FileSearch}
+                    onClick={() => setActiveSubView('custom')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Audit Trail"
+                    subtitle="Tracking"
+                    description="System audit and activity logs"
+                    icon={Copy}
+                    onClick={() => setActiveSubView('audit')}
+                    accentColor="gray"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Utilities Section */}
+          {activeView === 'utilities' && (
+            <div className="space-y-6">
+              {!activeSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  <DashboardCard
+                    title="Calculators"
+                    subtitle="Tools"
+                    description="Financial and production calculators"
+                    icon={Calculator}
+                    onClick={() => setActiveSubView('calculators')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="Converters"
+                    subtitle="Utilities"
+                    description="Unit and data converters"
+                    icon={Activity}
+                    onClick={() => setActiveSubView('converters')}
+                    accentColor="gray"
+                  />
+                  <DashboardCard
+                    title="System Tools"
+                    subtitle="Maintenance"
+                    description="System utilities and tools"
+                    icon={Wrench}
+                    onClick={() => setActiveSubView('tools')}
+                    accentColor="gray"
+                  />
+                </div>
+              )}
+            </div>
           )}
         </main>
       </div>

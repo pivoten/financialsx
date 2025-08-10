@@ -3,6 +3,23 @@ import { useState, useEffect } from 'react'
 import { GetBankAccounts, GetDBFTableData, GetCachedBalances, RefreshAccountBalance, RefreshAllBalances } from '../../wailsjs/go/main/App'
 import { getCompanyDataPath, getCompanyName } from '../utils/companyPath'
 import logger from '../services/logger'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+} from '@dnd-kit/sortable'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { BankReconciliation } from './BankReconciliation'
 import { CheckAudit } from './CheckAudit'
@@ -35,7 +52,8 @@ import {
   RefreshCw,
   Calculator,
   FileText,
-  TrendingUp
+  TrendingUp,
+  GripVertical
 } from 'lucide-react'
 import type { User, BankAccount } from '../types'
 
@@ -55,13 +73,163 @@ interface Transaction {
   reference: string
 }
 
+// Sortable Account Card Component
+const SortableAccountCard = ({ account, isRefreshing, onRefresh, onReconcile }: any) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: account.accountNumber })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount)
+  }
+
+  const getFreshnessIndicator = (freshness: string) => {
+    if (freshness === 'fresh') {
+      return <div className="w-2 h-2 bg-green-500 rounded-full" title="Data is fresh" />
+    } else if (freshness === 'aging') {
+      return <div className="w-2 h-2 bg-yellow-500 rounded-full" title="Data is aging" />
+    } else {
+      return <div className="w-2 h-2 bg-red-500 rounded-full" title="Data is stale - refresh recommended" />
+    }
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className="h-full">
+      <Card className="relative border border-gray-200 hover:shadow-md transition-all h-full flex flex-col bg-white">
+        <CardHeader className="pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3 flex-1">
+              <div 
+                className="cursor-move text-gray-400 hover:text-gray-600 transition-colors"
+                {...attributes}
+                {...listeners}
+              >
+                <GripVertical className="w-5 h-5" />
+              </div>
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-gray-600" />
+                <div>
+                  <h4 className="font-semibold text-gray-900">{account.name || 'Unnamed Account'}</h4>
+                  <p className="text-xs text-gray-500">Account #{account.accountNumber}</p>
+                </div>
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onRefresh(account.accountNumber)}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onReconcile(account)}>
+                  <Calculator className="mr-2 h-4 w-4" />
+                  Reconcile
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Statement History
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  Analytics
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 flex-1 flex flex-col">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-500">GL Balance</span>
+              <span className={`text-sm font-medium ${account.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                {formatCurrency(account.balance || 0)}
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
+              <span className="text-sm text-gray-500 flex items-center gap-1">
+                Bank Balance
+                {getFreshnessIndicator(account.gl_freshness || 'stale')}
+              </span>
+              <span className={`text-lg font-semibold ${(account.bank_balance || account.balance) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                {formatCurrency(account.bank_balance || account.balance || 0)}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col justify-end">
+            {(account.uncleared_checks || account.uncleared_deposits || account.outstanding_total) ? (
+              <div className="space-y-2 mt-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">
+                    Uncleared Checks {(account.check_count || account.outstanding_count) ? `(${account.check_count || account.outstanding_count})` : ''}
+                  </span>
+                  <span className="text-xs text-red-600 font-medium">
+                    {(account.uncleared_checks || account.outstanding_total) ? 
+                      `-${formatCurrency(Math.abs(account.uncleared_checks || account.outstanding_total || 0))}` : 
+                      formatCurrency(0)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">
+                    Uncleared Deposits {account.deposit_count ? `(${account.deposit_count})` : ''}
+                  </span>
+                  <span className="text-xs text-green-600 font-medium">
+                    {account.uncleared_deposits ? 
+                      `+${formatCurrency(account.uncleared_deposits)}` : 
+                      formatCurrency(0)}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            {account.is_stale && (
+              <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs mt-3">
+                <AlertCircle className="h-3 w-3 text-amber-600" />
+                <span className="text-amber-700">Data may be stale</span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export function BankingSection({ companyName, currentUser }: BankingSectionProps) {
   // State for banking data
   const [accounts, setAccounts] = useState<BankAccount[]>([])
+  const [orderedAccountIds, setOrderedAccountIds] = useState<string[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState<boolean>(true)
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('accounts')
   const [selectedAccountForReconciliation, setSelectedAccountForReconciliation] = useState<string | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
 
   const [transactions, setTransactions] = useState([
     {
@@ -135,6 +303,15 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
   useEffect(() => {
     if (companyName) {
       loadBankAccounts()
+      // Load saved order from localStorage
+      const savedOrder = localStorage.getItem(`bankAccountOrder_${companyName}`)
+      if (savedOrder) {
+        try {
+          setOrderedAccountIds(JSON.parse(savedOrder))
+        } catch (e) {
+          logger.error('Failed to parse saved account order', { error: e })
+        }
+      }
     }
   }, [companyName])
 
@@ -365,6 +542,12 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       logger.debug('BankingSection: Updated accounts with cached balances', { count: updatedAccounts?.length })
       setAccounts(updatedAccounts)
       
+      // Initialize order if not set
+      if (orderedAccountIds.length === 0) {
+        const ids = updatedAccounts.map((acc: any) => acc.accountNumber)
+        setOrderedAccountIds(ids)
+      }
+      
     } catch (error) {
       logger.error('BankingSection: Failed to load cached balances', { error: error.message })
       // Fallback to setting accounts without balance data
@@ -381,6 +564,28 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       }))
       setAccounts(fallbackAccounts)
     }
+  }
+
+  // Handle drag end for reordering accounts
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      const oldIndex = orderedAccountIds.indexOf(active.id as string)
+      const newIndex = orderedAccountIds.indexOf(over.id as string)
+
+      const newOrder = arrayMove(orderedAccountIds, oldIndex, newIndex)
+      setOrderedAccountIds(newOrder)
+      
+      // Save to localStorage
+      localStorage.setItem(`bankAccountOrder_${companyName}`, JSON.stringify(newOrder))
+    }
+  }
+
+  // Handle reconcile button click
+  const handleReconcile = (account: any) => {
+    setSelectedAccountForReconciliation(account.accountNumber)
+    setActiveTab('reconciliation')
   }
 
   // Refresh balance for a specific account
@@ -472,28 +677,60 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
   }
 
   return (
-    <div className="space-y-6">
+    <div className="bg-white rounded-lg shadow-sm">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList>
-          <TabsTrigger value="accounts">Bank Accounts</TabsTrigger>
-          <TabsTrigger value="outstanding">Outstanding Checks</TabsTrigger>
-          <TabsTrigger value="cleared">Cleared Checks</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
-          {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
-            <TabsTrigger value="audit">Audit</TabsTrigger>
-          )}
-          {activeTab === 'reconciliation' && (
-            <TabsTrigger value="reconciliation">Reconcile</TabsTrigger>
-          )}
-        </TabsList>
+        <div className="border-b border-gray-200">
+          <TabsList className="flex h-12 items-center justify-start space-x-8 px-6 bg-transparent">
+            <TabsTrigger 
+              value="accounts" 
+              className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+            >
+              Bank Accounts
+            </TabsTrigger>
+            <TabsTrigger 
+              value="outstanding"
+              className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+            >
+              Outstanding Checks
+            </TabsTrigger>
+            <TabsTrigger 
+              value="cleared"
+              className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+            >
+              Cleared Checks
+            </TabsTrigger>
+            <TabsTrigger 
+              value="reports"
+              className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+            >
+              Reports
+            </TabsTrigger>
+            {currentUser && (currentUser.is_root || currentUser.role_name === 'Admin') && (
+              <TabsTrigger 
+                value="audit"
+                className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+              >
+                Audit
+              </TabsTrigger>
+            )}
+            {activeTab === 'reconciliation' && (
+              <TabsTrigger 
+                value="reconciliation"
+                className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+              >
+                Reconcile
+              </TabsTrigger>
+            )}
+          </TabsList>
+        </div>
 
         {/* Bank Accounts Tab */}
-        <TabsContent value="accounts" className="space-y-4">
+        <TabsContent value="accounts" className="p-6">
           {/* Header with Refresh All */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="text-lg font-semibold">Bank Accounts</h3>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-xl font-semibold text-gray-900">Bank Accounts</h2>
+              <p className="text-sm text-gray-500 mt-1">
                 Bank Balance = GL Balance + Uncleared Deposits - Uncleared Checks
               </p>
             </div>
@@ -501,6 +738,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               onClick={refreshAllBalances}
               disabled={refreshingAccount === 'all' || loadingAccounts}
               variant="outline"
+              className="border-gray-200 hover:bg-gray-50"
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${refreshingAccount === 'all' ? 'animate-spin' : ''}`} />
               Refresh All
@@ -537,180 +775,61 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {accounts.map((account) => (
-              <Card key={account.id} className="relative">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{account.name}</CardTitle>
-                    {getStatusBadge(account.status)}
-                  </div>
-                  <CardDescription className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4" />
-                    {account.bank}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Account Number</span>
-                      <span className="text-sm font-mono">{account.accountNumber}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Type</span>
-                      <span className="text-sm">{account.type}</span>
-                    </div>
-                    <div className="pt-2 border-t space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">GL Balance</span>
-                        <span className={`text-lg font-bold ${account.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(account.balance)}
-                        </span>
-                      </div>
-                      
-                      {/* Show detailed breakdown when available */}
-                      {(account.uncleared_deposits > 0 || account.uncleared_checks > 0) && (
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Uncleared Deposits</span>
-                            <span className="text-green-600">
-                              {formatCurrency(account.uncleared_deposits || 0)} ({account.deposit_count || 0})
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Uncleared Checks</span>
-                            <span className="text-red-600">
-                              {formatCurrency(account.uncleared_checks || 0)} ({account.check_count || 0})
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Show breakdown structure even for old data - needs refresh to get details */}
-                      {!(account.uncleared_deposits > 0 || account.uncleared_checks > 0) && account.outstanding_total !== 0 && (
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Uncleared Deposits</span>
-                            <span className="text-gray-400">
-                              Refresh for details
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Uncleared Checks</span>
-                            <span className="text-gray-400">
-                              Refresh for details
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="flex justify-between items-center border-t pt-2">
-                        <span className="text-sm font-medium">Bank Balance</span>
-                        <span className={`text-xl font-bold ${(account.bank_balance || account.balance) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(account.bank_balance || account.balance)}
-                        </span>
-                      </div>
-                      
-                      {account.is_stale && (
-                        <div className="flex items-center gap-1 text-xs text-amber-600">
-                          <AlertCircle className="h-3 w-3" />
-                          <span>Data may be stale</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button size="sm" variant="outline" className="flex-1">
-                      <ArrowUpRight className="w-4 h-4 mr-1" />
-                      Transfer
-                    </Button>
-                    
-                    {account.is_stale ? (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => refreshAccountBalance(account.accountNumber)}
-                        disabled={refreshingAccount === account.accountNumber}
-                        className="text-amber-600 border-amber-200"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${refreshingAccount === account.accountNumber ? 'animate-spin' : ''}`} />
-                      </Button>
-                    ) : (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => refreshAccountBalance(account.accountNumber)}
-                        disabled={refreshingAccount === account.accountNumber}
-                      >
-                        <RefreshCw className={`w-4 h-4 ${refreshingAccount === account.accountNumber ? 'animate-spin' : ''}`} />
-                      </Button>
-                    )}
-                    
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem 
-                          onClick={() => {
-                            setActiveTab('reconciliation')
-                            setSelectedAccountForReconciliation(account.accountNumber)
-                          }}
-                        >
-                          <Calculator className="w-4 h-4 mr-2" />
-                          Reconcile
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <FileText className="w-4 h-4 mr-2" />
-                          Statement
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <TrendingUp className="w-4 h-4 mr-2" />
-                          Analytics
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem>
-                          <MoreVertical className="w-4 h-4 mr-2" />
-                          More Options
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={orderedAccountIds}
+                strategy={rectSortingStrategy}
+              >
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {orderedAccountIds
+                    .map(accountId => accounts.find(acc => acc.accountNumber === accountId))
+                    .filter(Boolean)
+                    .map((account) => (
+                      <SortableAccountCard
+                        key={account.accountNumber}
+                        account={account}
+                        isRefreshing={refreshingAccount === account.accountNumber}
+                        onRefresh={() => refreshAccountBalance(account.accountNumber)}
+                        onReconcile={() => {
+                          setActiveTab('reconciliation')
+                          setSelectedAccountForReconciliation(account.accountNumber)
+                        }}
+                      />
+                    ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
 
           {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-              <CardDescription>Common banking operations</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                <Button variant="outline" className="justify-start">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Account
-                </Button>
-                <Button variant="outline" className="justify-start">
-                  <ArrowUpRight className="w-4 h-4 mr-2" />
-                  Transfer Funds
-                </Button>
-                <Button variant="outline" className="justify-start">
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  Reconcile Account
-                </Button>
-                <Button variant="outline" className="justify-start">
-                  <Filter className="w-4 h-4 mr-2" />
-                  Generate Report
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="mt-8 pt-6 border-t border-gray-100">
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-gray-900">Quick Actions</h3>
+              <p className="text-sm text-gray-500">Common banking operations</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <Button variant="outline" className="justify-start border-gray-200 hover:bg-gray-50">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Account
+              </Button>
+              <Button variant="outline" className="justify-start border-gray-200 hover:bg-gray-50">
+                <ArrowUpRight className="w-4 h-4 mr-2" />
+                Transfer Funds
+              </Button>
+              <Button variant="outline" className="justify-start border-gray-200 hover:bg-gray-50">
+                <CreditCard className="w-4 h-4 mr-2" />
+                Reconcile Account
+              </Button>
+              <Button variant="outline" className="justify-start border-gray-200 hover:bg-gray-50">
+                <Filter className="w-4 h-4 mr-2" />
+                Generate Report
+              </Button>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Transactions Tab */}

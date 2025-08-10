@@ -83,6 +83,104 @@ When adding new features that require frequent checks:
 - **Authentication**: JWT-based flow implemented with role-based permissions
 - **Balance Caching**: High-performance SQLite cache for bank account balances with outstanding checks calculation
 
+## UI/UX Design System
+
+### Standard Dashboard Layout (Established December 2024)
+All new dashboard sections should follow the clean, modern design pattern established in the Banking Section. This provides consistency and professional appearance across the application.
+
+#### Core Layout Structure
+```tsx
+<div className="bg-white rounded-lg shadow-sm">
+  <Tabs>
+    {/* Tab Navigation */}
+    <div className="border-b border-gray-200">
+      <TabsList className="flex h-12 items-center justify-start space-x-8 px-6 bg-transparent">
+        <TabsTrigger className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all 
+                               data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 
+                               data-[state=inactive]:hover:text-gray-700 
+                               data-[state=active]:after:absolute data-[state=active]:after:bottom-0 
+                               data-[state=active]:after:left-0 data-[state=active]:after:right-0 
+                               data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600">
+          Tab Name
+        </TabsTrigger>
+      </TabsList>
+    </div>
+    
+    {/* Content Area */}
+    <TabsContent className="p-6">
+      {/* Section Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Section Title</h2>
+          <p className="text-sm text-gray-500 mt-1">Description text</p>
+        </div>
+        <Button variant="outline" className="border-gray-200 hover:bg-gray-50">
+          Action Button
+        </Button>
+      </div>
+      
+      {/* Content Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="border border-gray-200 hover:shadow-md transition-all bg-white">
+          <CardHeader className="pb-4 border-b border-gray-100">
+            {/* Card header content */}
+          </CardHeader>
+          <CardContent className="p-4">
+            {/* Card body content */}
+          </CardContent>
+        </Card>
+      </div>
+    </TabsContent>
+  </Tabs>
+</div>
+```
+
+#### Design Principles
+1. **Color Palette**
+   - **Backgrounds**: White (`bg-white`) for all content areas
+   - **Text**: Gray-900 for headings, gray-500 for descriptions/labels
+   - **Borders**: Gray-200 for primary borders, gray-100 for subtle dividers
+   - **Accents**: Blue-600 for active states and primary actions
+   - **Status Colors**: Green-600 (positive), Red-600 (negative), Amber-600 (warning)
+
+2. **Spacing Standards**
+   - **Container padding**: `p-6` for main content areas
+   - **Card padding**: `p-4` for card content
+   - **Section spacing**: `mb-6` between major sections
+   - **Element spacing**: `space-y-3` or `space-y-4` for vertical lists
+
+3. **Interactive Elements**
+   - **Buttons**: `variant="outline"` with `border-gray-200 hover:bg-gray-50`
+   - **Cards**: `hover:shadow-md transition-all` for hover effects
+   - **Tabs**: Blue underline for active state, gray text for inactive
+
+4. **Typography**
+   - **Page titles**: `text-xl font-semibold text-gray-900`
+   - **Section headers**: `text-lg font-semibold text-gray-900`
+   - **Card titles**: `text-base font-semibold text-gray-900`
+   - **Descriptions**: `text-sm text-gray-500`
+   - **Labels**: `text-sm text-gray-500`
+   - **Values**: `text-sm text-gray-900` (normal), `font-medium` (emphasized)
+
+5. **Layout Patterns**
+   - Use responsive grid layouts: `grid gap-4 md:grid-cols-2 lg:grid-cols-3`
+   - Maintain consistent card heights with `h-full flex flex-col`
+   - Use flexbox for header sections with actions: `flex items-center justify-between`
+
+#### Components to Follow This Pattern
+- ✅ Banking Section (reference implementation)
+- 🔄 Reports Section (to be updated)
+- 🔄 Analytics Dashboard (to be updated)
+- 🔄 User Management (to be updated)
+- 🔄 Settings Pages (to be updated)
+- 🔄 Any new dashboard sections
+
+#### Drag and Drop Support
+For sortable lists (like bank account cards), use `@dnd-kit/sortable`:
+- Drag handle: `GripVertical` icon from lucide-react
+- Visual feedback: `opacity: 0.5` when dragging
+- Persistence: Save order to localStorage with company-specific keys
+
 ## Bank Balance Caching System
 
 ### Overview

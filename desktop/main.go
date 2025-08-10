@@ -3290,10 +3290,24 @@ func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, e
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
+	// Check if database is initialized
+	if a.db == nil {
+		errMsg := "GetCachedBalances: Database not initialized"
+		fmt.Printf("%s\n", errMsg)
+		debug.SimpleLog(errMsg)
+		return nil, fmt.Errorf("database not initialized")
+	}
+	
 	balances, err := database.GetAllCachedBalances(a.db, companyName)
 	if err != nil {
+		errMsg := fmt.Sprintf("GetCachedBalances: Error getting balances: %v", err)
+		fmt.Printf("%s\n", errMsg)
+		debug.SimpleLog(errMsg)
 		return nil, fmt.Errorf("failed to get cached balances: %w", err)
 	}
+	
+	fmt.Printf("GetCachedBalances: Retrieved %d balances\n", len(balances))
+	debug.SimpleLog(fmt.Sprintf("GetCachedBalances: Retrieved %d balances", len(balances)))
 	
 	// Convert to interface for JSON response
 	result := make([]map[string]interface{}, 0) // Initialize as empty slice, not nil
@@ -3414,7 +3428,26 @@ func (a *App) RefreshAllBalances(companyName string) (map[string]interface{}, er
 	var errors []string
 	
 	for _, account := range bankAccounts {
-		accountNumber := account["account_number"].(string)
+		if account == nil {
+			errorCount++
+			errors = append(errors, "Nil account in list")
+			continue
+		}
+		
+		accountNumberInterface, ok := account["account_number"]
+		if !ok || accountNumberInterface == nil {
+			errorCount++
+			errors = append(errors, "Account missing account_number field")
+			continue
+		}
+		
+		accountNumber, ok := accountNumberInterface.(string)
+		if !ok {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Invalid account_number type: %T", accountNumberInterface))
+			continue
+		}
+		
 		_, err := a.RefreshAccountBalance(companyName, accountNumber)
 		if err != nil {
 			errorCount++

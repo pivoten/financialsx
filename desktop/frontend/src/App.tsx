@@ -213,14 +213,16 @@ function App() {
       
       // Initialize the company database for this user
       // This creates/opens the SQLite database for the selected company
-      await InitializeCompanyDatabase(company.path)
+      // Use company.name directly since company.path is now also the name after our fix
+      await InitializeCompanyDatabase(company.name)
       
       setSelectedCompany(company.name)
       setCompanySelected(true)
       
       // Store for session persistence
       localStorage.setItem('company_name', company.name)
-      localStorage.setItem('company_path', company.path)
+      // Don't store company_path anymore to avoid confusion
+      localStorage.removeItem('company_path')
       
       logger.debug('Company database initialized successfully', { company: company.name })
     } catch (err: any) {

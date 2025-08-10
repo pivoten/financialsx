@@ -150,9 +150,12 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       if (typeof GetBankAccounts === 'function') {
         logger.debug('BankingSection: GetBankAccounts function available, calling it')
         try {
-          // Use the company data path for file operations
-          const dataPath = getCompanyDataPath()
-          bankAccounts = await GetBankAccounts(dataPath)
+          // Always use company name directly, not path
+          const companyName = localStorage.getItem('company_name')
+          if (!companyName) {
+            throw new Error('No company selected')
+          }
+          bankAccounts = await GetBankAccounts(companyName)
           logger.debug('BankingSection: GetBankAccounts response', {
             responseType: typeof bankAccounts,
             length: bankAccounts?.length
@@ -196,9 +199,9 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       // Fallback: Try to read COA.dbf directly using existing function
       try {
         logger.debug('BankingSection: Using GetDBFTableData fallback')
-        // Use the company data path for file operations
-        const dataPath = getCompanyDataPath()
-        const coaData = await GetDBFTableData(dataPath, 'COA.dbf')
+        // Always use company name directly
+        const companyName = localStorage.getItem('company_name')
+        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
         logger.debug('BankingSection: COA.dbf data loaded', { recordCount: coaData?.length })
         
         if (coaData && coaData.rows) {
@@ -262,9 +265,9 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
     
     try {
       // Get all cached balances at once
-      // Use the company data path for all operations
-      const dataPath = getCompanyDataPath()
-      const cachedBalances = await GetCachedBalances(dataPath)
+      // Always use company name directly
+      const companyName = localStorage.getItem('company_name')
+      const cachedBalances = await GetCachedBalances(companyName)
       logger.debug('BankingSection: Retrieved cached balances', { count: cachedBalances?.length })
       
       // Handle null or undefined response
@@ -273,7 +276,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         
         // Trigger refresh for all accounts
         for (const account of accountList) {
-          RefreshAccountBalance(dataPath, account.accountNumber).catch(err => {
+          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
             logger.error('Failed to refresh account balance', {
               accountNumber: account.accountNumber,
               error: err.message
@@ -336,7 +339,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           logger.debug('BankingSection: No cached balance - will refresh', {
             accountNumber: account.accountNumber
           })
-          RefreshAccountBalance(dataPath, account.accountNumber).catch(err => {
+          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
             logger.error('Failed to refresh account balance', { error: err.message })
           })
           
@@ -385,25 +388,25 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
     setRefreshingAccount(accountNumber)
     
     try {
-      const dataPath = getCompanyDataPath()
+      const companyName = localStorage.getItem('company_name')
       
       // Debug logging
       logger.debug('refreshAccountBalance called', {
         accountNumber,
-        dataPath,
+        companyName,
         company_path: localStorage.getItem('company_path'),
         company_name: localStorage.getItem('company_name')
       })
       
-      if (!dataPath) {
-        throw new Error('No company data path available. Please select a company.')
+      if (!companyName) {
+        throw new Error('No company selected. Please select a company.')
       }
       
       if (!accountNumber) {
         throw new Error('No account number provided')
       }
       
-      await RefreshAccountBalance(dataPath, accountNumber)
+      await RefreshAccountBalance(companyName, accountNumber)
       // Reload all account balances to reflect the update
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)
@@ -420,20 +423,20 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
     setRefreshingAccount('all')
     
     try {
-      const dataPath = getCompanyDataPath()
+      const companyName = localStorage.getItem('company_name')
       
       // Debug logging
       logger.debug('refreshAllBalances called', {
-        dataPath,
+        companyName,
         company_path: localStorage.getItem('company_path'),
         company_name: localStorage.getItem('company_name')
       })
       
-      if (!dataPath) {
-        throw new Error('No company data path available. Please select a company.')
+      if (!companyName) {
+        throw new Error('No company selected. Please select a company.')
       }
       
-      await RefreshAllBalances(dataPath)
+      await RefreshAllBalances(companyName)
       // Reload all account balances to reflect the updates
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)

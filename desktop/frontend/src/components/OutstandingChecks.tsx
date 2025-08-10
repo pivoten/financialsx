@@ -73,13 +73,13 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
   }
 
   const loadBankAccounts = async () => {
-    const dataPath = getCompanyDataPath()
-    if (!dataPath) return
+    const companyName = localStorage.getItem('company_name')
+    if (!companyName) return
     try {
       let bankAccountsData = []
       if (typeof GetBankAccounts === 'function') {
         try {
-          bankAccountsData = await GetBankAccounts(dataPath)
+          bankAccountsData = await GetBankAccounts(companyName)
           if (!bankAccountsData || !Array.isArray(bankAccountsData)) throw new Error('GetBankAccounts returned invalid data: ' + typeof bankAccountsData)
         } catch (err) {
           throw err
@@ -90,7 +90,7 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
   setBankAccounts(bankAccountsData as BankAccount[])
     } catch (err) {
       try {
-        const coaData = await GetDBFTableData(dataPath, 'COA.dbf')
+        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
         if (coaData && coaData.rows) {
           const bankAccounts = (coaData.rows as any[])
             .filter((row: any[]) => {
@@ -107,12 +107,12 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
   }
 
   const loadOutstandingChecks = async () => {
-    const dataPath = getCompanyDataPath()
-    if (!dataPath) { setError('No company selected. Please select a company first.'); return }
+    const companyName = localStorage.getItem('company_name')
+    if (!companyName) { setError('No company selected. Please select a company first.'); return }
     setLoading(true); setError('')
     try {
       const accountFilter = selectedAccount === 'all' ? '' : selectedAccount
-      const result = await GetOutstandingChecks(dataPath, accountFilter)
+      const result = await GetOutstandingChecks(companyName, accountFilter)
       if (result.status === 'error') { setError(result.error || 'Failed to load outstanding checks'); setOutstandingChecks([]) }
       else {
         const checks = result.checks || []
@@ -125,8 +125,8 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { const dataPath = getCompanyDataPath(); if (dataPath) loadBankAccounts() }, [companyName])
-  useEffect(() => { const dataPath = getCompanyDataPath(); if (dataPath) loadOutstandingChecks() }, [companyName, selectedAccount])
+  useEffect(() => { const companyName = localStorage.getItem('company_name'); if (companyName) loadBankAccounts() }, [companyName])
+  useEffect(() => { const companyName = localStorage.getItem('company_name'); if (companyName) loadOutstandingChecks() }, [companyName, selectedAccount])
 
   const processedChecks = useMemo(() => {
     let filtered = [...outstandingChecks]

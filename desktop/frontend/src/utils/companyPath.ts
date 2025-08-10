@@ -1,11 +1,10 @@
 // Utility function to get the correct company identifier for DBF operations
-// Returns the company path if available, otherwise returns the company name (legacy)
+// Always use company name for consistency (company_path may contain Windows paths or numeric values)
 export function getCompanyDataPath(): string | null {
-  const companyPath = localStorage.getItem('company_path')
   const companyName = localStorage.getItem('company_name')
   
-  // Use the actual data path if available, otherwise use company name (legacy)
-  return companyPath || companyName
+  // Always use company name, ignore company_path which may have bad values
+  return companyName
 }
 
 // Get just the company name for display purposes

@@ -1223,6 +1223,18 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("invalid data format from compmast.dbf")
 	}
 	
+	// Get list of actual directories in datafiles folder
+	datafilesPath := filepath.Join(a.dataBasePath, "datafiles")
+	var actualFolders []string
+	if entries, err := os.ReadDir(datafilesPath); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				actualFolders = append(actualFolders, entry.Name())
+			}
+		}
+	}
+	fmt.Printf("GetCompanyList: Found %d actual folders in datafiles: %v\n", len(actualFolders), actualFolders)
+	
 	// Transform the data for frontend consumption
 	companies := []map[string]interface{}{}
 	for _, row := range rows {
@@ -1231,27 +1243,55 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 			dataPath = cdatapath
 		}
 		
-		// Platform-specific path handling:
-		// On macOS/Linux: Company folders are always relative to compmast.dbf location
-		// On Windows: Use the absolute/relative path from CDATAPATH
-		if !a.isWindows && dataPath != "" {
-			// On Mac/Linux, extract just the folder name from the path
-			// Handle both Windows-style paths (from Windows-created DBF) and Unix paths
-			if strings.Contains(dataPath, "\\") {
-				// Windows path - extract last component
-				parts := strings.Split(dataPath, "\\")
-				for i := len(parts) - 1; i >= 0; i-- {
-					if parts[i] != "" {
-						dataPath = parts[i]
-						break
-					}
-				}
-			} else if strings.Contains(dataPath, "/") {
-				// Unix path - extract last component
-				dataPath = filepath.Base(dataPath)
-			}
-			// If it's just a folder name, keep it as is
+		originalDataPath := dataPath
+		
+		// Try to find the actual folder name by matching company name
+		companyName := ""
+		if cproducer, ok := row["CPRODUCER"].(string); ok {
+			companyName = strings.TrimSpace(cproducer)
 		}
+		
+		// Look for a folder that matches the company name (case-insensitive, remove spaces)
+		actualFolderName := ""
+		companyNameLower := strings.ToLower(strings.ReplaceAll(companyName, " ", ""))
+		for _, folder := range actualFolders {
+			folderLower := strings.ToLower(folder)
+			if strings.Contains(folderLower, companyNameLower) || strings.Contains(companyNameLower, folderLower) {
+				actualFolderName = folder
+				break
+			}
+		}
+		
+		// If we found an actual folder, use that; otherwise fall back to extracted path
+		if actualFolderName != "" {
+			dataPath = actualFolderName
+			fmt.Printf("GetCompanyList: Matched company '%s' to folder '%s'\n", companyName, actualFolderName)
+		} else {
+			// Platform-specific path handling:
+			// On macOS/Linux: Company folders are always relative to compmast.dbf location
+			// On Windows: Use the absolute/relative path from CDATAPATH
+			if !a.isWindows && dataPath != "" {
+				// On Mac/Linux, extract just the folder name from the path
+				// Handle both Windows-style paths (from Windows-created DBF) and Unix paths
+				if strings.Contains(dataPath, "\\") {
+					// Windows path - extract last component
+					parts := strings.Split(dataPath, "\\")
+					for i := len(parts) - 1; i >= 0; i-- {
+						if parts[i] != "" {
+							dataPath = parts[i]
+							break
+						}
+					}
+				} else if strings.Contains(dataPath, "/") {
+					// Unix path - extract last component
+					dataPath = filepath.Base(dataPath)
+				}
+				// If it's just a folder name, keep it as is
+			}
+		}
+		
+		fmt.Printf("GetCompanyList: CIDCOMP=%v, CPRODUCER=%v, original CDATAPATH=%v, final dataPath=%v\n", 
+			row["CIDCOMP"], row["CPRODUCER"], originalDataPath, dataPath)
 		
 		company := map[string]interface{}{
 			"company_id":   row["CIDCOMP"],

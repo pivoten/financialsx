@@ -19,6 +19,7 @@ import { BankReconciliation } from './components/BankReconciliation'
 import { CheckAudit } from './components/CheckAudit'
 import { UserManagement } from './components/UserManagement'
 import logger from './services/logger'
+import pivotenLogo from './assets/pivoten-logo.png'
 import { 
   Building2, 
   FolderOpen, 
@@ -140,10 +141,11 @@ function App() {
       if (companiesList && companiesList.length > 0) {
         // Transform the data to match expected format
         const transformedCompanies = companiesList.map((comp: any) => ({
-          name: comp.company_id || comp.company_name || comp.name,
+          // Use data_path (folder name) as the identifier, not company_id which contains numeric values
+          name: comp.data_path || comp.company_name || comp.name,
           display_name: comp.company_name || comp.display_name || comp.name,
-          // Use company_id as the path (folder name) instead of data_path which contains Windows paths
-          path: comp.company_id || comp.company_name || comp.name || '',
+          // Use data_path as it contains the actual folder name
+          path: comp.data_path || comp.company_name || comp.name || '',
           address: comp.address1 || comp.address || '',
           city: comp.city || '',
           state: comp.state || '',
@@ -429,7 +431,6 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
   const [activeView, setActiveView] = useState('dashboard')
   const [activeSubView, setActiveSubView] = useState('')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const [isSidebarHovered, setIsSidebarHovered] = useState(false)
 
   // Main navigation items
   const menuItems = [
@@ -475,22 +476,33 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <div 
-        className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col shadow-sm`}
-        onMouseEnter={() => setIsSidebarHovered(true)}
-        onMouseLeave={() => setIsSidebarHovered(false)}
+        className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col shadow-sm relative`}
       >
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
-            <div className={`flex items-center space-x-2 ${isSidebarCollapsed && !isSidebarHovered ? 'hidden' : ''}`}>
-              <img src="/pivoten-logo.png" alt="Pivoten" className="h-8 w-8" />
-              <span className="font-semibold text-lg">FinancialsX</span>
-            </div>
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-2 hover:bg-gray-100 rounded-md transition-colors"
-            >
-              {isSidebarCollapsed ? <Menu className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-            </button>
+            {!isSidebarCollapsed ? (
+              <>
+                <div className="flex items-center space-x-2">
+                  <img src={pivotenLogo} alt="Pivoten" className="h-8 w-8 object-contain" />
+                  <span className="font-semibold text-lg">FinancialsX</span>
+                </div>
+                <button
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+                  aria-label="Collapse sidebar"
+                >
+                  <ChevronLeft className="h-5 w-5 text-gray-600" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="mx-auto p-2 hover:bg-gray-100 rounded-md transition-colors"
+                aria-label="Expand sidebar"
+              >
+                <Menu className="h-5 w-5 text-gray-600" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -509,28 +521,31 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                     ? 'bg-orange-50 text-orange-600 font-medium'
                     : 'hover:bg-gray-50 text-gray-600 hover:text-gray-900'
                 }`}
-                title={isSidebarCollapsed && !isSidebarHovered ? item.label : ''}
+                title={isSidebarCollapsed ? item.label : ''}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
-                {(!isSidebarCollapsed || isSidebarHovered) && <span>{item.label}</span>}
+                {!isSidebarCollapsed && <span>{item.label}</span>}
               </button>
             )
           })}
         </nav>
 
         <div className="p-3 border-t border-gray-200">
-          <div className={`${isSidebarCollapsed && !isSidebarHovered ? 'hidden' : ''} mb-3`}>
-            <p className="text-sm text-gray-600 truncate">{currentUser?.email}</p>
-            <p className="text-xs text-gray-500">Company: {selectedCompany}</p>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="mb-3">
+              <p className="text-sm text-gray-600 truncate">{currentUser?.email}</p>
+              <p className="text-xs text-gray-500">Company: {selectedCompany}</p>
+            </div>
+          )}
           <Button
             onClick={onLogout}
             variant="outline"
             size="sm"
-            className="w-full"
+            className={isSidebarCollapsed ? "p-2" : "w-full"}
+            title={isSidebarCollapsed ? "Logout" : ""}
           >
             <LogOut className="h-4 w-4" />
-            {(!isSidebarCollapsed || isSidebarHovered) && <span className="ml-2">Logout</span>}
+            {!isSidebarCollapsed && <span className="ml-2">Logout</span>}
           </Button>
         </div>
       </div>
@@ -778,55 +793,79 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
               {!activeSubView && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   <Card 
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
                     onClick={() => setActiveSubView('banking')}
                   >
-                    <CardContent className="p-8">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-gray-500">Banking</p>
-                          <h3 className="text-2xl font-bold">Accounts</h3>
-                          <p className="text-sm text-gray-500 mt-2">Bank accounts and reconciliation</p>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 mb-4">
+                            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Banking</span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Accounts</h3>
+                          <p className="text-sm text-gray-600 leading-relaxed">Bank accounts and reconciliation</p>
                         </div>
-                        <div className="p-3 bg-orange-100 rounded-lg">
-                          <Home className="w-5 h-5 text-orange-600" />
+                        <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg">
+                          <Home className="w-6 h-6 text-white" />
                         </div>
+                      </div>
+                      <div className="mt-6 flex items-center text-blue-600">
+                        <span className="text-xs font-medium">View Details</span>
+                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
                     </CardContent>
                   </Card>
                   
                   <Card 
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
                     onClick={() => setActiveSubView('transactions')}
                   >
-                    <CardContent className="p-8">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-gray-500">Transactions</p>
-                          <h3 className="text-2xl font-bold">Activity</h3>
-                          <p className="text-sm text-gray-500 mt-2">View and manage transactions</p>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-green-50 mb-4">
+                            <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">Transactions</span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Activity</h3>
+                          <p className="text-sm text-gray-600 leading-relaxed">View and manage transactions</p>
                         </div>
-                        <div className="p-3 bg-orange-100 rounded-lg">
-                          <DollarSign className="w-5 h-5 text-orange-600" />
+                        <div className="p-3 bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg">
+                          <DollarSign className="w-6 h-6 text-white" />
                         </div>
+                      </div>
+                      <div className="mt-6 flex items-center text-green-600">
+                        <span className="text-xs font-medium">View Details</span>
+                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
                     </CardContent>
                   </Card>
                   
                   <Card 
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+                    className="cursor-pointer hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-0 shadow-md bg-gradient-to-br from-white to-gray-50"
                     onClick={() => setActiveSubView('revenue')}
                   >
-                    <CardContent className="p-8">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-gray-500">Revenue</p>
-                          <h3 className="text-2xl font-bold">Analysis</h3>
-                          <p className="text-sm text-gray-500 mt-2">Revenue streams and trends</p>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="inline-flex items-center px-3 py-1 rounded-full bg-purple-50 mb-4">
+                            <span className="text-xs font-semibold text-purple-700 uppercase tracking-wider">Revenue</span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Analysis</h3>
+                          <p className="text-sm text-gray-600 leading-relaxed">Revenue streams and trends</p>
                         </div>
-                        <div className="p-3 bg-orange-100 rounded-lg">
-                          <TrendingUp className="w-5 h-5 text-orange-600" />
+                        <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg">
+                          <TrendingUp className="w-6 h-6 text-white" />
                         </div>
+                      </div>
+                      <div className="mt-6 flex items-center text-purple-600">
+                        <span className="text-xs font-medium">View Details</span>
+                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
                     </CardContent>
                   </Card>

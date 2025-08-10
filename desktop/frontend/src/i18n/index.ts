@@ -13,7 +13,7 @@ const i18nConfig = {
     es: { translation: es }
   },
   fallbackLng: 'en',
-  debug: process.env.NODE_ENV === 'development',
+  debug: false,
   
   interpolation: {
     escapeValue: false // React already escapes values
@@ -31,6 +31,12 @@ i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init(i18nConfig)
+  .then(() => {
+    console.log('i18n initialized successfully')
+  })
+  .catch((error) => {
+    console.error('Failed to initialize i18n:', error)
+  })
 
 export default i18n
 

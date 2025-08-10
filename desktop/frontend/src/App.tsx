@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from './lib/queryClient'
 import { GetCompanyList, SetDataPath, InitializeCompanyDatabase, GetDashboardData } from '../wailsjs/go/main/App'
 import { signIn, signUp, signOut, getCurrentUser, onAuthStateChange, supabase } from './lib/supabase'
 import LoginForm from './components/LoginForm'
@@ -18,6 +20,9 @@ import OutstandingChecks from './components/OutstandingChecks'
 import { BankReconciliation } from './components/BankReconciliation'
 import { CheckAudit } from './components/CheckAudit'
 import { UserManagement } from './components/UserManagement'
+import BillEntry from './components/BillEntry'
+import BillEntryEnhanced from './components/BillEntryEnhanced'
+import UserProfile from './components/UserProfile'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
 import { DashboardCard } from './components/DashboardCard'
@@ -41,6 +46,7 @@ import {
   DollarSign,
   TrendingUp,
   Users,
+  User,
   Activity,
   Calculator,
   FileSearch,
@@ -329,10 +335,11 @@ function App() {
   // Show login form if not authenticated
   if (!isAuthenticated) {
     return (
-      <LoginForm
-        onLogin={handleLogin}
-        onRequestLogin={handleRequestLogin}
-        onResetPassword={handleResetPassword}
+      <QueryClientProvider client={queryClient}>
+        <LoginForm
+          onLogin={handleLogin}
+          onRequestLogin={handleRequestLogin}
+          onResetPassword={handleResetPassword}
         username={username}
         setUsername={setUsername}
         email={email}
@@ -342,13 +349,15 @@ function App() {
         error={error}
         isSubmitting={isSubmitting}
       />
+      </QueryClientProvider>
     )
   }
 
   // Show company selection if authenticated but no company selected
   if (!companySelected) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <QueryClientProvider client={queryClient}>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-2xl shadow-xl">
           <CardHeader>
             <CardTitle className="text-2xl">
@@ -422,11 +431,16 @@ function App() {
           </CardContent>
         </Card>
       </div>
+      </QueryClientProvider>
     )
   }
 
   // Show main application dashboard
-  return <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} selectedCompany={selectedCompany} />
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} selectedCompany={selectedCompany} />
+    </QueryClientProvider>
+  )
 }
 
 // Advanced Dashboard Component
@@ -460,7 +474,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
       const subViewTitles: Record<string, string> = {
         // Financials
         'banking': 'Banking',
-        'transactions': 'Transactions',
+        'transactions': 'Accounts Payable',
         'revenue': 'Revenue Analysis',
         'expenses': 'Expense Management',
         'analytics': 'Financial Analytics',
@@ -473,6 +487,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
         'maintenance': 'Database Maintenance',
         // Settings
         'users': 'User Management',
+        'profile': 'My Profile',
         'appearance': 'Appearance',
         'system': 'System Configuration',
         'security': 'Security Settings',
@@ -579,7 +594,14 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
 
         <div className="p-3 border-t border-gray-200">
           {!isSidebarCollapsed && (
-            <div className="mb-3">
+            <div 
+              className="mb-3 cursor-pointer hover:bg-gray-50 rounded p-2 -m-2 transition-colors"
+              onClick={() => {
+                setActiveView('settings');
+                setActiveSubView('profile');
+              }}
+              title="View Profile"
+            >
               <p className="text-sm text-gray-600 truncate">{currentUser?.email}</p>
               <p className="text-xs text-gray-500">Company: {selectedCompany}</p>
             </div>
@@ -672,7 +694,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setActiveSubView('transactions')}>
                           <DollarSign className="mr-2 h-4 w-4" />
-                          <span>Transactions</span>
+                          <span>Accounts Payable</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setActiveSubView('revenue')}>
                           <TrendingUp className="mr-2 h-4 w-4" />
@@ -913,17 +935,41 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
               )}
               
               {activeSubView === 'banking' && <BankingSection currentUser={currentUser} companyName={selectedCompany} />}
-              {activeSubView === 'transactions' && (
+              {activeSubView === 'transactions' && <BillEntryEnhanced currentUser={currentUser} companyName={selectedCompany} />}
+              {activeSubView === 'revenue' && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Transactions</CardTitle>
-                    <CardDescription>View and manage financial transactions</CardDescription>
+                    <CardTitle>Revenue Analysis</CardTitle>
+                    <CardDescription>Analyze revenue trends and performance</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-gray-500">Transaction management coming soon</p>
+                    <p className="text-gray-500">Revenue analysis coming soon</p>
                   </CardContent>
                 </Card>
               )}
+              {activeSubView === 'expenses' && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Expense Management</CardTitle>
+                    <CardDescription>Track and manage business expenses</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-500">Expense management coming soon</p>
+                  </CardContent>
+                </Card>
+              )}
+              {activeSubView === 'analytics' && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Financial Analytics</CardTitle>
+                    <CardDescription>Advanced financial analysis and reporting</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-500">Financial analytics coming soon</p>
+                  </CardContent>
+                </Card>
+              )}
+              {activeSubView === 'accounting' && <BillEntryEnhanced currentUser={currentUser} companyName={selectedCompany} />}
             </div>
           )}
 
@@ -985,6 +1031,14 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
               {!activeSubView && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   <DashboardCard
+                    title="Profile"
+                    subtitle="My Account"
+                    description="View and edit your profile information"
+                    icon={User}
+                    onClick={() => setActiveSubView('profile')}
+                    accentColor="blue"
+                  />
+                  <DashboardCard
                     title="Management"
                     subtitle="Users"
                     description="Manage user accounts and roles"
@@ -1020,6 +1074,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
               )}
               
               {activeSubView === 'users' && <UserManagement currentUser={currentUser} />}
+              {activeSubView === 'profile' && <UserProfile currentUser={currentUser} companyName={selectedCompany} />}
             </div>
           )}
 

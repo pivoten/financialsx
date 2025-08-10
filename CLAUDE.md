@@ -434,8 +434,56 @@ The application handles company paths differently based on the operating system:
 - **SQL folder location**: Ensures SQL folder and SQLite database are created in the correct location based on platform
 - **Frontend access**: Platform info available via `GetPlatform()` API for frontend if needed
 
+## Bill Entry System (NEW - August 2025)
+
+### Overview
+Modern implementation of the FoxPro AP Bill Entry screen with enhanced validation and user experience.
+
+### Features
+- **Two Implementations**:
+  - Basic version (`BillEntry.tsx`) - Traditional React
+  - Enhanced version (`BillEntryEnhanced.tsx`) - React Hook Form + Zod + React Query
+- **Comprehensive Form Management**: 
+  - Vendor selection with lookup
+  - Invoice details with automatic terms calculation
+  - Dynamic line item management
+  - Real-time validation and error feedback
+- **Modern Architecture**:
+  - Type-safe with TypeScript and Zod
+  - Optimistic updates with React Query
+  - Performance optimized with React Hook Form
+
+### Access
+**Navigation**: Financials → Accounts Payable (formerly Transactions)
+
+### Backend Integration (Pending)
+- Connect to APPURCHH.dbf (bill headers) and APPURCHD.dbf (line items)
+- Vendor lookup from VENDOR.dbf
+- Account lookup from COA.dbf
+- Well lookup from WELLS.dbf
+
+## User Profile System (NEW - August 2025)
+
+### Overview
+Comprehensive user profile management interface ready for Supabase integration.
+
+### Features
+- **Personal Information**: Editable profile fields
+- **Security Settings**: Password change, 2FA setup
+- **Notification Preferences**: Email notification controls
+- **Display Preferences**: Theme, date format, regional settings
+- **Avatar System**: Profile picture with initials fallback
+
+### Access
+- **Primary**: Click on your email in the sidebar
+- **Secondary**: Settings → Profile card
+- **Direct**: Settings menu → My Profile
+
 ## Next Steps
 
+- **Bill Entry Backend**: Create Go API endpoints for bill CRUD operations
+- **DBF Integration**: Connect bills to APPURCHH.dbf and APPURCHD.dbf
+- **Vendor Management**: Implement vendor lookup and quick-add
 - **Bank Statement Import** - Integrate with bank statement imports for automated reconciliation
 - **State Reporting** - Implement state-specific financial reporting behind feature flags
 - **Data Export** - Enhanced CSV/PDF export capabilities for all financial data

@@ -53,7 +53,12 @@ import {
   Calculator,
   FileText,
   TrendingUp,
-  GripVertical
+  GripVertical,
+  Download,
+  Eye,
+  Edit,
+  Copy,
+  Trash
 } from 'lucide-react'
 import type { User, BankAccount } from '../types'
 
@@ -688,6 +693,12 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               Bank Accounts
             </TabsTrigger>
             <TabsTrigger 
+              value="transactions"
+              className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
+            >
+              Transactions
+            </TabsTrigger>
+            <TabsTrigger 
               value="outstanding"
               className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
             >
@@ -833,74 +844,208 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         </TabsContent>
 
         {/* Transactions Tab */}
-        <TabsContent value="transactions" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Recent Transactions</CardTitle>
-                  <CardDescription>Banking transaction history</CardDescription>
+        <TabsContent value="transactions" className="p-6">
+          {/* Header with Actions */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Transactions</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Manage and track all financial transactions
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="border-gray-200 hover:bg-gray-50"
+                onClick={() => {/* TODO: Export functionality */}}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => {/* TODO: Add new transaction modal */}}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add Transaction
+              </Button>
+            </div>
+          </div>
+
+          {/* Search and Filter Bar */}
+          <div className="flex gap-4 mb-6">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search transactions..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">All Accounts</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.accountNumber}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+            <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">All Types</option>
+              <option value="credit">Credits</option>
+              <option value="debit">Debits</option>
+            </select>
+            <Button variant="outline" className="border-gray-200 hover:bg-gray-50">
+              <Filter className="mr-2 h-4 w-4" />
+              More Filters
+            </Button>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="grid gap-4 md:grid-cols-4 mb-6">
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Total Inflow</p>
+                    <p className="text-lg font-semibold text-green-600">+{formatCurrency(45250.00)}</p>
+                  </div>
+                  <ArrowDownLeft className="h-8 w-8 text-green-100" />
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    <Search className="w-4 h-4 mr-2" />
-                    Search
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <Filter className="w-4 h-4 mr-2" />
-                    Filter
-                  </Button>
+              </CardContent>
+            </Card>
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Total Outflow</p>
+                    <p className="text-lg font-semibold text-red-600">-{formatCurrency(36450.75)}</p>
+                  </div>
+                  <ArrowUpRight className="h-8 w-8 text-red-100" />
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
+              </CardContent>
+            </Card>
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Net Flow</p>
+                    <p className="text-lg font-semibold text-gray-900">{formatCurrency(8799.25)}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-gray-200" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Pending</p>
+                    <p className="text-lg font-semibold text-amber-600">12</p>
+                  </div>
+                  <Clock className="h-8 w-8 text-amber-100" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Transactions Table */}
+          <Card className="border border-gray-200 bg-white">
+            <CardContent className="p-0">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Account</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Reference</TableHead>
+                  <TableRow className="border-b border-gray-200">
+                    <TableHead className="text-gray-600 font-medium">Date</TableHead>
+                    <TableHead className="text-gray-600 font-medium">Description</TableHead>
+                    <TableHead className="text-gray-600 font-medium">Account</TableHead>
+                    <TableHead className="text-gray-600 font-medium">Category</TableHead>
+                    <TableHead className="text-gray-600 font-medium text-right">Amount</TableHead>
+                    <TableHead className="text-gray-600 font-medium">Status</TableHead>
+                    <TableHead className="text-gray-600 font-medium">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {transactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell className="font-mono text-sm">
+                    <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <TableCell className="font-mono text-sm text-gray-600">
                         {transaction.date}
                       </TableCell>
-                      <TableCell>{transaction.description}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="font-medium text-gray-900">
+                        {transaction.description}
+                        <span className="block text-xs text-gray-500">Ref: {transaction.reference}</span>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
                         {transaction.account}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          {transaction.type === 'Credit' ? (
-                            <ArrowDownLeft className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <ArrowUpRight className="w-4 h-4 text-red-600" />
-                          )}
+                        <Badge variant="outline" className="border-gray-200 text-xs">
                           {transaction.type}
-                        </div>
+                        </Badge>
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${
+                      <TableCell className={`text-right font-mono font-medium ${
                         transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {formatCurrency(Math.abs(transaction.amount))}
+                        {transaction.amount >= 0 ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount))}
                       </TableCell>
                       <TableCell>
                         {getStatusBadge(transaction.status)}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {transaction.reference}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Duplicate
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-red-600">
+                              <Trash className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
+                <p className="text-sm text-gray-600">
+                  Showing 1 to 10 of 156 transactions
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="border-gray-200">
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-gray-200 bg-blue-50 text-blue-600">
+                    1
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-gray-200">
+                    2
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-gray-200">
+                    3
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-gray-200">
+                    Next
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

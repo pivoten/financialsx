@@ -142,7 +142,8 @@ function App() {
         const transformedCompanies = companiesList.map((comp: any) => ({
           name: comp.company_id || comp.company_name || comp.name,
           display_name: comp.company_name || comp.display_name || comp.name,
-          path: comp.data_path || comp.path || '',
+          // Use company_id as the path (folder name) instead of data_path which contains Windows paths
+          path: comp.company_id || comp.company_name || comp.name || '',
           address: comp.address1 || comp.address || '',
           city: comp.city || '',
           state: comp.state || '',

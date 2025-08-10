@@ -321,20 +321,32 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		debug.LogError("GetDBFFiles", fmt.Errorf("company directory does not exist: %s", companyPath))
 		return nil, fmt.Errorf("company directory does not exist: %s", companyPath)
 	}
-	debug.LogInfo("GetDBFFiles", "Company directory exists")
+	
+	// Get absolute path for debugging
+	absPath, _ := filepath.Abs(companyPath)
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Company directory exists at: %s", absPath))
+	writeErrorLog(fmt.Sprintf("GetDBFFiles: Scanning directory: %s", absPath))
 	
 	// Find all DBF files (case insensitive)
 	var dbfFiles []string
 	
+	fileCount := 0
 	err := filepath.Walk(companyPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			writeErrorLog(fmt.Sprintf("GetDBFFiles: Error walking path %s: %v", path, err))
 			return err
 		}
 		
-		if !info.IsDir() && strings.ToLower(filepath.Ext(path)) == ".dbf" {
-			// Return just the filename, not the full path
-			filename := info.Name()
-			dbfFiles = append(dbfFiles, filename)
+		fileCount++
+		ext := strings.ToLower(filepath.Ext(path))
+		if !info.IsDir() {
+			writeErrorLog(fmt.Sprintf("GetDBFFiles: Found file: %s (ext: %s)", info.Name(), ext))
+			if ext == ".dbf" {
+				// Return just the filename, not the full path
+				filename := info.Name()
+				dbfFiles = append(dbfFiles, filename)
+				debug.LogInfo("GetDBFFiles", fmt.Sprintf("Added DBF file: %s", filename))
+			}
 		}
 		
 		return nil
@@ -344,7 +356,8 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		return nil, fmt.Errorf("failed to scan directory: %w", err)
 	}
 	
-	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d DBF files", len(dbfFiles)))
+	writeErrorLog(fmt.Sprintf("GetDBFFiles: Scanned %d total items, found %d DBF files", fileCount, len(dbfFiles)))
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d DBF files out of %d total items", len(dbfFiles), fileCount))
 	return dbfFiles, nil
 }
 

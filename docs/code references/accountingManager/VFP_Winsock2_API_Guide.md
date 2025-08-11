@@ -1,14 +1,14 @@
 # Visual FoxPro Winsock2 API Integration Guide
 
 ## Overview
-This guide shows how to replace the MSWinsock ActiveX control with native Windows Sockets 2 (Winsock2) API calls in Visual FoxPro. This eliminates all registration and dependency issues.
+This guide shows how to implement TCP socket communication in Visual FoxPro using native Windows Sockets 2 (Winsock2) API calls. This approach requires no external dependencies or registrations.
 
 ## Key Benefits of Winsock2 API
 - **No Installation Required** - Built into every Windows version
 - **No Registration Needed** - Direct Windows API calls
-- **No Dependencies** - No VB6 runtime, no OCX files
+- **No Dependencies** - No external files or runtimes required
 - **Always Available** - Part of Windows kernel
-- **Better Performance** - Direct API without COM overhead
+- **Better Performance** - Direct API calls
 
 ## Prerequisites
 **NOTHING!** Winsock2 is part of Windows. The ws2_32.dll is in every Windows system32 folder.
@@ -23,7 +23,7 @@ Create a new PRG file called `winsock2listener.prg`:
 *====================================================================
 * Winsock2Listener Class
 * TCP Socket Listener using Windows Sockets 2 API
-* No ActiveX/OCX dependencies required
+* No external dependencies required
 *====================================================================
 
 DEFINE CLASS Winsock2Listener AS Custom
@@ -579,25 +579,9 @@ ENDDEFINE
 
 ### Step 3: Integration with Your Application
 
-To integrate this into your existing FoxPro application:
+To integrate this into your FoxPro application:
 
-1. **Replace the MSWinsock creation code:**
-
-**OLD CODE (MSWinsock):**
-```foxpro
-oWinsock = CREATEOBJECT("MSWinsock.Winsock")
-oWinsock.LocalPort = 23456
-oWinsock.Listen()
-```
-
-**NEW CODE (Winsock2):**
-```foxpro
-SET PROCEDURE TO winsock2listener.prg ADDITIVE
-goTCPListener = CREATEOBJECT("Winsock2Listener", 23456)
-goTCPListener.StartListening()
-```
-
-2. **Add to your main application startup:**
+1. **Add to your main application startup:**
 ```foxpro
 * In your main app startup
 SET PROCEDURE TO winsock2listener.prg ADDITIVE
@@ -614,7 +598,7 @@ ELSE
 ENDIF
 ```
 
-3. **Add timer to your main form:**
+2. **Add timer to your main form:**
 ```foxpro
 * Add this to your main form's timer event (set to 100ms interval)
 IF TYPE("goTCPListener") = "O" AND goTCPListener.lListening
@@ -679,15 +663,6 @@ Common Winsock2 error codes:
 - **10061** (WSAECONNREFUSED): Connection refused
 - **10060** (WSAETIMEDOUT): Connection timeout
 - **10035** (WSAEWOULDBLOCK): Non-blocking operation (normal for non-blocking sockets)
-
-## Advantages Over MSWinsock ActiveX
-
-1. **No Dependencies** - Works on any Windows system
-2. **No Registration** - No regsvr32 needed
-3. **No VB6 Runtime** - No legacy components
-4. **Better Performance** - Direct API calls
-5. **More Stable** - Using core Windows functionality
-6. **Future Proof** - Will work on all future Windows versions
 
 ## Complete Working Example
 

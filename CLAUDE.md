@@ -316,6 +316,8 @@ CREATE TABLE balance_history (
 ✅ **Balance Audit Trail** - Complete history tracking of all balance changes
 ✅ **User Management** - SQLite-based user system with company-specific access
 ✅ **Bank Reconciliation System** - Complete SQLite-based reconciliation with intelligent workflow
+✅ **Visual FoxPro Integration** - TCP socket communication with legacy VFP application using Winsock2 API
+✅ **SherWare Legacy Dashboard** - 260+ VFP forms organized with drag-drop, search, and categories
 
 ## Bank Reconciliation System
 
@@ -478,6 +480,39 @@ Comprehensive user profile management interface ready for Supabase integration.
 - **Primary**: Click on your email in the sidebar
 - **Secondary**: Settings → Profile card
 - **Direct**: Settings menu → My Profile
+
+## Visual FoxPro Integration System
+
+### Overview
+Bidirectional communication between FinancialsX and legacy Visual FoxPro application using TCP sockets with Winsock2 API (no dependencies required).
+
+### Features
+- **TCP Socket Communication**: NDJSON protocol on port 23456
+- **Company Synchronization**: Ensures both apps have same company open
+- **Form Launching**: Launch any VFP form from FinancialsX
+- **No Dependencies**: Uses native Windows Sockets 2 API (no OCX/registration)
+- **Settings Management**: Configure host, port, timeout from UI
+
+### SherWare Legacy Dashboard
+- **260+ Forms**: Complete VFP form library organized by category
+- **Drag & Drop**: Reorder forms with persistent localStorage
+- **Cross-Category Search**: Universal search across all forms
+- **Categories**: GL, AP, AR, Cash Management, Oil & Gas, etc.
+- **Quick Access**: Frequently used forms in dedicated section
+
+### Technical Stack
+- **Backend**: Go VFP client in `internal/vfp/vfp_integration.go`
+- **Frontend**: React components with @dnd-kit for drag-drop
+- **FoxPro**: Winsock2Listener class (no ActiveX required)
+- **Protocol**: NDJSON over TCP with company context
+
+### API Endpoints
+- `GetVFPSettings()` - Retrieve connection settings
+- `SaveVFPSettings()` - Update connection configuration
+- `TestVFPConnection()` - Verify connectivity
+- `LaunchVFPForm()` - Launch form with company sync
+- `SyncVFPCompany()` - Synchronize company between apps
+- `GetVFPCompany()` - Get current VFP company
 
 ## Next Steps
 

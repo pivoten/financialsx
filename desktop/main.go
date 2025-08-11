@@ -1,5 +1,10 @@
 package main
 
+/*
+#cgo darwin LDFLAGS: -framework UniformTypeIdentifiers -framework CoreServices
+*/
+import "C"
+
 import (
 	"context"
 	"database/sql"

@@ -1,8 +1,8 @@
 // Supabase Configuration
-// Update these values with your Supabase project details
+// Uses environment variables for URL and anon key
 export const supabaseConfig = {
-  url: 'https://zzxndirkdzrvrqabhhfz.supabase.co',
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6eG5kaXJrZHpydnJxYWJoaGZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUyNjE4NzcsImV4cCI6MjA2MDgzNzg3N30.nWH7YNWczrNdC_bSuJWZKpsZvzCWKNHacDKwkGZ5rjY',
+  url: import.meta.env.VITE_SUPABASE_URL || 'https://zzxndirkdzrvrqabhhfz.supabase.co',
+  anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6eG5kaXJrZHpydnJxYWJoaGZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUyNjE4NzcsImV4cCI6MjA2MDgzNzg3N30.nWH7YNWczrNdC_bSuJWZKpsZvzCWKNHacDKwkGZ5rjY',
   
   // Optional: Feature flags
   features: {
@@ -13,14 +13,9 @@ export const supabaseConfig = {
   }
 }
 
-// Example configuration (replace with your actual values):
-// export const supabaseConfig = {
-//   url: 'https://xyzcompany.supabase.co',
-//   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-//   features: {
-//     useSupabaseAuth: true,
-//     enableSocialLogins: false,
-//     enablePasswordReset: true,
-//     enableEmailVerification: false
-//   }
-// }
+// Environment variables (set in .env file):
+// VITE_SUPABASE_URL=https://xyzcompany.supabase.co
+// VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+//
+// The configuration above will use these environment variables if available,
+// otherwise it will fall back to the hardcoded default values.

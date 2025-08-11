@@ -5,10 +5,11 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { Select } from './ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
-import { FileText, Search, Edit, Save, X, Plus, ChevronUp, ChevronDown, ChevronsUpDown, Settings, Database, GripVertical, Download, Upload, Filter, FilterX } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
+import { FileText, Search, Edit, Save, X, Plus, ChevronUp, ChevronDown, ChevronsUpDown, Settings, Database, GripVertical, Download, Upload, Filter, FilterX, Lock } from 'lucide-react'
 import { GetDBFFiles, GetDBFTableDataPaged, SearchDBFTable, UpdateDBFRecord } from '../../wailsjs/go/main/App'
 import logger from '../services/logger'
+import { decryptTaxId, isEncryptedTaxId } from '../utils/sherwareEncryption'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -417,30 +418,28 @@ export function DBFExplorer({ currentUser }: DBFExplorerProps) {
                   <FileText className="w-4 h-4" />
                   {selectedFile}
                 </CardTitle>
-                <CardDescription>
-                  {tableData.stats?.totalRecords && (
-                    <div className="flex items-center gap-4 text-sm">
-                      <span>Total: {tableData.stats.totalRecords.toLocaleString()} records</span>
-                      <span className="text-red-600">Soft Deletes: {tableData.stats.deletedRecords.toLocaleString()}</span>
-                      {tableData.stats.searchTerm && (
-                        <>
-                          <span className="text-purple-600">
-                            Search matches: {tableData.stats.loadedRecords.toLocaleString()} {tableData.stats.hasMoreRecords && ' (limited to 1000)'}
-                          </span>
-                          {isServerSearching && <span className="text-gray-500">Searching...</span>}
-                        </>
-                      )}
-                      {columnFilters.length > 0 && (
-                        <span className="text-blue-600">
-                          Filtered: {filteredRows.length.toLocaleString()} of {(tableData.rows || []).length.toLocaleString()}
-                          {columnFilters.length > 1 && (
-                            <span className="text-xs ml-1">({columnFilters.some(f => f.logicalOperator === 'OR') ? 'AND/OR' : 'AND'})</span>
-                          )}
+                {tableData.stats?.totalRecords && (
+                  <CardDescription className="flex items-center gap-4 text-sm">
+                    <span>Total: {tableData.stats.totalRecords.toLocaleString()} records</span>
+                    <span className="text-red-600">Soft Deletes: {tableData.stats.deletedRecords.toLocaleString()}</span>
+                    {tableData.stats.searchTerm && (
+                      <>
+                        <span className="text-purple-600">
+                          Search matches: {tableData.stats.loadedRecords.toLocaleString()} {tableData.stats.hasMoreRecords && ' (limited to 1000)'}
                         </span>
-                      )}
-                    </div>
-                  )}
-                </CardDescription>
+                        {isServerSearching && <span className="text-gray-500">Searching...</span>}
+                      </>
+                    )}
+                    {columnFilters.length > 0 && (
+                      <span className="text-blue-600">
+                        Filtered: {filteredRows.length.toLocaleString()} of {(tableData.rows || []).length.toLocaleString()}
+                        {columnFilters.length > 1 && (
+                          <span className="text-xs ml-1">({columnFilters.some(f => f.logicalOperator === 'OR') ? 'AND/OR' : 'AND'})</span>
+                        )}
+                      </span>
+                    )}
+                  </CardDescription>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {canEdit() && (
@@ -586,9 +585,19 @@ export function DBFExplorer({ currentUser }: DBFExplorerProps) {
                                     <Button size="sm" variant="outline" onClick={handleCancelEdit}><X className="w-3 h-3" /></Button>
                                   </div>
                                 ) : (
-                                  <div className={`p-1 rounded min-h-6 ${isEditMode ? 'cursor-pointer hover:bg-muted/50' : 'cursor-pointer hover:bg-blue-50'}`} onClick={() => { if (isEditMode) { handleCellEdit(rowIndex, col.index) } else { handleRowClick(rowIndex) } }}>
-                                    {formatLogicalValue(cellValue)}
-                                  </div>
+                                  // Check if this is a CTAXID column and the value appears encrypted
+                                  col.name.toUpperCase() === 'CTAXID' && isEncryptedTaxId(cellValue) ? (
+                                    <div className={`p-1 rounded min-h-6 flex items-center gap-1 ${isEditMode ? 'cursor-pointer hover:bg-muted/50' : 'cursor-pointer hover:bg-blue-50'}`} 
+                                         onClick={() => { if (isEditMode) { handleCellEdit(rowIndex, col.index) } else { handleRowClick(rowIndex) } }}>
+                                      <Lock className="w-3 h-3 text-gray-400" />
+                                      <span className="font-mono text-xs opacity-60">[Encrypted]</span>
+                                    </div>
+                                  ) : (
+                                    <div className={`p-1 rounded min-h-6 ${isEditMode ? 'cursor-pointer hover:bg-muted/50' : 'cursor-pointer hover:bg-blue-50'}`} 
+                                         onClick={() => { if (isEditMode) { handleCellEdit(rowIndex, col.index) } else { handleRowClick(rowIndex) } }}>
+                                      {formatLogicalValue(cellValue)}
+                                    </div>
+                                  )
                                 )}
                               </TableCell>
                             )
@@ -617,18 +626,41 @@ export function DBFExplorer({ currentUser }: DBFExplorerProps) {
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
             <DialogHeader>
               <DialogTitle>Record Details - {selectedFile}</DialogTitle>
+              <DialogDescription>
+                Complete record data for row {tableData.rows?.indexOf(selectedRecord.map(r => r.value)) + 1 || 'N/A'}
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="text-sm text-muted-foreground">Complete record data for row {tableData.rows?.indexOf(selectedRecord.map(r => r.value)) + 1 || 'N/A'}</div>
               <div className="grid gap-3">
-                {selectedRecord.map((field, index) => (
-                  <div key={index} className="grid grid-cols-3 gap-4 p-3 border rounded">
-                    <div className="font-medium text-sm text-muted-foreground">{field.column}</div>
-                    <div className="col-span-2 break-all">
-                      <div className="p-2 bg-muted/30 rounded text-sm">{formatLogicalValue(field.value) || <span className="text-muted-foreground italic">Empty</span>}</div>
+                {selectedRecord.map((field, index) => {
+                  // Check if this is an encrypted tax ID field
+                  const isEncryptedField = field.column.toUpperCase() === 'CTAXID' && isEncryptedTaxId(field.value);
+                  
+                  return (
+                    <div key={index} className="grid grid-cols-3 gap-4 p-3 border rounded">
+                      <div className="font-medium text-sm text-muted-foreground">{field.column}</div>
+                      <div className="col-span-2 break-all">
+                        {isEncryptedField ? (
+                          <div className="space-y-2">
+                            <div className="p-2 bg-muted/30 rounded text-sm">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Lock className="w-3 h-3 text-gray-400" />
+                                <span className="text-xs font-semibold text-gray-600">Encrypted Value:</span>
+                              </div>
+                              <span className="font-mono text-xs">{formatLogicalValue(field.value)}</span>
+                            </div>
+                            <div className="p-2 bg-green-50 border border-green-200 rounded text-sm">
+                              <div className="text-xs font-semibold text-green-700 mb-1">Decrypted Tax ID:</div>
+                              <div className="font-mono text-green-900 text-base">{decryptTaxId(field.value)}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-2 bg-muted/30 rounded text-sm">{formatLogicalValue(field.value) || <span className="text-muted-foreground italic">Empty</span>}</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="flex justify-end pt-4 border-t">
                 <Button onClick={() => setShowRecordModal(false)}>Close</Button>
@@ -733,13 +765,13 @@ function ColumnFilter({ filter, index, columns, onUpdate, onRemove }: ColumnFilt
 
   return (
     <div className="flex items-center gap-2 p-3 bg-white rounded border">
-      <select value={filter.column || ''} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, column: e.target.value })} className="flex-1 h-8 rounded border border-input bg-transparent px-2 text-sm">
+      <Select value={filter.column || ''} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, column: e.target.value })} className="flex-1 h-10">
         <option value="">Select column...</option>
         {columns.map((col, idx) => (<option key={idx} value={col}>{col}</option>))}
-      </select>
-      <select value={filter.operator || 'contains'} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, operator: e.target.value })} className="w-32 h-8 rounded border border-input bg-transparent px-2 text-sm">
+      </Select>
+      <Select value={filter.operator || 'contains'} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, operator: e.target.value })} className="w-32 h-10">
         {operators.map(op => (<option key={op.value} value={op.value}>{op.label}</option>))}
-      </select>
+      </Select>
       <Input value={filter.value || ''} onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate({ ...filter, value: e.target.value })} placeholder="Filter value..." className="flex-1 h-8" />
       <div className="flex items-center gap-1">
         <label className="flex items-center gap-1 text-xs">

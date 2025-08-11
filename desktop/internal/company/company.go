@@ -425,6 +425,23 @@ func ReadDBFFileDirectly(filePath, searchTerm string, offset, limit int, sortCol
 				value := field.GetValue()
 				rowData[column.Name()] = value
 				
+				// Special logging for CTAXID field in VENDOR.DBF
+				baseFileName := filepath.Base(filePath)
+				if strings.ToUpper(baseFileName) == "VENDOR.DBF" && column.Name() == "CTAXID" && value != nil {
+					valueStr := fmt.Sprintf("%v", value)
+					if valueStr != "" && strings.TrimSpace(valueStr) != "" {
+						// Log the raw bytes of the CTAXID field
+						bytes := []byte(valueStr)
+						hexStr := ""
+						for _, b := range bytes {
+							hexStr += fmt.Sprintf("%02x ", b)
+						}
+						writeErrorLog(fmt.Sprintf("VENDOR CTAXID found - Raw: '%s', Length: %d, Hex: %s", 
+							valueStr, len(valueStr), hexStr))
+						debug.LogInfo("ReadDBFFileDirectly", fmt.Sprintf("VENDOR CTAXID - Hex: %s", hexStr))
+					}
+				}
+				
 				// Check if this field matches the search term
 				if isSearching && !matchFound && value != nil {
 					fieldStr := strings.ToLower(fmt.Sprintf("%v", value))

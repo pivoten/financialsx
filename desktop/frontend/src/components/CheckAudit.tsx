@@ -8,6 +8,7 @@ import { Input } from './ui/input'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
+import { Select } from './ui/select'
 import { AlertTriangle, CheckCircle, XCircle, FileSearch, Download, Loader2, AlertCircle, Search, ArrowUpDown, ArrowUp, ArrowDown, Eye, EyeOff, Settings, RefreshCw } from 'lucide-react'
 import type { User, AuditResult, ChangeEvent } from '../types'
 
@@ -293,12 +294,12 @@ export function CheckAudit({ companyName, currentUser }: CheckAuditProps) {
           <p className="text-sm text-muted-foreground">Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} {label}</p>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Items per page:</span>
-            <select value={itemsPerPage} onChange={(e: ChangeEvent<HTMLSelectElement>) => handleItemsPerPageChange(Number(e.target.value))} className="h-8 rounded-md border border-input bg-background px-2 text-sm">
+            <Select value={itemsPerPage} onChange={(e: ChangeEvent<HTMLSelectElement>) => handleItemsPerPageChange(Number(e.target.value))} className="h-10">
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
-            </select>
+            </Select>
           </div>
         </div>
         <div className="flex items-center justify-center gap-2">
@@ -555,10 +556,10 @@ export function CheckAudit({ companyName, currentUser }: CheckAuditProps) {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium">Account:</label>
-                <select 
+                <Select 
                   value={selectedAccount} 
                   onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedAccount(e.target.value)}
-                  className="w-64 p-2 border rounded-md bg-background"
+                  className="h-10 w-64"
                 >
                   <option value="">Select account to audit...</option>
                   {availableAccounts?.map((account) => (
@@ -566,7 +567,7 @@ export function CheckAudit({ companyName, currentUser }: CheckAuditProps) {
                       {account.account_number} - {account.account_name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => selectedAccount && auditSingleAccount(selectedAccount)} disabled={!selectedAccount || auditingAccount === selectedAccount || loadingAccounts} size="sm">

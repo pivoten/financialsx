@@ -1,7 +1,70 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './lib/queryClient'
-import { GetCompanyList, SetDataPath, InitializeCompanyDatabase, GetDashboardData } from '../wailsjs/go/main/App'
+// Import Wails functions
+import * as WailsApp from '../wailsjs/go/main/App';
+
+// Check if Wails runtime is available
+const checkWailsAvailable = () => {
+  return typeof window !== 'undefined' && 
+         (window as any).go?.main?.App;
+};
+
+// Wait for Wails to be ready
+const waitForWails = async (maxRetries = 50) => {
+  for (let i = 0; i < maxRetries; i++) {
+    if (checkWailsAvailable()) {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return false;
+};
+
+// Wrapper functions that wait for Wails to be ready
+const GetCompanyList = async () => {
+  // First check if the function is directly available (in dev mode)
+  if (typeof WailsApp.GetCompanyList === 'function') {
+    try {
+      return await WailsApp.GetCompanyList();
+    } catch (error) {
+      console.error('Direct Wails call failed:', error);
+    }
+  }
+  
+  // Wait for Wails runtime
+  const ready = await waitForWails();
+  if (!ready) {
+    console.error('Wails runtime not available after waiting');
+    // Return empty array instead of throwing
+    return [];
+  }
+  return WailsApp.GetCompanyList();
+};
+
+const SetDataPath = async (path: string) => {
+  const ready = await waitForWails();
+  if (!ready) {
+    throw new Error('Wails runtime not available');
+  }
+  return WailsApp.SetDataPath(path);
+};
+
+const InitializeCompanyDatabase = async (company: string) => {
+  const ready = await waitForWails();
+  if (!ready) {
+    throw new Error('Wails runtime not available');
+  }
+  return WailsApp.InitializeCompanyDatabase(company);
+};
+
+const GetDashboardData = async (company: string) => {
+  const ready = await waitForWails();
+  if (!ready) {
+    return null;
+  }
+  return WailsApp.GetDashboardData(company);
+};
 import { signIn, signUp, signOut, getCurrentUser, onAuthStateChange, supabase } from './lib/supabase'
 import LoginForm from './components/LoginForm'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card'
@@ -23,6 +86,7 @@ import { UserManagement } from './components/UserManagement'
 import BillEntry from './components/BillEntry'
 import BillEntryEnhanced from './components/BillEntryEnhanced'
 import UserProfile from './components/UserProfile'
+import WellManagement from './components/WellManagement'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
 import { DashboardCard } from './components/DashboardCard'
@@ -168,9 +232,16 @@ function App() {
         }))
         setCompanies(transformedCompanies)
         logger.debug('Loaded companies', { count: transformedCompanies.length })
+      } else {
+        logger.warn('No companies returned from backend')
+        setCompanies([])
       }
     } catch (error: any) {
-      logger.error('Failed to load companies', { error: error.message })
+      logger.error('Failed to load companies', { 
+        error: error.message,
+        stack: error.stack,
+        details: error
+      })
       
       // Check if we need folder selection
       if (error.message && error.message.includes('NEED_FOLDER_SELECTION')) {
@@ -797,6 +868,8 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                 <h2 className="text-xl font-semibold tracking-tight">{getPageTitle()}</h2>
                 <p className="text-sm text-gray-500">{getPageDescription()}</p>
               </div>
+              
+              {/* Browser Mode Indicator - removed since we're always using real data now */}
             </div>
             
             <div className="flex items-center space-x-4">
@@ -1109,6 +1182,8 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                   />
                 </div>
               )}
+              
+              {activeSubView === 'wells' && <WellManagement currentUser={currentUser} companyName={selectedCompany} />}
             </div>
           )}
 

@@ -3,13 +3,23 @@
  * Replaces console.log with structured logging that can be sent to backend
  */
 
-import { 
-  InitializeLogging, 
-  LogMessage, 
-  SetDebugMode, 
-  GetDebugMode,
-  GetLogFilePath 
-} from '../../wailsjs/go/main/App'
+// Check if Wails is available
+const isWailsAvailable = typeof window !== 'undefined' && (window as any).go?.main?.App;
+
+// Wails functions - will be loaded dynamically
+let WailsFunctions: any = null;
+
+// Load Wails functions dynamically
+async function loadWailsFunctions() {
+  if (isWailsAvailable && !WailsFunctions) {
+    try {
+      WailsFunctions = await import('../../wailsjs/go/main/App');
+    } catch (error) {
+      console.error('Failed to load Wails functions:', error);
+    }
+  }
+  return WailsFunctions;
+}
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL'
 
@@ -43,8 +53,23 @@ class Logger {
       // Check if debug mode is stored in localStorage
       const storedDebugMode = localStorage.getItem('debugMode') === 'true'
       
+      // Check if Wails is available
+      if (!isWailsAvailable) {
+        // Browser mode - use console logging only
+        this.debugMode = storedDebugMode || import.meta.env.DEV
+        this.initialized = true
+        console.log('[Logger] Running in browser mode - using console logging only')
+        return
+      }
+      
       // Initialize backend logging
-      const result = await InitializeLogging(storedDebugMode)
+      const funcs = await loadWailsFunctions()
+      if (!funcs) {
+        this.debugMode = storedDebugMode || import.meta.env.DEV
+        this.initialized = true
+        return
+      }
+      const result = await funcs.InitializeLogging(storedDebugMode)
       
       if (result.success) {
         this.debugMode = result.debugMode
@@ -56,6 +81,8 @@ class Logger {
     } catch (error) {
       // Fallback to console if backend is not available
       console.error('Failed to initialize logging:', error)
+      this.debugMode = import.meta.env.DEV
+      this.initialized = true
     }
   }
 
@@ -94,12 +121,18 @@ class Logger {
       return
     }
 
-    try {
-      // Send to backend
-      await LogMessage(level, message, this.component, data || {})
-    } catch (error) {
-      // Fallback to console on error
-      console.error('Failed to send log to backend:', error)
+    // Only send to backend if Wails is available
+    if (isWailsAvailable) {
+      try {
+        // Send to backend
+        const funcs = await loadWailsFunctions()
+        if (funcs) {
+          await funcs.LogMessage(level, message, this.component, data || {})
+        }
+      } catch (error) {
+        // Fallback to console on error
+        console.error('Failed to send log to backend:', error)
+      }
     }
   }
 
@@ -175,7 +208,9 @@ class Logger {
   // Set debug mode
   async setDebugMode(enabled: boolean): Promise<void> {
     try {
-      const result = await SetDebugMode(enabled)
+      const funcs = await loadWailsFunctions()
+      if (!funcs) return
+      const result = await funcs.SetDebugMode(enabled)
       if (result.success) {
         this.debugMode = enabled
         localStorage.setItem('debugMode', enabled.toString())
@@ -189,7 +224,9 @@ class Logger {
   // Get debug mode status
   async getDebugMode(): Promise<boolean> {
     try {
-      const debugMode = await GetDebugMode()
+      const funcs = await loadWailsFunctions()
+      if (!funcs) return false
+      const debugMode = await funcs.GetDebugMode()
       this.debugMode = debugMode
       return debugMode
     } catch (error) {
@@ -201,7 +238,9 @@ class Logger {
   // Get log file path
   async getLogFilePath(): Promise<string> {
     try {
-      return await GetLogFilePath()
+      const funcs = await loadWailsFunctions()
+      if (!funcs) return ''
+      return await funcs.GetLogFilePath()
     } catch (error) {
       this.error('Failed to get log file path', { error })
       return ''

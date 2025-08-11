@@ -9,6 +9,7 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog'
+import { Select } from './ui/select'
 import { AlertTriangle, RefreshCw, Calendar, DollarSign, Search, Filter, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Edit, Eye, X, Check as CheckIcon } from 'lucide-react'
 import type { User, Check, BankAccount, ChangeEvent, MouseEvent } from '../types'
 
@@ -213,14 +214,14 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
         <div className="flex-1 max-w-xs">
           <Label htmlFor="account-filter">Bank Account</Label>
           <div>
-            <select id="account-filter" value={selectedAccount} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedAccount(e.target.value)} className="w-full p-2 border rounded-md">
+            <Select id="account-filter" value={selectedAccount} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedAccount(e.target.value)} className="h-10">
               <option value="all">All Accounts ({bankAccounts.length} loaded)</option>
               {bankAccounts.map((account, idx) => {
                 const accountNumber = account.account_number || account.accountNumber || ''
                 const accountName = account.account_name || ''
                 return (<option key={`${idx}-${accountNumber}`} value={accountNumber}>{accountNumber} - {accountName}</option>)
               })}
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -234,17 +235,17 @@ const OutstandingChecks = ({ companyName, currentUser }: OutstandingChecksProps)
 
         <div className="w-32">
           <Label htmlFor="page-size">Page Size</Label>
-          <select 
+          <Select 
             id="page-size" 
             value={pageSize.toString()} 
             onChange={(e: ChangeEvent<HTMLSelectElement>) => setPageSize(parseInt(e.target.value))}
-            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="h-10"
           >
             <option value="10">10</option>
             <option value="25">25</option>
             <option value="50">50</option>
             <option value="100">100</option>
-          </select>
+          </Select>
         </div>
 
         <Button variant={showStaleOnly ? 'default' : 'outline'} onClick={() => setShowStaleOnly(!showStaleOnly)}>

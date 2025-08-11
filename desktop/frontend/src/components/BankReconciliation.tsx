@@ -30,6 +30,7 @@ import { Checkbox } from './ui/checkbox'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog'
+import { Select } from './ui/select'
 import { 
   CheckCircle, 
   AlertCircle, 
@@ -1175,11 +1176,11 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
               <CardContent>
               <div className="space-y-2">
                 <Label htmlFor="main-account-select">Bank Account</Label>
-                <select 
+                <Select 
                   id="main-account-select"
                   value={selectedAccount}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedAccount(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10"
                   disabled={loadingAccounts}
                 >
                   <option value="">Select Bank Account</option>
@@ -1188,7 +1189,7 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
                       {account.account_number} - {account.account_name}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {loadingAccounts && (
                   <p className="text-sm text-muted-foreground mt-1">Loading accounts...</p>
                 )}
@@ -2223,15 +2224,15 @@ export function BankReconciliation({ companyName, currentUser, preSelectedAccoun
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Transaction Type</Label>
-                  <select
+                  <Select
                     value={showTransactionType}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setShowTransactionType(e.target.value as 'all' | 'debits' | 'credits')}
-                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    className="h-10"
                   >
                     <option value="all">All Types</option>
                     <option value="debits">Checks Only</option>
                     <option value="credits">Deposits Only</option>
-                  </select>
+                  </Select>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox 

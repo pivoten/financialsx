@@ -1,8 +1,25 @@
 
 import { useState, useEffect } from 'react'
-import { GetBankAccounts, GetDBFTableData, GetCachedBalances, RefreshAccountBalance, RefreshAllBalances } from '../../wailsjs/go/main/App'
 import { getCompanyDataPath, getCompanyName } from '../utils/companyPath'
 import logger from '../services/logger'
+
+// Check if Wails is available
+const isWailsAvailable = typeof window !== 'undefined' && (window as any).go?.main?.App
+
+// Wails functions - will be loaded dynamically
+let WailsFunctions: any = null
+
+// Load Wails functions dynamically
+async function loadWailsFunctions() {
+  if (isWailsAvailable && !WailsFunctions) {
+    try {
+      WailsFunctions = await import('../../wailsjs/go/main/App')
+    } catch (error) {
+      console.error('Failed to load Wails functions:', error)
+    }
+  }
+  return WailsFunctions
+}
 import {
   DndContext,
   closestCenter,
@@ -37,6 +54,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator 
 } from './ui/dropdown-menu'
+import { Select } from './ui/select'
 import { 
   CreditCard, 
   Building2, 
@@ -144,11 +162,11 @@ const SortableAccountCard = ({ account, isRefreshing, onRefresh, onReconcile }: 
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Refresh
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onReconcile(account)}>
                   <Calculator className="mr-2 h-4 w-4" />
                   Reconcile
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem>
                   <FileText className="mr-2 h-4 w-4" />
                   Statement History
@@ -228,6 +246,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('accounts')
   const [selectedAccountForReconciliation, setSelectedAccountForReconciliation] = useState<string | null>(null)
+  const [selectedAccountForRegister, setSelectedAccountForRegister] = useState<string>('')
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -328,8 +347,9 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       
       let bankAccounts = []
       
-      // Check if GetBankAccounts is available (Wails bindings generated)
-      if (typeof GetBankAccounts === 'function') {
+      // Check if Wails is available and load functions
+      const funcs = await loadWailsFunctions()
+      if (isWailsAvailable && funcs && typeof funcs.GetBankAccounts === 'function') {
         logger.debug('BankingSection: GetBankAccounts function available, calling it')
         try {
           // Always use company name directly, not path
@@ -337,7 +357,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           if (!companyName) {
             throw new Error('No company selected')
           }
-          bankAccounts = await GetBankAccounts(companyName)
+          bankAccounts = await funcs.GetBankAccounts(companyName)
           logger.debug('BankingSection: GetBankAccounts response', {
             responseType: typeof bankAccounts,
             length: bankAccounts?.length
@@ -356,8 +376,8 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           throw getBankAccountsErr
         }
       } else {
-        logger.warn('BankingSection: GetBankAccounts function not available')
-        throw new Error('GetBankAccounts function not available')
+        logger.warn('BankingSection: GetBankAccounts function not available or Wails not available')
+        throw new Error('GetBankAccounts function not available or Wails not available')
       }
       
       // Transform COA bank accounts to display format
@@ -376,14 +396,65 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       
       // Load GL balances for each account
       await loadAccountBalances(transformedAccounts)
-    } catch (err) {
-      logger.debug('BankingSection: Primary method failed, trying fallback')
+    } catch (err: any) {
+      logger.debug('BankingSection: Primary method failed, trying fallback', { error: err.message })
       // Fallback: Try to read COA.dbf directly using existing function
       try {
         logger.debug('BankingSection: Using GetDBFTableData fallback')
+        
+        // If Wails is not available, use mock data
+        if (!isWailsAvailable) {
+          logger.debug('BankingSection: Using mock data for browser mode')
+          const mockAccounts = [
+            {
+              id: 1,
+              name: 'Primary Operating Account',
+              accountNumber: '1001',
+              bank: 'First National Bank',
+              balance: 125000.00,
+              bank_balance: 128500.00,
+              outstanding_total: 3500.00,
+              outstanding_count: 5,
+              uncleared_checks: 3500.00,
+              check_count: 5,
+              type: 'Checking',
+              status: 'Active',
+              gl_freshness: 'stale',
+              is_stale: true
+            },
+            {
+              id: 2,
+              name: 'Reserve Account',
+              accountNumber: '1002',
+              bank: 'First National Bank',
+              balance: 250000.00,
+              bank_balance: 250000.00,
+              outstanding_total: 0,
+              outstanding_count: 0,
+              uncleared_checks: 0,
+              check_count: 0,
+              type: 'Savings',
+              status: 'Active',
+              gl_freshness: 'fresh',
+              is_stale: false
+            }
+          ]
+          setAccounts(mockAccounts as BankAccount[])
+          // Initialize order if not set
+          if (orderedAccountIds.length === 0) {
+            const ids = mockAccounts.map((acc: any) => acc.accountNumber)
+            setOrderedAccountIds(ids)
+          }
+          return
+        }
+        
         // Always use company name directly
         const companyName = localStorage.getItem('company_name')
-        const coaData = await GetDBFTableData(companyName, 'COA.dbf')
+        const funcs = await loadWailsFunctions()
+        if (!funcs) {
+          throw new Error('Wails functions not available')
+        }
+        const coaData = await funcs.GetDBFTableData(companyName, 'COA.dbf')
         logger.debug('BankingSection: COA.dbf data loaded', { recordCount: coaData?.length })
         
         if (coaData && coaData.rows) {
@@ -432,9 +503,36 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           logger.warn('BankingSection: COA.dbf fallback - no data found', { coaDataStructure: typeof coaData })
           setAccounts([]) // Set empty array for "no accounts found" display
         }
-      } catch (fallbackErr) {
+      } catch (fallbackErr: any) {
         logger.error('BankingSection: Fallback method also failed', { error: fallbackErr.message })
-        setAccounts([]) // Set empty array for "no accounts found" display
+        // In browser mode, use mock data
+        if (!isWailsAvailable) {
+          logger.debug('BankingSection: Using mock data after fallback failure')
+          const mockAccounts = [
+            {
+              id: 1,
+              name: 'Demo Operating Account',
+              accountNumber: '1001',
+              bank: 'Demo Bank',
+              balance: 50000.00,
+              bank_balance: 52500.00,
+              outstanding_total: 2500.00,
+              outstanding_count: 3,
+              uncleared_checks: 2500.00,
+              check_count: 3,
+              type: 'Checking',
+              status: 'Active',
+              gl_freshness: 'stale',
+              is_stale: true
+            }
+          ]
+          setAccounts(mockAccounts as BankAccount[])
+          if (orderedAccountIds.length === 0) {
+            setOrderedAccountIds(['1001'])
+          }
+        } else {
+          setAccounts([]) // Set empty array for "no accounts found" display
+        }
       }
     } finally {
       setLoadingAccounts(false)
@@ -446,10 +544,23 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
     logger.debug('BankingSection: Loading cached balances', { accountCount: accountList?.length })
     
     try {
+      // Check if Wails is available
+      if (!isWailsAvailable) {
+        logger.debug('BankingSection: Wails not available, skipping cached balance loading')
+        // Just return the accounts as-is in browser mode
+        setAccounts(accountList)
+        return
+      }
+      
       // Get all cached balances at once
       // Always use company name directly
       const companyName = localStorage.getItem('company_name')
-      const cachedBalances = await GetCachedBalances(companyName)
+      const funcs = await loadWailsFunctions()
+      if (!funcs) {
+        logger.debug('BankingSection: Wails functions not available, skipping cached balance loading')
+        return
+      }
+      const cachedBalances = await funcs.GetCachedBalances(companyName)
       logger.debug('BankingSection: Retrieved cached balances', { count: cachedBalances?.length })
       
       // Handle null or undefined response
@@ -458,7 +569,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         
         // Trigger refresh for all accounts
         for (const account of accountList) {
-          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+          funcs?.RefreshAccountBalance(companyName, account.accountNumber).catch((err: any) => {
             logger.error('Failed to refresh account balance', {
               accountNumber: account.accountNumber,
               error: err.message
@@ -521,7 +632,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           logger.debug('BankingSection: No cached balance - will refresh', {
             accountNumber: account.accountNumber
           })
-          RefreshAccountBalance(companyName, account.accountNumber).catch(err => {
+          funcs?.RefreshAccountBalance(companyName, account.accountNumber).catch((err: any) => {
             logger.error('Failed to refresh account balance', { error: err.message })
           })
           
@@ -553,7 +664,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         setOrderedAccountIds(ids)
       }
       
-    } catch (error) {
+    } catch (error: any) {
       logger.error('BankingSection: Failed to load cached balances', { error: error.message })
       // Fallback to setting accounts without balance data
       const fallbackAccounts = accountList.map((account: any) => ({
@@ -605,7 +716,8 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         accountNumber,
         companyName,
         company_path: localStorage.getItem('company_path'),
-        company_name: localStorage.getItem('company_name')
+        company_name: localStorage.getItem('company_name'),
+        isWailsAvailable
       })
       
       if (!companyName) {
@@ -616,13 +728,31 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
         throw new Error('No account number provided')
       }
       
-      await RefreshAccountBalance(companyName, accountNumber)
+      // Check if Wails is available
+      if (!isWailsAvailable) {
+        logger.warn('Wails not available - refresh not supported in browser mode')
+        // In browser mode, just simulate refresh by clearing the flag after a delay
+        setTimeout(() => {
+          setRefreshingAccount(null)
+        }, 1000)
+        return
+      }
+      
+      const funcs = await loadWailsFunctions()
+      if (!funcs) {
+        logger.warn('Wails functions not available')
+        return
+      }
+      await funcs.RefreshAccountBalance(companyName, accountNumber)
       // Reload all account balances to reflect the update
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to refresh account balance', { error: error.message })
-      alert('Failed to refresh balance: ' + (error.message || error))
+      // Only show alert for non-browser mode errors
+      if (isWailsAvailable) {
+        alert('Failed to refresh balance: ' + (error.message || error))
+      }
     } finally {
       setRefreshingAccount(null)
     }
@@ -639,20 +769,39 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
       logger.debug('refreshAllBalances called', {
         companyName,
         company_path: localStorage.getItem('company_path'),
-        company_name: localStorage.getItem('company_name')
+        company_name: localStorage.getItem('company_name'),
+        isWailsAvailable
       })
       
       if (!companyName) {
         throw new Error('No company selected. Please select a company.')
       }
       
-      await RefreshAllBalances(companyName)
+      // Check if Wails is available
+      if (!isWailsAvailable) {
+        logger.warn('Wails not available - refresh not supported in browser mode')
+        // In browser mode, just simulate refresh by clearing the flag after a delay
+        setTimeout(() => {
+          setRefreshingAccount(null)
+        }, 1500)
+        return
+      }
+      
+      const funcs = await loadWailsFunctions()
+      if (!funcs) {
+        logger.warn('Wails functions not available')
+        return
+      }
+      await funcs.RefreshAllBalances(companyName)
       // Reload all account balances to reflect the updates
       const currentAccounts = [...accounts]
       await loadAccountBalances(currentAccounts)
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to refresh all balances', { error: error.message })
-      alert('Failed to refresh all balances: ' + (error.message || error))
+      // Only show alert for non-browser mode errors
+      if (isWailsAvailable) {
+        alert('Failed to refresh all balances: ' + (error.message || error))
+      }
     } finally {
       setRefreshingAccount(null)
     }
@@ -693,10 +842,10 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               Bank Accounts
             </TabsTrigger>
             <TabsTrigger 
-              value="transactions"
+              value="registers"
               className="relative h-12 px-1 pb-3 pt-3 text-sm font-medium transition-all data-[state=active]:text-gray-900 data-[state=inactive]:text-gray-500 data-[state=inactive]:hover:text-gray-700 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-blue-600"
             >
-              Transactions
+              Registers
             </TabsTrigger>
             <TabsTrigger 
               value="outstanding"
@@ -843,14 +992,14 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           </div>
         </TabsContent>
 
-        {/* Transactions Tab */}
-        <TabsContent value="transactions" className="p-6">
+        {/* Registers Tab */}
+        <TabsContent value="registers" className="p-6">
           {/* Header with Actions */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Transactions</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Bank Registers</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Manage and track all financial transactions
+                View checks and transactions for a specific bank account
               </p>
             </div>
             <div className="flex gap-2">
@@ -873,35 +1022,40 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
           </div>
 
           {/* Search and Filter Bar */}
-          <div className="flex gap-4 mb-6">
+          <div className="flex items-center gap-3 mb-6">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
+              <Input
                 type="text"
-                placeholder="Search transactions..."
-                className="w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Search register entries..."
+                className="pl-10 h-10"
               />
             </div>
-            <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">All Accounts</option>
+            <Select
+              className="w-[200px] h-10"
+              value={selectedAccountForRegister}
+              onChange={(e) => setSelectedAccountForRegister(e.target.value)}
+            >
+              <option value="">Select Account</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.accountNumber}>
                   {account.name}
                 </option>
               ))}
-            </select>
-            <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">All Types</option>
+            </Select>
+            <Select className="w-[140px] h-10" defaultValue="all">
+              <option value="all">All Types</option>
               <option value="credit">Credits</option>
               <option value="debit">Debits</option>
-            </select>
-            <Button variant="outline" className="border-gray-200 hover:bg-gray-50">
+            </Select>
+            <Button variant="outline" className="border-gray-200 hover:bg-gray-50 h-10">
               <Filter className="mr-2 h-4 w-4" />
               More Filters
             </Button>
           </div>
 
-          {/* Quick Stats */}
+          {/* Quick Stats - Only show when account is selected */}
+          {selectedAccountForRegister && (
           <div className="grid gap-4 md:grid-cols-4 mb-6">
             <Card className="border border-gray-200 bg-white">
               <CardContent className="p-4">
@@ -948,11 +1102,13 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               </CardContent>
             </Card>
           </div>
+          )}
 
-          {/* Transactions Table */}
-          <Card className="border border-gray-200 bg-white">
-            <CardContent className="p-0">
-              <Table>
+          {/* Register Table */}
+          {selectedAccountForRegister ? (
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-0">
+                <Table>
                 <TableHeader>
                   <TableRow className="border-b border-gray-200">
                     <TableHead className="text-gray-600 font-medium">Date</TableHead>
@@ -1026,7 +1182,7 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               {/* Pagination */}
               <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
                 <p className="text-sm text-gray-600">
-                  Showing 1 to 10 of 156 transactions
+                  Showing 1 to 10 of 156 register entries
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="border-gray-200">
@@ -1048,6 +1204,17 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               </div>
             </CardContent>
           </Card>
+          ) : (
+            <Card className="border border-gray-200 bg-white">
+              <CardContent className="p-6">
+                <div className="text-center text-gray-500">
+                  <CreditCard className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg font-medium">No Account Selected</p>
+                  <p className="text-sm mt-2">Please select a bank account from the dropdown above to view its register</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Reconciliation Tab */}
@@ -1074,25 +1241,25 @@ export function BankingSection({ companyName, currentUser }: BankingSectionProps
               <CardContent className="space-y-4">
                 <div className="grid gap-2">
                   <Label htmlFor="from-account">From Account</Label>
-                  <select id="from-account" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <Select id="from-account" className="h-10">
                     <option>Select account...</option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name} - {formatCurrency(account.balance)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="to-account">To Account</Label>
-                  <select id="to-account" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <Select id="to-account" className="h-10">
                     <option>Select account...</option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name} - {formatCurrency(account.balance)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="amount">Amount</Label>

@@ -87,6 +87,8 @@ import BillEntry from './components/BillEntry'
 import BillEntryEnhanced from './components/BillEntryEnhanced'
 import UserProfile from './components/UserProfile'
 import WellManagement from './components/WellManagement'
+import LegacyIntegration from './components/LegacyIntegration'
+import SherWareLegacy from './components/SherWareLegacy'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
 import { DashboardCard } from './components/DashboardCard'
@@ -123,7 +125,8 @@ import {
   Download,
   Archive,
   Calendar,
-  Copy
+  Copy,
+  ExternalLink
 } from 'lucide-react'
 
 interface User {
@@ -529,6 +532,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
   // Main navigation items
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'sherware', label: 'SherWare Legacy', icon: ExternalLink },
     { id: 'operations', label: 'Operations', icon: Activity },
     { id: 'financials', label: 'Financials', icon: DollarSign },
     { id: 'data', label: 'Data', icon: Database },
@@ -1098,6 +1102,11 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             </div>
           )}
 
+          {/* SherWare Legacy Section */}
+          {activeView === 'sherware' && (
+            <SherWareLegacy />
+          )}
+
           {/* Settings Section */}
           {activeView === 'settings' && (
             <div className="space-y-6">
@@ -1143,11 +1152,20 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                     onClick={() => setActiveSubView('security')}
                     accentColor="gray"
                   />
+                  <DashboardCard
+                    title="Legacy Integration"
+                    subtitle="Visual FoxPro"
+                    description="Configure VFP application integration"
+                    icon={ExternalLink}
+                    onClick={() => setActiveSubView('legacy')}
+                    accentColor="blue"
+                  />
                 </div>
               )}
               
               {activeSubView === 'users' && <UserManagement currentUser={currentUser} />}
               {activeSubView === 'profile' && <UserProfile currentUser={currentUser} companyName={selectedCompany} />}
+              {activeSubView === 'legacy' && <LegacyIntegration onBack={() => setActiveSubView(null)} />}
             </div>
           )}
 

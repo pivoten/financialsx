@@ -24,6 +24,7 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/ole"
 	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
+	"github.com/pivoten/financialsx/desktop/internal/vfp"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -40,6 +41,7 @@ type App struct {
 	currentUser *auth.User
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
+	vfpClient *vfp.VFPClient  // VFP integration client
 	dataBasePath string // Base path where compmast.dbf is located
 	
 	// Platform detection (cached at startup)
@@ -231,6 +233,13 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 		a.currentCompanyPath = companyPath
 		a.reconciliationService = reconciliation.NewService(db)
 		
+		// Initialize VFP integration client
+		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		if err := a.vfpClient.InitializeSchema(); err != nil {
+			debug.SimpleLog(fmt.Sprintf("App.InitializeCompanyDatabase: Error initializing VFP schema: %v", err))
+			// Non-fatal error, VFP integration is optional
+		}
+		
 		successMsg := "InitializeCompanyDatabase: Database initialized successfully"
 		debug.SimpleLog(successMsg)
 		fmt.Printf("%s\n", successMsg)
@@ -265,6 +274,12 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize VFP integration client
+		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		if err := a.vfpClient.InitializeSchema(); err != nil {
+			// Non-fatal error, VFP integration is optional
+		}
 	}
 
 	user, session, err := a.auth.Login(username, password)
@@ -315,6 +330,12 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize VFP integration client
+		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		if err := a.vfpClient.InitializeSchema(); err != nil {
+			// Non-fatal error, VFP integration is optional
+		}
 	}
 
 	user, err := a.auth.Register(username, password, email) // Remove companyName parameter
@@ -391,6 +412,12 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		a.db = db
 		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize VFP integration client
+		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		if err := a.vfpClient.InitializeSchema(); err != nil {
+			// Non-fatal error, VFP integration is optional
+		}
 		
 		// Close any existing OLE connection when switching companies
 		// Don't preload - let it create on first query to avoid duplicates
@@ -5073,6 +5100,153 @@ func (a *App) GetLogFilePath() string {
 	logDir := filepath.Join(homeDir, ".financialsx", "logs")
 	filename := fmt.Sprintf("financialsx_%s.log", time.Now().Format("2006-01-02"))
 	return filepath.Join(logDir, filename)
+}
+
+// ============================================================================
+// VFP Integration Methods
+// ============================================================================
+
+// GetVFPSettings retrieves the current VFP connection settings
+func (a *App) GetVFPSettings() (map[string]interface{}, error) {
+	if a.vfpClient == nil {
+		return nil, fmt.Errorf("VFP client not initialized")
+	}
+	
+	settings, err := a.vfpClient.GetSettings()
+	if err != nil {
+		return nil, err
+	}
+	
+	return map[string]interface{}{
+		"host":    settings.Host,
+		"port":    settings.Port,
+		"enabled": settings.Enabled,
+		"timeout": settings.Timeout,
+		"updated_at": settings.UpdatedAt,
+	}, nil
+}
+
+// SaveVFPSettings updates the VFP connection settings
+func (a *App) SaveVFPSettings(host string, port int, enabled bool, timeout int) error {
+	if a.vfpClient == nil {
+		return fmt.Errorf("VFP client not initialized")
+	}
+	
+	settings := &vfp.Settings{
+		Host:    host,
+		Port:    port,
+		Enabled: enabled,
+		Timeout: timeout,
+	}
+	
+	return a.vfpClient.SaveSettings(settings)
+}
+
+// TestVFPConnection tests the connection to the VFP listener
+func (a *App) TestVFPConnection() (map[string]interface{}, error) {
+	if a.vfpClient == nil {
+		return nil, fmt.Errorf("VFP client not initialized")
+	}
+	
+	err := a.vfpClient.TestConnection()
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		}, nil
+	}
+	
+	return map[string]interface{}{
+		"success": true,
+		"message": "Connection successful",
+	}, nil
+}
+
+// LaunchVFPForm launches a VFP form with optional argument and company synchronization
+func (a *App) LaunchVFPForm(formName string, argument string) (map[string]interface{}, error) {
+	if a.vfpClient == nil {
+		return nil, fmt.Errorf("VFP client not initialized")
+	}
+	
+	// Get current company from FinancialsX
+	companyName := a.GetCurrentCompany()
+	
+	response, err := a.vfpClient.LaunchForm(formName, argument, companyName)
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		}, nil
+	}
+	
+	return map[string]interface{}{
+		"success": true,
+		"message": response,
+	}, nil
+}
+
+// SyncVFPCompany synchronizes the company between FinancialsX and VFP
+func (a *App) SyncVFPCompany() (map[string]interface{}, error) {
+	if a.vfpClient == nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": "VFP integration not initialized",
+		}, nil
+	}
+
+	// Get current company from FinancialsX
+	currentCompany := a.GetCurrentCompany()
+	
+	// Set it in VFP
+	err := a.vfpClient.SetVFPCompany(currentCompany)
+	if err != nil {
+		// Try to get VFP's current company for info
+		vfpCompany, _ := a.vfpClient.GetVFPCompany()
+		return map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+			"financialsxCompany": currentCompany,
+			"vfpCompany": vfpCompany,
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": "Company synchronized",
+		"company": currentCompany,
+	}, nil
+}
+
+// GetVFPCompany gets the current company from VFP
+func (a *App) GetVFPCompany() (map[string]interface{}, error) {
+	if a.vfpClient == nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": "VFP integration not initialized",
+		}, nil
+	}
+
+	company, err := a.vfpClient.GetVFPCompany()
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"company": company,
+	}, nil
+}
+
+// GetVFPFormList returns a list of available VFP forms
+func (a *App) GetVFPFormList() []map[string]string {
+	if a.vfpClient == nil {
+		return []map[string]string{}
+	}
+	
+	return a.vfpClient.GetFormList()
 }
 
 func main() {

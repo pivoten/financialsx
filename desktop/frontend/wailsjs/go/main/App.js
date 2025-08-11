@@ -162,6 +162,14 @@ export function GetTableList(arg1) {
   return window['go']['main']['App']['GetTableList'](arg1);
 }
 
+export function GetVFPFormList() {
+  return window['go']['main']['App']['GetVFPFormList']();
+}
+
+export function GetVFPSettings() {
+  return window['go']['main']['App']['GetVFPSettings']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -176,6 +184,10 @@ export function InitializeCompanyDatabase(arg1) {
 
 export function InitializeLogging(arg1) {
   return window['go']['main']['App']['InitializeLogging'](arg1);
+}
+
+export function LaunchVFPForm(arg1, arg2) {
+  return window['go']['main']['App']['LaunchVFPForm'](arg1, arg2);
 }
 
 export function LogError(arg1, arg2) {
@@ -242,6 +254,10 @@ export function SaveReconciliationDraft(arg1, arg2) {
   return window['go']['main']['App']['SaveReconciliationDraft'](arg1, arg2);
 }
 
+export function SaveVFPSettings(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveVFPSettings'](arg1, arg2, arg3, arg4);
+}
+
 export function SearchDBFTable(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchDBFTable'](arg1, arg2, arg3);
 }
@@ -280,6 +296,10 @@ export function TestLogging() {
 
 export function TestOLEConnection() {
   return window['go']['main']['App']['TestOLEConnection']();
+}
+
+export function TestVFPConnection() {
+  return window['go']['main']['App']['TestVFPConnection']();
 }
 
 export function UnmatchTransaction(arg1) {

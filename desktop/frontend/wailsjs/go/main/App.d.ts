@@ -83,6 +83,10 @@ export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record
 
 export function GetTableList(arg1:string):Promise<Record<string, any>>;
 
+export function GetVFPFormList():Promise<Array<Record<string, string>>>;
+
+export function GetVFPSettings():Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
@@ -90,6 +94,8 @@ export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise
 export function InitializeCompanyDatabase(arg1:string):Promise<void>;
 
 export function InitializeLogging(arg1:boolean):Promise<Record<string, any>>;
+
+export function LaunchVFPForm(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function LogError(arg1:string,arg2:string):Promise<void>;
 
@@ -123,6 +129,8 @@ export function RunNetDistribution(arg1:string,arg2:string,arg3:string,arg4:bool
 
 export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Promise<Record<string, any>>;
 
+export function SaveVFPSettings(arg1:string,arg2:number,arg3:boolean,arg4:number):Promise<void>;
+
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function SelectDataFolder():Promise<string>;
@@ -142,6 +150,8 @@ export function TestDatabaseQuery(arg1:string,arg2:string):Promise<Record<string
 export function TestLogging():Promise<string>;
 
 export function TestOLEConnection():Promise<Record<string, any>>;
+
+export function TestVFPConnection():Promise<Record<string, any>>;
 
 export function UnmatchTransaction(arg1:number):Promise<Record<string, any>>;
 

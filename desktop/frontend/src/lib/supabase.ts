@@ -94,6 +94,50 @@ export const getSession = async (): Promise<{ session: Session | null; error: Er
   return { session, error }
 }
 
+// Fetch user account data from Supabase
+export const getUserAccountData = async (): Promise<{ account: any | null; error: Error | null }> => {
+  if (!supabase) {
+    return { account: null, error: new Error('Supabase not configured') }
+  }
+  
+  try {
+    // Get current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { account: null, error: userError || new Error('No user logged in') }
+    }
+    
+    // Fetch user's account data from the user_accounts view
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('id, name, picture_url, slug, role')
+      .eq('is_personal_account', false)
+      .limit(1)
+      .single()
+    
+    if (error) {
+      logger.error('Failed to fetch user account data', error)
+      // Try fetching from accounts table directly if view doesn't exist
+      const { data: accountData, error: accountError } = await supabase
+        .from('accounts')
+        .select('id, name, picture_url, slug')
+        .eq('is_personal_account', false)
+        .limit(1)
+        .single()
+      
+      if (accountError) {
+        return { account: null, error: accountError }
+      }
+      return { account: accountData, error: null }
+    }
+    
+    return { account: data, error: null }
+  } catch (err) {
+    logger.error('Error fetching user account data', err)
+    return { account: null, error: err as Error }
+  }
+}
+
 // Subscribe to auth state changes
 export const onAuthStateChange = (
   callback: (event: AuthChangeEvent, session: Session | null) => void

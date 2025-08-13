@@ -3,11 +3,15 @@
 import {auth} from '../models';
 import {company} from '../models';
 
+export function AnalyzeGLBalancesByYear(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function AuditBankReconciliation(arg1:string):Promise<Record<string, any>>;
 
 export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
 export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function CheckGLPeriodFields(arg1:string):Promise<Record<string, any>>;
 
 export function ClearMatchesAndRerun(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 
@@ -83,6 +87,8 @@ export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record
 
 export function GetTableList(arg1:string):Promise<Record<string, any>>;
 
+export function GetVFPCompany():Promise<Record<string, any>>;
+
 export function GetVFPFormList():Promise<Array<Record<string, string>>>;
 
 export function GetVFPSettings():Promise<Record<string, any>>;
@@ -143,6 +149,8 @@ export function SetDebugMode(arg1:boolean):Promise<Record<string, any>>;
 
 export function SetOLEIdleTimeout(arg1:number):Promise<Record<string, any>>;
 
+export function SyncVFPCompany():Promise<Record<string, any>>;
+
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
 
 export function TestDatabaseQuery(arg1:string,arg2:string):Promise<Record<string, any>>;
@@ -162,5 +170,7 @@ export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,
 export function UpdateUserRole(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateUserStatus(arg1:number,arg2:boolean):Promise<void>;
+
+export function ValidateGLBalances(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function ValidateSession(arg1:string,arg2:string):Promise<auth.User>;

@@ -454,6 +454,506 @@ func (a *App) GetDBFTableData(companyName, fileName string) (map[string]interfac
 	return company.ReadDBFFile(companyName, fileName, "", 0, 0, "", "")
 }
 
+// CheckGLPeriodFields checks for blank CYEAR/CPERIOD fields in GLMASTER.dbf
+func (a *App) CheckGLPeriodFields(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("CheckGLPeriodFields: Checking GLMASTER.dbf for blank period fields\n")
+	
+	// Read GLMASTER.dbf
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
+	}
+	
+	// Get column indices
+	glColumns, ok := glData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid GLMASTER.dbf structure")
+	}
+	
+	var yearIdx, periodIdx, accountIdx, debitIdx, creditIdx int = -1, -1, -1, -1, -1
+	for i, col := range glColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CYEAR":
+			yearIdx = i
+		case "CPERIOD":
+			periodIdx = i
+		case "CACCTNO":
+			accountIdx = i
+		case "NDEBITS", "NDEBIT":
+			debitIdx = i
+		case "NCREDITS", "NCREDIT":
+			creditIdx = i
+		}
+	}
+	
+	fmt.Printf("Column indices - CYEAR: %d, CPERIOD: %d, CACCTNO: %d\n", yearIdx, periodIdx, accountIdx)
+	
+	// Analyze the data
+	glRows, _ := glData["rows"].([][]interface{})
+	totalRows := len(glRows)
+	blankYearCount := 0
+	blankPeriodCount := 0
+	blankBothCount := 0
+	var sampleBlankRows []map[string]interface{}
+	yearValues := make(map[string]int)
+	periodValues := make(map[string]int)
+	
+	for i, row := range glRows {
+		if len(row) <= accountIdx {
+			continue
+		}
+		
+		yearVal := ""
+		periodVal := ""
+		
+		if yearIdx >= 0 && len(row) > yearIdx {
+			yearVal = strings.TrimSpace(fmt.Sprintf("%v", row[yearIdx]))
+		}
+		if periodIdx >= 0 && len(row) > periodIdx {
+			periodVal = strings.TrimSpace(fmt.Sprintf("%v", row[periodIdx]))
+		}
+		
+		// Track unique values
+		if yearVal != "" {
+			yearValues[yearVal]++
+		}
+		if periodVal != "" {
+			periodValues[periodVal]++
+		}
+		
+		// Check for blanks
+		yearBlank := yearVal == "" || yearVal == "<nil>"
+		periodBlank := periodVal == "" || periodVal == "<nil>"
+		
+		if yearBlank {
+			blankYearCount++
+		}
+		if periodBlank {
+			blankPeriodCount++
+		}
+		if yearBlank && periodBlank {
+			blankBothCount++
+			
+			// Capture sample blank rows
+			if len(sampleBlankRows) < 5 {
+				sampleRow := make(map[string]interface{})
+				if accountIdx >= 0 && len(row) > accountIdx {
+					sampleRow["account"] = row[accountIdx]
+				}
+				if debitIdx >= 0 && len(row) > debitIdx {
+					sampleRow["debit"] = row[debitIdx]
+				}
+				if creditIdx >= 0 && len(row) > creditIdx {
+					sampleRow["credit"] = row[creditIdx]
+				}
+				sampleRow["row_index"] = i
+				sampleBlankRows = append(sampleBlankRows, sampleRow)
+			}
+		}
+	}
+	
+	return map[string]interface{}{
+		"total_rows":        totalRows,
+		"blank_year_count":  blankYearCount,
+		"blank_period_count": blankPeriodCount,
+		"blank_both_count":  blankBothCount,
+		"blank_year_pct":    fmt.Sprintf("%.2f%%", float64(blankYearCount)*100/float64(totalRows)),
+		"blank_period_pct":  fmt.Sprintf("%.2f%%", float64(blankPeriodCount)*100/float64(totalRows)),
+		"unique_years":      yearValues,
+		"unique_periods":    periodValues,
+		"sample_blank_rows": sampleBlankRows,
+	}, nil
+}
+
+// AnalyzeGLBalancesByYear analyzes GL balances grouped by year and account
+func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("AnalyzeGLBalancesByYear: Analyzing GLMASTER.dbf for account %s\n", accountNumber)
+	
+	// Read GLMASTER.dbf
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
+	}
+	
+	// Get column indices
+	glColumns, ok := glData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid GLMASTER.dbf structure")
+	}
+	
+	var yearIdx, periodIdx, accountIdx, debitIdx, creditIdx int = -1, -1, -1, -1, -1
+	for i, col := range glColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CYEAR":
+			yearIdx = i
+		case "CPERIOD":
+			periodIdx = i
+		case "CACCTNO":
+			accountIdx = i
+		case "NDEBITS", "NDEBIT":
+			debitIdx = i
+		case "NCREDITS", "NCREDIT":
+			creditIdx = i
+		}
+	}
+	
+	if accountIdx == -1 {
+		return nil, fmt.Errorf("account column not found")
+	}
+	
+	// Structure to hold year-based totals
+	type YearTotals struct {
+		Debits  float64
+		Credits float64
+		Count   int
+		Periods map[string]int
+	}
+	
+	// Maps to store results
+	yearlyTotals := make(map[string]*YearTotals)
+	blankYearTotals := &YearTotals{Periods: make(map[string]int)}
+	allAccountsTotals := make(map[string]*YearTotals) // For comparison
+	
+	// Process all rows
+	glRows, _ := glData["rows"].([][]interface{})
+	
+	for _, row := range glRows {
+		if len(row) <= accountIdx {
+			continue
+		}
+		
+		rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		
+		// Get year and period
+		yearVal := ""
+		periodVal := ""
+		if yearIdx >= 0 && len(row) > yearIdx {
+			yearVal = strings.TrimSpace(fmt.Sprintf("%v", row[yearIdx]))
+		}
+		if periodIdx >= 0 && len(row) > periodIdx {
+			periodVal = strings.TrimSpace(fmt.Sprintf("%v", row[periodIdx]))
+		}
+		
+		// Get amounts
+		var debitVal, creditVal float64
+		if debitIdx >= 0 && len(row) > debitIdx && row[debitIdx] != nil {
+			debitStr := fmt.Sprintf("%v", row[debitIdx])
+			if val, err := strconv.ParseFloat(debitStr, 64); err == nil {
+				debitVal = val
+			}
+		}
+		if creditIdx >= 0 && len(row) > creditIdx && row[creditIdx] != nil {
+			creditStr := fmt.Sprintf("%v", row[creditIdx])
+			if val, err := strconv.ParseFloat(creditStr, 64); err == nil {
+				creditVal = val
+			}
+		}
+		
+		// Process for all accounts (for comparison)
+		if yearVal != "" && yearVal != "<nil>" {
+			if allAccountsTotals[yearVal] == nil {
+				allAccountsTotals[yearVal] = &YearTotals{Periods: make(map[string]int)}
+			}
+			allAccountsTotals[yearVal].Debits += debitVal
+			allAccountsTotals[yearVal].Credits += creditVal
+			allAccountsTotals[yearVal].Count++
+		}
+		
+		// Process for specific account if provided
+		if accountNumber == "" || rowAccount == accountNumber {
+			if yearVal == "" || yearVal == "<nil>" {
+				// Blank year entries
+				blankYearTotals.Debits += debitVal
+				blankYearTotals.Credits += creditVal
+				blankYearTotals.Count++
+				if periodVal != "" && periodVal != "<nil>" {
+					blankYearTotals.Periods[periodVal]++
+				}
+			} else {
+				// Normal year entries
+				if yearlyTotals[yearVal] == nil {
+					yearlyTotals[yearVal] = &YearTotals{Periods: make(map[string]int)}
+				}
+				yearlyTotals[yearVal].Debits += debitVal
+				yearlyTotals[yearVal].Credits += creditVal
+				yearlyTotals[yearVal].Count++
+				if periodVal != "" && periodVal != "<nil>" {
+					yearlyTotals[yearVal].Periods[periodVal]++
+				}
+			}
+		}
+	}
+	
+	// Convert to output format
+	yearlyResults := make([]map[string]interface{}, 0)
+	var totalDebits, totalCredits float64
+	var totalRecords int
+	
+	// Sort years
+	years := make([]string, 0, len(yearlyTotals))
+	for year := range yearlyTotals {
+		years = append(years, year)
+	}
+	sort.Strings(years)
+	
+	for _, year := range years {
+		totals := yearlyTotals[year]
+		balance := totals.Debits - totals.Credits
+		
+		yearlyResults = append(yearlyResults, map[string]interface{}{
+			"year":         year,
+			"debits":       totals.Debits,
+			"credits":      totals.Credits,
+			"balance":      balance,
+			"record_count": totals.Count,
+			"periods":      len(totals.Periods),
+		})
+		
+		totalDebits += totals.Debits
+		totalCredits += totals.Credits
+		totalRecords += totals.Count
+	}
+	
+	// Add blank year totals if any
+	var blankYearData map[string]interface{}
+	if blankYearTotals.Count > 0 {
+		blankYearData = map[string]interface{}{
+			"debits":       blankYearTotals.Debits,
+			"credits":      blankYearTotals.Credits,
+			"balance":      blankYearTotals.Debits - blankYearTotals.Credits,
+			"record_count": blankYearTotals.Count,
+			"periods":      blankYearTotals.Periods,
+		}
+	}
+	
+	// Calculate overall balance
+	overallBalance := totalDebits - totalCredits
+	
+	return map[string]interface{}{
+		"account_number":     accountNumber,
+		"yearly_balances":    yearlyResults,
+		"blank_year_totals":  blankYearData,
+		"total_debits":       totalDebits,
+		"total_credits":      totalCredits,
+		"overall_balance":    overallBalance,
+		"total_records":      totalRecords,
+		"years_found":        len(yearlyTotals),
+		"all_accounts_totals": allAccountsTotals, // For comparison
+	}, nil
+}
+
+// ValidateGLBalances performs comprehensive GL validation checks
+func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("ValidateGLBalances: Starting validation for account %s in company %s\n", accountNumber, companyName)
+	
+	// Read GLMASTER.dbf
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
+	}
+	
+	// Get column indices
+	glColumns, ok := glData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid GLMASTER.dbf structure")
+	}
+	
+	var accountIdx, debitIdx, creditIdx, yearIdx, periodIdx int = -1, -1, -1, -1, -1
+	for i, col := range glColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CACCTNO", "ACCOUNT", "ACCTNO":
+			accountIdx = i
+		case "NDEBITS", "DEBIT", "NDEBIT":
+			debitIdx = i
+		case "NCREDITS", "CREDIT", "NCREDIT":
+			creditIdx = i
+		case "CYEAR":
+			yearIdx = i
+		case "CPERIOD":
+			periodIdx = i
+		}
+	}
+	
+	result := make(map[string]interface{})
+	
+	// Validation check 1: Debits = Credits for entire GL (double-entry bookkeeping)
+	var totalDebits, totalCredits float64
+	var debitCreditByYear = make(map[string]map[string]float64)
+	var duplicateTransactions []map[string]interface{}
+	var zeroAmountTransactions int
+	var suspiciousAmounts []map[string]interface{}
+	var outOfBalanceAccounts = make(map[string]map[string]float64)
+	
+	glRows, _ := glData["rows"].([][]interface{})
+	
+	// Track transactions for duplicate detection
+	transactionMap := make(map[string][]int) // key: account+debit+credit+year+period, value: row indices
+	
+	for idx, row := range glRows {
+		if len(row) <= accountIdx {
+			continue
+		}
+		
+		rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		
+		// Get amounts
+		debit := float64(0)
+		if debitIdx != -1 && len(row) > debitIdx && row[debitIdx] != nil {
+			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", row[debitIdx]), 64); err == nil {
+				debit = val
+			}
+		}
+		
+		credit := float64(0)
+		if creditIdx != -1 && len(row) > creditIdx && row[creditIdx] != nil {
+			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", row[creditIdx]), 64); err == nil {
+				credit = val
+			}
+		}
+		
+		// Get year
+		year := ""
+		if yearIdx != -1 && len(row) > yearIdx && row[yearIdx] != nil {
+			year = strings.TrimSpace(fmt.Sprintf("%v", row[yearIdx]))
+		}
+		if year == "" {
+			year = "BLANK"
+		}
+		
+		// Get period
+		period := ""
+		if periodIdx != -1 && len(row) > periodIdx && row[periodIdx] != nil {
+			period = strings.TrimSpace(fmt.Sprintf("%v", row[periodIdx]))
+		}
+		
+		// Accumulate totals
+		totalDebits += debit
+		totalCredits += credit
+		
+		// Track by year for balance validation
+		if _, exists := debitCreditByYear[year]; !exists {
+			debitCreditByYear[year] = map[string]float64{"debits": 0, "credits": 0}
+		}
+		debitCreditByYear[year]["debits"] += debit
+		debitCreditByYear[year]["credits"] += credit
+		
+		// Track by account for out-of-balance detection
+		if accountNumber == "" || rowAccount == accountNumber {
+			if _, exists := outOfBalanceAccounts[rowAccount]; !exists {
+				outOfBalanceAccounts[rowAccount] = map[string]float64{"debits": 0, "credits": 0}
+			}
+			outOfBalanceAccounts[rowAccount]["debits"] += debit
+			outOfBalanceAccounts[rowAccount]["credits"] += credit
+		}
+		
+		// Check for zero amount transactions
+		if debit == 0 && credit == 0 {
+			zeroAmountTransactions++
+		}
+		
+		// Check for suspicious amounts (very large transactions)
+		if debit > 1000000 || credit > 1000000 {
+			suspiciousAmounts = append(suspiciousAmounts, map[string]interface{}{
+				"row_index": idx + 1,
+				"account":   rowAccount,
+				"debit":     debit,
+				"credit":    credit,
+				"year":      year,
+				"period":    period,
+			})
+		}
+		
+		// Check for duplicate transactions
+		transKey := fmt.Sprintf("%s|%.2f|%.2f|%s|%s", rowAccount, debit, credit, year, period)
+		if existingRows, exists := transactionMap[transKey]; exists {
+			// Found potential duplicate
+			if len(duplicateTransactions) < 10 { // Limit to first 10 duplicates
+				duplicateTransactions = append(duplicateTransactions, map[string]interface{}{
+					"row_indices":  append(existingRows, idx+1),
+					"account":      rowAccount,
+					"debit":        debit,
+					"credit":       credit,
+					"year":         year,
+					"period":       period,
+					"occurrence":   len(existingRows) + 1,
+				})
+			}
+			transactionMap[transKey] = append(existingRows, idx+1)
+		} else {
+			transactionMap[transKey] = []int{idx + 1}
+		}
+	}
+	
+	// Calculate out-of-balance difference
+	overallDifference := math.Abs(totalDebits - totalCredits)
+	isBalanced := overallDifference < 0.01 // Allow for rounding errors
+	
+	// Build year-by-year balance check
+	yearBalanceChecks := []map[string]interface{}{}
+	for year, amounts := range debitCreditByYear {
+		difference := math.Abs(amounts["debits"] - amounts["credits"])
+		yearBalanceChecks = append(yearBalanceChecks, map[string]interface{}{
+			"year":       year,
+			"debits":     amounts["debits"],
+			"credits":    amounts["credits"],
+			"difference": difference,
+			"balanced":   difference < 0.01,
+		})
+	}
+	
+	// Sort year balance checks
+	sort.Slice(yearBalanceChecks, func(i, j int) bool {
+		yearI := yearBalanceChecks[i]["year"].(string)
+		yearJ := yearBalanceChecks[j]["year"].(string)
+		return yearI > yearJ
+	})
+	
+	// Find accounts with significant imbalances
+	imbalancedAccounts := []map[string]interface{}{}
+	for account, amounts := range outOfBalanceAccounts {
+		difference := math.Abs(amounts["debits"] - amounts["credits"])
+		if difference > 0.01 && account != "" { // Significant imbalance
+			imbalancedAccounts = append(imbalancedAccounts, map[string]interface{}{
+				"account":    account,
+				"debits":     amounts["debits"],
+				"credits":    amounts["credits"],
+				"difference": difference,
+			})
+		}
+	}
+	
+	// Sort imbalanced accounts by difference (largest first)
+	sort.Slice(imbalancedAccounts, func(i, j int) bool {
+		diffI := imbalancedAccounts[i]["difference"].(float64)
+		diffJ := imbalancedAccounts[j]["difference"].(float64)
+		return diffI > diffJ
+	})
+	
+	// Limit to top 20 imbalanced accounts
+	if len(imbalancedAccounts) > 20 {
+		imbalancedAccounts = imbalancedAccounts[:20]
+	}
+	
+	result["total_debits"] = totalDebits
+	result["total_credits"] = totalCredits
+	result["overall_difference"] = overallDifference
+	result["is_balanced"] = isBalanced
+	result["year_balance_checks"] = yearBalanceChecks
+	result["duplicate_transactions"] = duplicateTransactions
+	result["duplicate_count"] = len(duplicateTransactions)
+	result["zero_amount_transactions"] = zeroAmountTransactions
+	result["suspicious_amounts"] = suspiciousAmounts
+	result["suspicious_count"] = len(suspiciousAmounts)
+	result["imbalanced_accounts"] = imbalancedAccounts
+	result["imbalanced_count"] = len(imbalancedAccounts)
+	result["total_rows_checked"] = len(glRows)
+	
+	return result, nil
+}
+
 // GetDBFTableDataPaged returns paginated and sorted data from a DBF file
 func (a *App) GetDBFTableDataPaged(companyName, fileName string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
 	fmt.Printf("GetDBFTableDataPaged called: company=%s, file=%s, offset=%d, limit=%d, sort=%s %s\n", 
@@ -1481,7 +1981,7 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 	}
 	
 	// Read checks.dbf - increase limit to get all records instead of just 10,000
-	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 50000, "", "")
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
 	}
@@ -1724,7 +2224,7 @@ func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, err
 	
 	// Read GLMASTER.dbf to get account balance
 	debug.LogInfo("GetAccountBalance", "Attempting to read GLMASTER.dbf")
-	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
 	if err != nil {
 		fmt.Printf("GetAccountBalance: failed to read GLMASTER.dbf: %v\n", err)
 		debug.LogError("GetAccountBalance", fmt.Errorf("failed to read GLMASTER.dbf: %v", err))
@@ -3524,13 +4024,18 @@ func (a *App) RefreshAllBalances(companyName string) (map[string]interface{}, er
 		}
 	}
 	
+	refreshedBy := "system"
+	if a.currentUser != nil {
+		refreshedBy = a.currentUser.Username
+	}
+	
 	return map[string]interface{}{
 		"status":        "completed",
 		"total_accounts": len(bankAccounts),
 		"success_count": successCount,
 		"error_count":   errorCount,
 		"errors":        errors,
-		"refreshed_by":  a.currentUser.Username,
+		"refreshed_by":  refreshedBy,
 		"refresh_time":  time.Now(),
 	}, nil
 }
@@ -3623,7 +4128,7 @@ func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, err
 	}
 	
 	// Read GLMASTER.dbf
-	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
 	if err != nil {
 		// If GLMASTER.dbf doesn't exist, return informative error
 		return map[string]interface{}{
@@ -5168,10 +5673,8 @@ func (a *App) LaunchVFPForm(formName string, argument string) (map[string]interf
 		return nil, fmt.Errorf("VFP client not initialized")
 	}
 	
-	// Get current company from FinancialsX
-	companyName := a.GetCurrentCompany()
-	
-	response, err := a.vfpClient.LaunchForm(formName, argument, companyName)
+	// Don't send company for now - user will ensure correct company is open
+	response, err := a.vfpClient.LaunchForm(formName, argument, "")
 	if err != nil {
 		return map[string]interface{}{
 			"success": false,
@@ -5195,7 +5698,8 @@ func (a *App) SyncVFPCompany() (map[string]interface{}, error) {
 	}
 
 	// Get current company from FinancialsX
-	currentCompany := a.GetCurrentCompany()
+	// For now, don't sync company - user will ensure correct company is open
+	currentCompany := ""
 	
 	// Set it in VFP
 	err := a.vfpClient.SetVFPCompany(currentCompany)

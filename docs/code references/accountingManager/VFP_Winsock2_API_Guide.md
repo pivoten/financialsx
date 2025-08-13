@@ -3,6 +3,11 @@
 ## Overview
 This guide shows how to implement TCP socket communication in Visual FoxPro using native Windows Sockets 2 (Winsock2) API calls. This approach requires no external dependencies or registrations.
 
+## Important VFP Compatibility Notes
+- **Reserved Words**: `bind` and `select` are VFP reserved words. We alias them to `wsbind` and `wsselect` in the API declarations.
+- **Bitwise Operations**: BITRSHIFT can cause "missing operand" errors. Use INT() and MOD() for byte extraction instead.
+- **Line Continuations**: Avoid line continuations in DECLARE statements - keep them on single lines.
+
 ## Key Benefits of Winsock2 API
 - **No Installation Required** - Built into every Windows version
 - **No Registration Needed** - Direct Windows API calls
@@ -86,7 +91,8 @@ DEFINE CLASS Winsock2Listener AS Custom
         DECLARE INTEGER shutdown IN ws2_32 INTEGER s, INTEGER how
         
         * Binding and listening
-        DECLARE INTEGER bind IN ws2_32 INTEGER s, STRING @name, INTEGER namelen
+        * NOTE: bind is a VFP reserved word, so we alias it to wsbind
+        DECLARE INTEGER wsbind IN ws2_32 AS bind INTEGER s, STRING @name, INTEGER namelen
         DECLARE INTEGER listen IN ws2_32 INTEGER s, INTEGER backlog
         DECLARE INTEGER accept IN ws2_32 INTEGER s, STRING @addr, INTEGER @addrlen
         
@@ -100,8 +106,8 @@ DEFINE CLASS Winsock2Listener AS Custom
         DECLARE INTEGER ioctlsocket IN ws2_32 INTEGER s, INTEGER cmd, INTEGER @argp
         
         * Select for non-blocking operations
-        DECLARE INTEGER select IN ws2_32 INTEGER nfds, STRING @readfds, ;
-                STRING @writefds, STRING @exceptfds, STRING @timeout
+        * NOTE: select is a VFP reserved word, so we alias it to wsselect
+        DECLARE INTEGER wsselect IN ws2_32 AS select INTEGER nfds, STRING @readfds, STRING @writefds, STRING @exceptfds, STRING @timeout
     ENDPROC
     
     * Start listening on specified port
@@ -123,21 +129,26 @@ DEFINE CLASS Winsock2Listener AS Custom
         * Set socket to non-blocking mode
         LOCAL lnNonBlocking
         lnNonBlocking = 1
-        ioctlsocket(This.nSocket, FIONBIO, @lnNonBlocking)
+        lnResult = ioctlsocket(This.nSocket, FIONBIO, @lnNonBlocking)
         
         * Prepare socket address structure
         * Structure: sin_family (2 bytes) + sin_port (2 bytes) + sin_addr (4 bytes) + padding (8 bytes)
-        LOCAL lcSockAddr, lnPortBE
+        LOCAL lcSockAddr, lnPortBE, lnPortHi, lnPortLo
         lnPortBE = htons(This.nPort)  && Convert port to big-endian
         
-        lcSockAddr = ;
-            CHR(BITAND(AF_INET, 0xFF)) + CHR(BITRSHIFT(AF_INET, 8)) + ;  && sin_family
-            CHR(BITRSHIFT(lnPortBE, 8)) + CHR(BITAND(lnPortBE, 0xFF)) + ; && sin_port (big-endian)
-            CHR(0) + CHR(0) + CHR(0) + CHR(0) + ;                         && sin_addr (INADDR_ANY)
-            REPLICATE(CHR(0), 8)                                           && padding
+        * Extract high and low bytes of port (avoids BITRSHIFT issues)
+        lnPortHi = INT(lnPortBE / 256)
+        lnPortLo = MOD(lnPortBE, 256)
         
-        * Bind to port
-        lnResult = bind(This.nSocket, @lcSockAddr, 16)
+        * Build the structure byte by byte
+        lcSockAddr = ""
+        lcSockAddr = lcSockAddr + CHR(2) + CHR(0)                       && sin_family = AF_INET (2)
+        lcSockAddr = lcSockAddr + CHR(lnPortHi) + CHR(lnPortLo)        && sin_port in big-endian
+        lcSockAddr = lcSockAddr + CHR(0) + CHR(0) + CHR(0) + CHR(0)    && sin_addr (INADDR_ANY)
+        lcSockAddr = lcSockAddr + REPLICATE(CHR(0), 8)                  && padding
+        
+        * Bind to port (using wsbind alias)
+        lnResult = wsbind(This.nSocket, @lcSockAddr, 16)
         
         IF lnResult = SOCKET_ERROR
             This.cLastError = "Failed to bind to port " + STR(This.nPort) + ;

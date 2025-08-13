@@ -89,6 +89,7 @@ import UserProfile from './components/UserProfile'
 import WellManagement from './components/WellManagement'
 import LegacyIntegration from './components/LegacyIntegration'
 import SherWareLegacy from './components/SherWareLegacy'
+import AuditTools from './components/AuditTools'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
 import { DashboardCard } from './components/DashboardCard'
@@ -133,6 +134,8 @@ interface User {
   id: number
   username: string
   email: string
+  name?: string
+  picture_url?: string
   role_name: string
   is_root: boolean
   company_name: string
@@ -670,15 +673,15 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
         <div className="p-3 border-t border-gray-200">
           {!isSidebarCollapsed && (
             <div 
-              className="mb-3 cursor-pointer hover:bg-gray-50 rounded p-2 -m-2 transition-colors"
+              className="mb-3 cursor-pointer hover:bg-gray-50 rounded p-2 transition-colors"
               onClick={() => {
                 setActiveView('settings');
                 setActiveSubView('profile');
               }}
               title="View Profile"
             >
-              <p className="text-sm text-gray-600 truncate">{currentUser?.email}</p>
-              <p className="text-xs text-gray-500">Company: {selectedCompany}</p>
+              <p className="text-sm text-gray-600 break-all">{currentUser?.email}</p>
+              <p className="text-xs text-gray-500 break-all">Company: {selectedCompany}</p>
             </div>
           )}
           <Button
@@ -1008,10 +1011,19 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                     onClick={() => setActiveSubView('revenue')}
                     accentColor="gray"
                   />
+                  <DashboardCard
+                    title="Audit Tools"
+                    subtitle="Data Validation"
+                    description="Check data integrity and validate GL entries"
+                    icon={FileSearch}
+                    onClick={() => setActiveSubView('audit')}
+                    accentColor="amber"
+                  />
                 </div>
               )}
               
               {activeSubView === 'banking' && <BankingSection currentUser={currentUser} companyName={selectedCompany} />}
+              {activeSubView === 'audit' && <AuditTools currentUser={currentUser} companyName={selectedCompany} />}
               {activeSubView === 'transactions' && <BillEntryEnhanced currentUser={currentUser} companyName={selectedCompany} />}
               {activeSubView === 'revenue' && (
                 <Card>

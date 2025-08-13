@@ -496,6 +496,20 @@ func ReadDBFFileDirectly(filePath, searchTerm string, offset, limit int, sortCol
 
 // ReadDBFFile reads a DBF file and returns its structure and data with pagination and sorting
 // If searchTerm is provided, it searches across all records and returns only matching ones
+//
+// ⚠️ CRITICAL WARNING: NEVER use arbitrary limits for financial calculations!
+// For GL balances, outstanding checks, or any financial reporting, ALWAYS use:
+//   offset=0, limit=0 (which means read ALL records)
+//
+// Only use non-zero limits for:
+//   - UI pagination/display
+//   - User-requested limited views  
+//   - Quick data sampling/preview
+//
+// Example of CORRECT usage for financial calculations:
+//   ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "") // Reads ALL records
+//
+// A hardcoded limit of 50,000 caused a $400,000 discrepancy in GL calculations!
 func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
 	// Use defer/recover to prevent crashes
 	defer func() {

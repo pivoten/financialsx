@@ -270,9 +270,55 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		fmt.Printf("RefreshGLBalance: No existing balance found, will create new\n")
 	}
 	
-	// Calculate new GL balance (existing logic from GetAccountBalance)
+	// First, get the account type from COA.dbf
+	fmt.Printf("RefreshGLBalance: Reading COA.dbf to get account type...\n")
+	// Read ALL COA records to ensure we find the account
+	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("RefreshGLBalance: ERROR reading COA.dbf: %v\n", err)
+		return fmt.Errorf("failed to read COA.dbf: %w", err)
+	}
+	
+	// Get column indices for COA.dbf
+	coaColumns, ok := coaData["columns"].([]string)
+	if !ok {
+		return fmt.Errorf("invalid COA.dbf structure")
+	}
+	
+	var coaAccountIdx, accountTypeIdx int = -1, -1
+	for i, col := range coaColumns {
+		colUpper := strings.ToUpper(col)
+		if colUpper == "CACCTNO" {
+			coaAccountIdx = i
+		} else if colUpper == "NACCTTYPE" {
+			accountTypeIdx = i
+		}
+	}
+	
+	if coaAccountIdx == -1 || accountTypeIdx == -1 {
+		return fmt.Errorf("required COA columns not found")
+	}
+	
+	// Find the account type
+	var accountType int = 1 // Default to asset if not found
+	coaRows, _ := coaData["rows"].([][]interface{})
+	for _, row := range coaRows {
+		if len(row) > coaAccountIdx && len(row) > accountTypeIdx {
+			rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[coaAccountIdx]))
+			if rowAccount == accountNumber {
+				if typeVal := parseFloat(row[accountTypeIdx]); typeVal != 0 {
+					accountType = int(typeVal)
+					fmt.Printf("RefreshGLBalance: Account %s has type %d\n", accountNumber, accountType)
+					break
+				}
+			}
+		}
+	}
+	
+	// Calculate new GL balance
 	fmt.Printf("RefreshGLBalance: Reading GLMASTER.dbf...\n")
-	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+	// IMPORTANT: Read ALL records (0, 0) to ensure we don't miss any transactions
+	glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
 	if err != nil {
 		fmt.Printf("RefreshGLBalance: ERROR reading GLMASTER.dbf: %v\n", err)
 		return fmt.Errorf("failed to read GLMASTER.dbf: %w", err)
@@ -300,8 +346,8 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		return fmt.Errorf("required GL columns not found")
 	}
 	
-	// Process GL entries
-	var totalBalance float64
+	// Process GL entries with account type-specific logic
+	var totalDebits, totalCredits float64
 	var recordCount int
 	glRows, _ := glData["rows"].([][]interface{})
 	
@@ -314,20 +360,44 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		if rowAccount == accountNumber {
 			recordCount++
 			
-			// Add debits
+			// Sum debits
 			if debitIdx != -1 && len(row) > debitIdx && row[debitIdx] != nil {
 				if debit := parseFloat(row[debitIdx]); debit != 0 {
-					totalBalance += debit
+					totalDebits += debit
 				}
 			}
 			
-			// Subtract credits
+			// Sum credits
 			if creditIdx != -1 && len(row) > creditIdx && row[creditIdx] != nil {
 				if credit := parseFloat(row[creditIdx]); credit != 0 {
-					totalBalance -= credit
+					totalCredits += credit
 				}
 			}
 		}
+	}
+	
+	// Apply correct formula based on account type
+	// Account Types (standard):
+	// 1 = Assets (Debit normal balance)
+	// 2 = Liabilities (Credit normal balance)
+	// 3 = Equity (Credit normal balance)
+	// 4 = Revenue/Income (Credit normal balance)
+	// 5 = Expenses (Debit normal balance)
+	var totalBalance float64
+	switch accountType {
+	case 1, 5: // Assets and Expenses (Debit normal balance)
+		totalBalance = totalDebits - totalCredits
+		fmt.Printf("RefreshGLBalance: Asset/Expense account - Debits: %.2f, Credits: %.2f, Balance: %.2f\n", 
+			totalDebits, totalCredits, totalBalance)
+	case 2, 3, 4: // Liabilities, Equity, Revenue (Credit normal balance)
+		totalBalance = totalCredits - totalDebits
+		fmt.Printf("RefreshGLBalance: Liability/Equity/Revenue account - Credits: %.2f, Debits: %.2f, Balance: %.2f\n", 
+			totalCredits, totalDebits, totalBalance)
+	default:
+		// Default to asset behavior if unknown type
+		totalBalance = totalDebits - totalCredits
+		fmt.Printf("RefreshGLBalance: Unknown account type %d, using asset formula - Balance: %.2f\n", 
+			accountType, totalBalance)
 	}
 	
 	fmt.Printf("RefreshGLBalance: Processed %d records, total balance: %.2f\n", recordCount, totalBalance)
@@ -341,19 +411,20 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(company_name, account_number) 
 		DO UPDATE SET 
+			account_type = excluded.account_type,
 			gl_balance = excluded.gl_balance, 
 			gl_record_count = excluded.gl_record_count, 
 			gl_last_updated = CURRENT_TIMESTAMP
-	`, companyName, accountNumber, "", 1, totalBalance, recordCount)
+	`, companyName, accountNumber, "", accountType, totalBalance, recordCount)
 	
 	if err != nil {
 		fmt.Printf("RefreshGLBalance: UPSERT error: %v, trying fallback UPDATE\n", err)
 		// Fallback to simple UPDATE if INSERT OR REPLACE is not working
 		_, err = db.Exec(`
 			UPDATE account_balances 
-			SET gl_balance = ?, gl_record_count = ?, gl_last_updated = CURRENT_TIMESTAMP
+			SET account_type = ?, gl_balance = ?, gl_record_count = ?, gl_last_updated = CURRENT_TIMESTAMP
 			WHERE company_name = ? AND account_number = ?
-		`, totalBalance, recordCount, companyName, accountNumber)
+		`, accountType, totalBalance, recordCount, companyName, accountNumber)
 		
 		// Record the change in history
 		if err == nil {
@@ -377,6 +448,7 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 // Bank Reconciliation Formula: GL Balance + Uncleared Deposits - Uncleared Checks = Bank Balance
 func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username string) error {
 	// Read CHECKS.dbf which contains both checks (CENTRYTYPE=C) and deposits (CENTRYTYPE=D)
+	// IMPORTANT: Read ALL records (0, 0) to ensure we don't miss any checks/deposits
 	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
 	if err != nil {
 		return fmt.Errorf("failed to read checks.dbf: %w", err)

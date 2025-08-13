@@ -258,12 +258,13 @@ func (v *VFPClient) LaunchForm(formName string, argument string, companyName str
 	cmd := Command{
 		Action:   "launchForm",
 		FormName: formName,
-		Form:     formName, // backward compatibility
 		Argument: argument,
-		Arg:      argument, // backward compatibility
-		Company:  companyName,
+		// Don't send company for now - user will ensure correct company is open
 	}
 
+	// Debug log the command
+	fmt.Printf("LaunchForm sending command: %+v\n", cmd)
+	
 	response, err := v.sendCommand(cmd)
 	if err != nil {
 		return "", err

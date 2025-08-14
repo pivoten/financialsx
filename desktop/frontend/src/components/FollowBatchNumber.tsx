@@ -23,6 +23,8 @@ interface BatchData {
   total_records_found: number
   checks: TableData
   glmaster: TableData
+  glmaster_purchase?: TableData
+  appurchh?: TableData
   appurchd: TableData
   appmthdr: TableData
   appmtdet: TableData
@@ -603,9 +605,10 @@ const FollowBatchNumber: React.FC = () => {
             searchResults={{
               checks: batchData.checks,
               glmaster: batchData.glmaster,
+              glmaster_purchase: batchData.glmaster_purchase,
               appmthdr: batchData.appmthdr,
               appmtdet: batchData.appmtdet,
-              appurchh: batchData.appurchd, // Using appurchd data for appurchh in flow
+              appurchh: batchData.appurchh,
               appurchd: batchData.appurchd
             }}
           />

@@ -7410,25 +7410,84 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 			var matchingRows []map[string]interface{}
 			
 			if rows, ok := data["rows"].([]map[string]interface{}); ok {
-				for _, row := range rows {
+				fmt.Printf("FollowBatchNumber: Checking %d rows in %s as []map[string]interface{}\n", len(rows), tableName)
+				for i, row := range rows {
 					if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
 						batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+						// Debug first few CBATCH values
+						if i < 5 {
+							fmt.Printf("FollowBatchNumber: Row %d CBATCH='%s' comparing to '%s'\n", i, batchStr, purchaseBatch)
+						}
 						if strings.EqualFold(batchStr, purchaseBatch) {
+							fmt.Printf("FollowBatchNumber: MATCH FOUND at row %d\n", i)
 							matchingRows = append(matchingRows, row)
 						}
 					}
 				}
 			} else if rows, ok := data["rows"].([]interface{}); ok {
-				for _, item := range rows {
+				fmt.Printf("FollowBatchNumber: Checking %d rows in %s as []interface{}\n", len(rows), tableName)
+				for i, item := range rows {
 					if row, ok := item.(map[string]interface{}); ok {
 						if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
 							batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+							// Debug first few CBATCH values
+							if i < 5 {
+								fmt.Printf("FollowBatchNumber: Row %d CBATCH='%s' comparing to '%s'\n", i, batchStr, purchaseBatch)
+							}
 							if strings.EqualFold(batchStr, purchaseBatch) {
+								fmt.Printf("FollowBatchNumber: MATCH FOUND at row %d\n", i)
 								matchingRows = append(matchingRows, row)
 							}
 						}
 					}
 				}
+			} else if rows, ok := data["rows"].([][]interface{}); ok {
+				// Handle 2D array format (each row is an array of values)
+				fmt.Printf("FollowBatchNumber: Checking %d rows in %s as [][]interface{}\n", len(rows), tableName)
+				
+				// Get column names to map indices
+				columns, _ := data["columns"].([]string)
+				cbatchIndex := -1
+				for idx, col := range columns {
+					if col == "CBATCH" {
+						cbatchIndex = idx
+						break
+					}
+				}
+				
+				if cbatchIndex == -1 {
+					fmt.Printf("FollowBatchNumber: CBATCH column not found in %s columns: %v\n", tableName, columns)
+				} else {
+					fmt.Printf("FollowBatchNumber: CBATCH is at index %d in %s\n", cbatchIndex, tableName)
+					
+					// Process rows
+					for i, row := range rows {
+						if cbatchIndex < len(row) {
+							batchRaw := row[cbatchIndex]
+							batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+							
+							// Debug first few rows
+							if i < 5 {
+								fmt.Printf("FollowBatchNumber: Row %d CBATCH='%s' comparing to '%s'\n", i, batchStr, purchaseBatch)
+							}
+							
+							// Check for match
+							if strings.EqualFold(batchStr, purchaseBatch) {
+								fmt.Printf("FollowBatchNumber: MATCH FOUND at row %d\n", i)
+								// Convert row array to map for consistent output
+								rowMap := make(map[string]interface{})
+								for colIdx, colName := range columns {
+									if colIdx < len(row) {
+										rowMap[colName] = row[colIdx]
+									}
+								}
+								matchingRows = append(matchingRows, rowMap)
+							}
+						}
+					}
+				}
+			} else {
+				fmt.Printf("FollowBatchNumber: Could not cast rows to expected type for %s\n", tableName)
 			}
 			
 			result[resultKey].(map[string]interface{})["records"] = matchingRows
@@ -7437,6 +7496,7 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		}
 		
 		// Search APPURCHH and APPURCHD with the purchase batch
+		fmt.Printf("FollowBatchNumber: About to search APPURCHH and APPURCHD with purchase batch '%s'\n", purchaseBatch)
 		searchPurchaseTable("APPURCHH.dbf", "appurchh")
 		searchPurchaseTable("APPURCHD.dbf", "appurchd")
 		
@@ -7444,10 +7504,14 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		// These should be stored separately as "glmaster_purchase" for the flow chart
 		fmt.Printf("FollowBatchNumber: Searching GLMASTER for purchase batch '%s' with CSOURCE='AP'\n", purchaseBatch)
 		glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
-		if err == nil {
+		if err != nil {
+			fmt.Printf("FollowBatchNumber: Error reading GLMASTER.dbf: %v\n", err)
+		} else {
+			fmt.Printf("FollowBatchNumber: Successfully read GLMASTER.dbf\n")
 			var purchaseGLRows []map[string]interface{}
 			if rows, ok := glData["rows"].([]map[string]interface{}); ok {
-				for _, row := range rows {
+				fmt.Printf("FollowBatchNumber: Checking %d GL rows for purchase batch '%s'\n", len(rows), purchaseBatch)
+				for i, row := range rows {
 					if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
 						batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
 						if strings.EqualFold(batchStr, purchaseBatch) {
@@ -7455,11 +7519,94 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 							if sourceRaw, exists := row["CSOURCE"]; exists && sourceRaw != nil {
 								sourceStr := strings.TrimSpace(fmt.Sprintf("%v", sourceRaw))
 								if strings.EqualFold(sourceStr, "AP") {
+									fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d with CSOURCE='%s'\n", i, sourceStr)
 									purchaseGLRows = append(purchaseGLRows, row)
 								}
 							} else {
 								// If no CSOURCE field, include all with purchase batch
+								fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d (no CSOURCE field)\n", i)
 								purchaseGLRows = append(purchaseGLRows, row)
+							}
+						}
+					}
+				}
+			} else if rows, ok := glData["rows"].([]interface{}); ok {
+				fmt.Printf("FollowBatchNumber: Checking %d GL rows (as []interface{}) for purchase batch '%s'\n", len(rows), purchaseBatch)
+				for i, item := range rows {
+					if row, ok := item.(map[string]interface{}); ok {
+						if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
+							batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+							if strings.EqualFold(batchStr, purchaseBatch) {
+								// For purchase GL entries, we check CSOURCE = 'AP'
+								if sourceRaw, exists := row["CSOURCE"]; exists && sourceRaw != nil {
+									sourceStr := strings.TrimSpace(fmt.Sprintf("%v", sourceRaw))
+									if strings.EqualFold(sourceStr, "AP") {
+										fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d with CSOURCE='%s'\n", i, sourceStr)
+										purchaseGLRows = append(purchaseGLRows, row)
+									}
+								} else {
+									// If no CSOURCE field, include all with purchase batch
+									fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d (no CSOURCE field)\n", i)
+									purchaseGLRows = append(purchaseGLRows, row)
+								}
+							}
+						}
+					}
+				}
+			} else if rows, ok := glData["rows"].([][]interface{}); ok {
+				// Handle 2D array format (each row is an array of values)
+				fmt.Printf("FollowBatchNumber: Checking %d GL rows (as [][]interface{}) for purchase batch '%s'\n", len(rows), purchaseBatch)
+				
+				// Get column names to map indices
+				columns, _ := glData["columns"].([]string)
+				cbatchIndex := -1
+				csourceIndex := -1
+				for idx, col := range columns {
+					if col == "CBATCH" {
+						cbatchIndex = idx
+					}
+					if col == "CSOURCE" {
+						csourceIndex = idx
+					}
+				}
+				
+				if cbatchIndex == -1 {
+					fmt.Printf("FollowBatchNumber: CBATCH column not found in GLMASTER\n")
+				} else {
+					fmt.Printf("FollowBatchNumber: CBATCH is at index %d, CSOURCE at index %d in GLMASTER\n", cbatchIndex, csourceIndex)
+					
+					// Process rows
+					for i, row := range rows {
+						if cbatchIndex < len(row) {
+							batchRaw := row[cbatchIndex]
+							batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+							
+							if strings.EqualFold(batchStr, purchaseBatch) {
+								// Check CSOURCE if column exists
+								includeRow := false
+								if csourceIndex >= 0 && csourceIndex < len(row) {
+									sourceRaw := row[csourceIndex]
+									sourceStr := strings.TrimSpace(fmt.Sprintf("%v", sourceRaw))
+									if strings.EqualFold(sourceStr, "AP") {
+										fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d with CSOURCE='%s'\n", i, sourceStr)
+										includeRow = true
+									}
+								} else {
+									// No CSOURCE column or value, include all with purchase batch
+									fmt.Printf("FollowBatchNumber: Found GL purchase entry at row %d (no CSOURCE check)\n", i)
+									includeRow = true
+								}
+								
+								if includeRow {
+									// Convert row array to map for consistent output
+									rowMap := make(map[string]interface{})
+									for colIdx, colName := range columns {
+										if colIdx < len(row) {
+											rowMap[colName] = row[colIdx]
+										}
+									}
+									purchaseGLRows = append(purchaseGLRows, rowMap)
+								}
 							}
 						}
 					}
@@ -7475,6 +7622,8 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 					"columns": glData["columns"],
 				}
 				fmt.Printf("FollowBatchNumber: Found %d purchase GL records in GLMASTER for batch '%s'\n", len(purchaseGLRows), purchaseBatch)
+			} else {
+				fmt.Printf("FollowBatchNumber: No purchase GL records found for batch '%s'\n", purchaseBatch)
 			}
 		}
 	} else if purchaseBatch == "" {

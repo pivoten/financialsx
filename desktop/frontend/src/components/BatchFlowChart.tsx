@@ -109,8 +109,7 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
             {icon}
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-sm">{title}</h3>
-            <p className="text-xs text-gray-500">{subtitle}</p>
+            <h3 className="font-semibold text-sm">{subtitle}</h3>
           </div>
         </div>
         <div className="flex-1 flex flex-col justify-center">

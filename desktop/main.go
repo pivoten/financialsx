@@ -7162,11 +7162,9 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 	searchTable := func(tableName string, resultKey string) {
 		fmt.Printf("FollowBatchNumber: Searching %s for batch '%s'\n", tableName, batchNumber)
 		
-		// Determine which field to search based on table name
+		// All tables are searched by CBATCH
+		// For APPMTDET, we search by CBATCH and then extract CBILLTOKEN
 		searchField := "CBATCH"
-		if strings.ToUpper(tableName) == "APPMTDET.DBF" {
-			searchField = "CBILLTOKEN"
-		}
 		
 		// Read the entire table (no limit to ensure we find all matching records)
 		data, err := company.ReadDBFFile(companyName, tableName, "", 0, 0, "", "")
@@ -7354,18 +7352,17 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 	searchTable("GLMASTER.dbf", "glmaster")
 	searchTable("APPMTHDR.dbf", "appmthdr")
 	
-	// Step 2: Search APPMTDET for records where CBILLTOKEN = original batch
-	// This is already done by searchTable function since it checks CBILLTOKEN for APPMTDET
+	// Step 2: Search APPMTDET for records where CBATCH = original batch
 	searchTable("APPMTDET.dbf", "appmtdet")
 	
-	// Step 3: If we found APPMTDET records, extract their CBATCH and search for it
+	// Step 3: If we found APPMTDET records, extract their CBILLTOKEN (not CBATCH!)
 	var purchaseBatch string
 	if appmtdetData, ok := result["appmtdet"].(map[string]interface{}); ok {
 		if records, ok := appmtdetData["records"].([]map[string]interface{}); ok && len(records) > 0 {
-			// Get the CBATCH from the first APPMTDET record (they should all have the same purchase batch)
-			if cbatch, exists := records[0]["CBATCH"]; exists && cbatch != nil {
-				purchaseBatch = strings.TrimSpace(fmt.Sprintf("%v", cbatch))
-				fmt.Printf("FollowBatchNumber: Found purchase batch '%s' from APPMTDET.CBATCH\n", purchaseBatch)
+			// Get the CBILLTOKEN from the first APPMTDET record - this is the purchase batch number
+			if cbilltoken, exists := records[0]["CBILLTOKEN"]; exists && cbilltoken != nil {
+				purchaseBatch = strings.TrimSpace(fmt.Sprintf("%v", cbilltoken))
+				fmt.Printf("FollowBatchNumber: Found purchase batch '%s' from APPMTDET.CBILLTOKEN\n", purchaseBatch)
 			}
 		}
 	}

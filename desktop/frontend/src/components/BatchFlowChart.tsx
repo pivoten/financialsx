@@ -223,7 +223,7 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
                 "APPMTDET.DBF",
                 "Payment Details",
                 searchResults.appmtdet,
-                `CBILLTOKEN → CBATCH`
+                `CBATCH: ${batchNumber}`
               )}
             </div>
           </div>
@@ -304,13 +304,14 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
         <h4 className="text-sm font-medium text-amber-900 mb-1">Complete Transaction Flow:</h4>
         <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
           <li><strong>Check Entry:</strong> Start with check in CHECKS.DBF using CBATCH</li>
-          <li><strong>Payment GL:</strong> Find GL transaction for the check payment</li>
-          <li><strong>Payment Records:</strong> Find APPMTHDR (header) and APPMTDET (details) - CBILLTOKEN links to original</li>
-          <li><strong>Purchase GL:</strong> Find original GL entry when purchase was recorded (CSOURCE = 'AP')</li>
-          <li><strong>Original Purchases:</strong> Find original purchase documents - APPURCHH (header) and APPURCHD (details)</li>
+          <li><strong>Payment GL:</strong> Find GL transaction for the check payment (same CBATCH)</li>
+          <li><strong>Payment Records:</strong> Find APPMTHDR and APPMTDET using CBATCH</li>
+          <li><strong>Extract Purchase Batch:</strong> Get CBILLTOKEN from APPMTDET - this is the original purchase batch</li>
+          <li><strong>Purchase GL:</strong> Find GL with CBATCH = CBILLTOKEN (CSOURCE = 'AP')</li>
+          <li><strong>Original Purchases:</strong> Find APPURCHH and APPURCHD with CBATCH = CBILLTOKEN</li>
         </ol>
         <p className="text-xs text-amber-700 mt-2 font-medium">
-          Key: CBILLTOKEN links payment side to entry side | Two GL entries: Payment & Original Purchase
+          Key: APPMTDET.CBILLTOKEN contains the original purchase batch number
         </p>
       </div>
 

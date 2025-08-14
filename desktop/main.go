@@ -8036,79 +8036,139 @@ func (a *App) CheckOwnerStatementFiles(companyName string) map[string]interface{
 		"error": "",
 	}
 	
-	// Log platform-specific path handling
-	if runtime.GOOS == "windows" {
-		logger.WriteInfo("CheckOwnerStatementFiles", "Running on Windows - using Windows path resolution")
+	// Build the path to the ownerstatements directory
+	// We need to resolve the actual file system path
+	var ownerStatementsPath string
+	
+	// Use the same logic as ReadDBFFile to resolve the company path
+	if filepath.IsAbs(companyName) {
+		ownerStatementsPath = filepath.Join(companyName, "ownerstatements")
 	} else {
-		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Running on %s - using Unix path resolution", runtime.GOOS))
+		// For relative paths, we need to resolve relative to the working directory
+		// The company data is in datafiles/{companyName}
+		workingDir, _ := os.Getwd()
+		ownerStatementsPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements")
 	}
 	
-	// Use ReadDBFFile to check if we can access files in ownerstatements subdirectory
-	// This will handle all the path resolution logic for us
-	ownerStatementsFile := filepath.Join("ownerstatements", "dummy.dbf")
-	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Checking for files in: %s", ownerStatementsFile))
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Checking directory: %s", ownerStatementsPath))
 	
-	data, err := company.ReadDBFFile(companyName, ownerStatementsFile, "", 0, 1, "", "")
-	
-	// Log the result of the check
+	// Check if the ownerstatements directory exists
+	dirInfo, err := os.Stat(ownerStatementsPath)
 	if err != nil {
-		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("ReadDBFFile error: %v", err))
-		debug.SimpleLog(fmt.Sprintf("CheckOwnerStatementFiles: Error checking directory: %v", err))
-	}
-	
-	// If we get a "file does not exist" error for dummy.dbf, check if the directory exists
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		logger.WriteInfo("CheckOwnerStatementFiles", "Directory or file does not exist")
-		
-		// Try to list files in the ownerstatements directory
-		// We'll use GetDBFFiles and filter for ownerstatements path
-		allFiles, err := company.GetDBFFiles(companyName)
-		if err != nil {
-			logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("GetDBFFiles failed: %v", err))
+		if os.IsNotExist(err) {
+			logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory does not exist")
 			result["error"] = "No Owner Distribution Files Found"
 			return result
 		}
-		
-		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found %d total DBF files in company", len(allFiles)))
-		
-		// Check if any files are in ownerstatements folder
-		// Since GetDBFFiles returns filenames only, we need a different approach
-		// For now, return a message that we need to check the directory
-		_ = data // silence unused variable warning
-		_ = allFiles
-		result["error"] = "No Owner Distribution Files Found"
-		
-		logger.WriteInfo("CheckOwnerStatementFiles", "No owner statement files found")
+		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error checking directory: %v", err))
+		result["error"] = fmt.Sprintf("Error accessing directory: %v", err)
 		return result
 	}
 	
-	// If we get here, the directory exists but we need to list actual files
-	// For now, return that files were found (this is a stub)
-	logger.WriteInfo("CheckOwnerStatementFiles", "Owner statements directory exists, returning placeholder files")
-	result["hasFiles"] = true
-	result["files"] = []string{"owner_statements.dbf"} // Placeholder
+	if !dirInfo.IsDir() {
+		logger.WriteError("CheckOwnerStatementFiles", "ownerstatements exists but is not a directory")
+		result["error"] = "ownerstatements is not a directory"
+		return result
+	}
 	
-	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Returning result: hasFiles=%v, fileCount=%d", result["hasFiles"], len(result["files"].([]string))))
+	// Directory exists, now scan for DBF files
+	logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory exists, scanning for DBF files")
+	
+	files, err := os.ReadDir(ownerStatementsPath)
+	if err != nil {
+		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error reading directory: %v", err))
+		result["error"] = fmt.Sprintf("Error reading directory: %v", err)
+		return result
+	}
+	
+	var dbfFiles []string
+	for _, file := range files {
+		if !file.IsDir() {
+			fileName := file.Name()
+			if strings.HasSuffix(strings.ToLower(fileName), ".dbf") {
+				logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found DBF file: %s", fileName))
+				dbfFiles = append(dbfFiles, fileName)
+			}
+		}
+	}
+	
+	if len(dbfFiles) > 0 {
+		result["hasFiles"] = true
+		result["files"] = dbfFiles
+		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found %d DBF files in ownerstatements", len(dbfFiles)))
+	} else {
+		result["error"] = "No Owner Distribution Files Found"
+		logger.WriteInfo("CheckOwnerStatementFiles", "No DBF files found in ownerstatements directory")
+	}
+	
 	return result
 }
 
 // GetOwnerStatementsList returns a list of available owner statement files
 func (a *App) GetOwnerStatementsList(companyName string) ([]map[string]interface{}, error) {
-	// For now, return a simple stub since we're focusing on basic implementation
-	return []map[string]interface{}{
-		{
-			"filename": "owner_statements.dbf",
-			"size": 1024,
-			"modified": "2024-01-01 12:00:00",
-			"hasFPT": true,
-		},
-	}, nil
+	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Called for company: %s", companyName))
+	
+	// Build the path to the ownerstatements directory
+	var ownerStatementsPath string
+	
+	if filepath.IsAbs(companyName) {
+		ownerStatementsPath = filepath.Join(companyName, "ownerstatements")
+	} else {
+		workingDir, _ := os.Getwd()
+		ownerStatementsPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements")
+	}
+	
+	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Scanning directory: %s", ownerStatementsPath))
+	
+	// Check if directory exists
+	if _, err := os.Stat(ownerStatementsPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("ownerstatements directory not found")
+	}
+	
+	// Read directory
+	files, err := os.ReadDir(ownerStatementsPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading directory: %v", err)
+	}
+	
+	var statementFiles []map[string]interface{}
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".dbf") {
+			info, _ := file.Info()
+			statementFile := map[string]interface{}{
+				"filename": file.Name(),
+				"size": info.Size(),
+				"modified": info.ModTime().Format("2006-01-02 15:04:05"),
+			}
+			
+			// Check if corresponding FPT file exists
+			fptName := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name())) + ".fpt"
+			fptPath := filepath.Join(ownerStatementsPath, fptName)
+			if _, err := os.Stat(fptPath); err == nil {
+				statementFile["hasFPT"] = true
+			} else {
+				fptName = strings.TrimSuffix(file.Name(), filepath.Ext(file.Name())) + ".FPT"
+				fptPath = filepath.Join(ownerStatementsPath, fptName)
+				if _, err := os.Stat(fptPath); err == nil {
+					statementFile["hasFPT"] = true
+				} else {
+					statementFile["hasFPT"] = false
+				}
+			}
+			
+			statementFiles = append(statementFiles, statementFile)
+			logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Added file: %s (size: %d, hasFPT: %v)", 
+				file.Name(), info.Size(), statementFile["hasFPT"]))
+		}
+	}
+	
+	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Found %d DBF files", len(statementFiles)))
+	return statementFiles, nil
 }
 
 // GenerateOwnerStatementPDF generates a PDF for owner distribution statements
 func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (string, error) {
-	// TODO: Implement actual PDF generation logic
-	// For now, this is a stub that will be expanded later
+	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Called for company: %s, file: %s", companyName, fileName))
 	
 	// Read the DBF file from ownerstatements subdirectory
 	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
@@ -8116,18 +8176,399 @@ func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (st
 		return "", fmt.Errorf("error reading DBF file: %v", err)
 	}
 	
-	// TODO: Process the DBF data and generate PDF
-	// This is where we'll add the actual PDF generation logic
+	// Get columns to understand the structure
+	columns, _ := dbfData["columns"].([]string)
+	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("DBF Columns: %v", columns))
 	
-	// For now, return a stub message
-	recordCount := 0
-	if rows, ok := dbfData["rows"].([]map[string]interface{}); ok {
-		recordCount = len(rows)
-	} else if rows, ok := dbfData["rows"].([]interface{}); ok {
-		recordCount = len(rows)
+	// Get the rows - they come as [][]interface{} from ReadDBFFile
+	var rows []map[string]interface{}
+	if rowsData, ok := dbfData["rows"].([]map[string]interface{}); ok {
+		// Already in the right format (shouldn't happen with current ReadDBFFile)
+		rows = rowsData
+	} else if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
+		// Convert [][]interface{} to []map[string]interface{}
+		// Each row is an array of values that corresponds to the columns array
+		for _, rowValues := range rowsArray {
+			rowMap := make(map[string]interface{})
+			for i, value := range rowValues {
+				if i < len(columns) {
+					rowMap[columns[i]] = value
+				}
+			}
+			rows = append(rows, rowMap)
+		}
+		logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Converted %d rows from array format to map format", len(rows)))
+	} else if rowsInterface, ok := dbfData["rows"].([]interface{}); ok {
+		// Handle []interface{} where each item might be []interface{}
+		for _, item := range rowsInterface {
+			if rowArray, ok := item.([]interface{}); ok {
+				// Convert array row to map
+				rowMap := make(map[string]interface{})
+				for i, value := range rowArray {
+					if i < len(columns) {
+						rowMap[columns[i]] = value
+					}
+				}
+				rows = append(rows, rowMap)
+			}
+		}
+		logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Converted %d rows from interface array format to map format", len(rows)))
 	}
 	
-	return fmt.Sprintf("PDF generation for %s is not yet implemented. File contains %d records.", fileName, recordCount), nil
+	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Found %d records in %s", len(rows), fileName))
+	
+	// Log first record to understand the data structure
+	if len(rows) > 0 {
+		logger.WriteInfo("GenerateOwnerStatementPDF", "First record sample:")
+		for key, value := range rows[0] {
+			// Limit value display to prevent huge logs
+			valueStr := fmt.Sprintf("%v", value)
+			if len(valueStr) > 100 {
+				valueStr = valueStr[:100] + "..."
+			}
+			logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("  %s: %s", key, valueStr))
+		}
+	}
+	
+	// For now, let's examine the data and return info about it
+	// We'll implement the actual PDF generation once we understand the structure
+	
+	result := fmt.Sprintf("DBF Analysis Complete:\n")
+	result += fmt.Sprintf("- File: %s\n", fileName)
+	result += fmt.Sprintf("- Records: %d\n", len(rows))
+	result += fmt.Sprintf("- Columns: %d\n", len(columns))
+	result += fmt.Sprintf("\nColumn Names:\n")
+	for _, col := range columns {
+		result += fmt.Sprintf("  - %s\n", col)
+	}
+	
+	// TODO: Implement actual PDF generation based on the DBF structure
+	// This will involve:
+	// 1. Creating a PDF document
+	// 2. Adding header with company/owner info
+	// 3. Adding statement details
+	// 4. Adding distribution/payment information
+	// 5. Saving the PDF file
+	
+	return result, nil
+}
+
+// GetOwnersList returns a unique list of owners from the statement DBF file
+func (a *App) GetOwnersList(companyName string, fileName string) ([]map[string]interface{}, error) {
+	logger.WriteInfo("GetOwnersList", fmt.Sprintf("Getting owners list from %s/%s", companyName, fileName))
+	
+	// Read the DBF file
+	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("error reading DBF file: %v", err)
+	}
+	
+	// Get columns
+	columns, _ := dbfData["columns"].([]string)
+	
+	// Convert rows to map format
+	var rows []map[string]interface{}
+	if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
+		for _, rowValues := range rowsArray {
+			rowMap := make(map[string]interface{})
+			for i, value := range rowValues {
+				if i < len(columns) {
+					rowMap[columns[i]] = value
+				}
+			}
+			rows = append(rows, rowMap)
+		}
+	}
+	
+	// Find owner-related columns (COWNNAME, COWNERID, COWNNO, etc.)
+	ownerNameCol := ""
+	ownerIDCol := ""
+	for _, col := range columns {
+		colUpper := strings.ToUpper(col)
+		if strings.Contains(colUpper, "OWNNAME") || strings.Contains(colUpper, "OWNER") && strings.Contains(colUpper, "NAME") {
+			ownerNameCol = col
+		}
+		if strings.Contains(colUpper, "OWNERID") || strings.Contains(colUpper, "OWNNO") || strings.Contains(colUpper, "COWNID") {
+			ownerIDCol = col
+		}
+	}
+	
+	// If we didn't find specific owner columns, look for generic name columns
+	if ownerNameCol == "" {
+		for _, col := range columns {
+			colUpper := strings.ToUpper(col)
+			if colUpper == "CNAME" || colUpper == "NAME" || strings.Contains(colUpper, "NAME") {
+				ownerNameCol = col
+				break
+			}
+		}
+	}
+	
+	// Build unique owners list
+	ownersMap := make(map[string]map[string]interface{})
+	for _, row := range rows {
+		ownerName := ""
+		ownerID := ""
+		
+		if ownerNameCol != "" {
+			if val, ok := row[ownerNameCol]; ok && val != nil {
+				ownerName = strings.TrimSpace(fmt.Sprintf("%v", val))
+			}
+		}
+		
+		if ownerIDCol != "" {
+			if val, ok := row[ownerIDCol]; ok && val != nil {
+				ownerID = strings.TrimSpace(fmt.Sprintf("%v", val))
+			}
+		}
+		
+		// Use name as key, or ID if name is empty
+		key := ownerName
+		if key == "" {
+			key = ownerID
+		}
+		
+		if key != "" && key != "0" {
+			if _, exists := ownersMap[key]; !exists {
+				ownersMap[key] = map[string]interface{}{
+					"name": ownerName,
+					"id":   ownerID,
+					"key":  key,
+				}
+			}
+		}
+	}
+	
+	// Convert map to slice
+	var owners []map[string]interface{}
+	for _, owner := range ownersMap {
+		owners = append(owners, owner)
+	}
+	
+	// Sort by name
+	sort.Slice(owners, func(i, j int) bool {
+		name1 := fmt.Sprintf("%v", owners[i]["name"])
+		name2 := fmt.Sprintf("%v", owners[j]["name"])
+		return name1 < name2
+	})
+	
+	logger.WriteInfo("GetOwnersList", fmt.Sprintf("Found %d unique owners", len(owners)))
+	return owners, nil
+}
+
+// GetOwnerStatementData returns statement data for a specific owner
+func (a *App) GetOwnerStatementData(companyName string, fileName string, ownerKey string) (map[string]interface{}, error) {
+	logger.WriteInfo("GetOwnerStatementData", fmt.Sprintf("Getting statement data for owner: %s", ownerKey))
+	
+	// Read the DBF file
+	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("error reading DBF file: %v", err)
+	}
+	
+	// Get columns
+	columns, _ := dbfData["columns"].([]string)
+	
+	// Convert rows to map format
+	var allRows []map[string]interface{}
+	if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
+		for _, rowValues := range rowsArray {
+			rowMap := make(map[string]interface{})
+			for i, value := range rowValues {
+				if i < len(columns) {
+					rowMap[columns[i]] = value
+				}
+			}
+			allRows = append(allRows, rowMap)
+		}
+	}
+	
+	// Find owner-related columns
+	ownerNameCol := ""
+	ownerIDCol := ""
+	for _, col := range columns {
+		colUpper := strings.ToUpper(col)
+		if strings.Contains(colUpper, "OWNNAME") || strings.Contains(colUpper, "OWNER") && strings.Contains(colUpper, "NAME") {
+			ownerNameCol = col
+		}
+		if strings.Contains(colUpper, "OWNERID") || strings.Contains(colUpper, "OWNNO") || strings.Contains(colUpper, "COWNID") {
+			ownerIDCol = col
+		}
+	}
+	
+	// If we didn't find specific owner columns, look for generic name columns
+	if ownerNameCol == "" {
+		for _, col := range columns {
+			colUpper := strings.ToUpper(col)
+			if colUpper == "CNAME" || colUpper == "NAME" || strings.Contains(colUpper, "NAME") {
+				ownerNameCol = col
+				break
+			}
+		}
+	}
+	
+	// Filter rows for this owner
+	var ownerRows []map[string]interface{}
+	for _, row := range allRows {
+		match := false
+		
+		// Check by name
+		if ownerNameCol != "" {
+			if val, ok := row[ownerNameCol]; ok && val != nil {
+				name := strings.TrimSpace(fmt.Sprintf("%v", val))
+				if name == ownerKey {
+					match = true
+				}
+			}
+		}
+		
+		// Check by ID if not matched by name
+		if !match && ownerIDCol != "" {
+			if val, ok := row[ownerIDCol]; ok && val != nil {
+				id := strings.TrimSpace(fmt.Sprintf("%v", val))
+				if id == ownerKey {
+					match = true
+				}
+			}
+		}
+		
+		if match {
+			ownerRows = append(ownerRows, row)
+		}
+	}
+	
+	// Calculate totals and summaries
+	totalGross := 0.0
+	totalNet := 0.0
+	totalTax := 0.0
+	wellCount := make(map[string]bool)
+	
+	// Look for amount columns
+	for _, row := range ownerRows {
+		// Check for well identifier
+		for _, col := range columns {
+			colUpper := strings.ToUpper(col)
+			if strings.Contains(colUpper, "WELL") || strings.Contains(colUpper, "LEASE") {
+				if val, ok := row[col]; ok && val != nil {
+					wellID := fmt.Sprintf("%v", val)
+					if wellID != "" && wellID != "0" {
+						wellCount[wellID] = true
+					}
+				}
+			}
+		}
+		
+		// Sum amounts
+		for key, val := range row {
+			keyUpper := strings.ToUpper(key)
+			if val != nil {
+				// Try to parse as number for amount fields
+				if strings.Contains(keyUpper, "GROSS") || strings.Contains(keyUpper, "REVENUE") {
+					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
+						totalGross += num
+					}
+				} else if strings.Contains(keyUpper, "NET") && !strings.Contains(keyUpper, "NETSUM") {
+					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
+						totalNet += num
+					}
+				} else if strings.Contains(keyUpper, "TAX") || strings.Contains(keyUpper, "DEDUCT") {
+					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
+						totalTax += num
+					}
+				}
+			}
+		}
+	}
+	
+	result := map[string]interface{}{
+		"owner":      ownerKey,
+		"rows":       ownerRows,
+		"rowCount":   len(ownerRows),
+		"columns":    columns,
+		"wellCount":  len(wellCount),
+		"totals": map[string]interface{}{
+			"gross": totalGross,
+			"net":   totalNet,
+			"tax":   totalTax,
+		},
+	}
+	
+	logger.WriteInfo("GetOwnerStatementData", fmt.Sprintf("Found %d rows for owner %s", len(ownerRows), ownerKey))
+	return result, nil
+}
+
+// ExamineOwnerStatementStructure examines the structure of owner statement DBF files
+func (a *App) ExamineOwnerStatementStructure(companyName string, fileName string) (map[string]interface{}, error) {
+	logger.WriteInfo("ExamineOwnerStatementStructure", fmt.Sprintf("Examining %s for company %s", fileName, companyName))
+	
+	// Read the DBF file
+	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 10, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("error reading DBF file: %v", err)
+	}
+	
+	// Get columns
+	columns, _ := dbfData["columns"].([]string)
+	
+	// Get sample rows (first 10)
+	var rows []map[string]interface{}
+	if rowsData, ok := dbfData["rows"].([]map[string]interface{}); ok {
+		rows = rowsData
+	} else if rowsArray, ok := dbfData["rows"].([]interface{}); ok {
+		for _, item := range rowsArray {
+			if row, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, row)
+			}
+		}
+	}
+	
+	// Analyze column types and sample values
+	columnInfo := make([]map[string]interface{}, 0)
+	for _, col := range columns {
+		info := map[string]interface{}{
+			"name": col,
+			"sampleValues": []interface{}{},
+			"type": "unknown",
+		}
+		
+		// Get sample values from first few rows
+		sampleValues := []interface{}{}
+		for i, row := range rows {
+			if i >= 3 { // Just get 3 samples
+				break
+			}
+			if val, exists := row[col]; exists && val != nil {
+				sampleValues = append(sampleValues, val)
+				// Infer type from first non-nil value
+				if info["type"] == "unknown" {
+					switch val.(type) {
+					case string:
+						info["type"] = "string"
+					case float64, float32, int, int64:
+						info["type"] = "number"
+					case bool:
+						info["type"] = "boolean"
+					case time.Time:
+						info["type"] = "date"
+					default:
+						info["type"] = fmt.Sprintf("%T", val)
+					}
+				}
+			}
+		}
+		info["sampleValues"] = sampleValues
+		columnInfo = append(columnInfo, info)
+	}
+	
+	result := map[string]interface{}{
+		"fileName": fileName,
+		"recordCount": len(rows),
+		"columnCount": len(columns),
+		"columns": columnInfo,
+		"sampleRecords": rows,
+	}
+	
+	return result, nil
 }
 
 // GenerateChartOfAccountsPDF generates a PDF report of the Chart of Accounts

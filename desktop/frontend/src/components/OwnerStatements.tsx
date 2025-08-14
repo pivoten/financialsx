@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Alert, AlertDescription } from './ui/alert'
-import { ArrowLeft, FileText, Download, RefreshCcw, AlertCircle, CheckCircle } from 'lucide-react'
+import { ArrowLeft, FileText, Download, RefreshCcw, AlertCircle, CheckCircle, Eye } from 'lucide-react'
 import { CheckOwnerStatementFiles, GetOwnerStatementsList, GenerateOwnerStatementPDF } from '../../wailsjs/go/main/App'
+import OwnerStatementViewer from './OwnerStatementViewer'
 
 interface OwnerStatementsProps {
   companyName: string
@@ -17,6 +18,7 @@ const OwnerStatements: React.FC<OwnerStatementsProps> = ({ companyName, onBack }
   const [error, setError] = useState<string>('')
   const [generating, setGenerating] = useState(false)
   const [generateMessage, setGenerateMessage] = useState<string>('')
+  const [viewingFile, setViewingFile] = useState<string | null>(null)
 
   useEffect(() => {
     checkForFiles()
@@ -60,6 +62,25 @@ const OwnerStatements: React.FC<OwnerStatementsProps> = ({ companyName, onBack }
     } finally {
       setGenerating(false)
     }
+  }
+
+  const handleViewStatements = (fileName: string) => {
+    setViewingFile(fileName)
+  }
+
+  const handleBackFromViewer = () => {
+    setViewingFile(null)
+  }
+
+  // If viewing a specific file, show the viewer
+  if (viewingFile) {
+    return (
+      <OwnerStatementViewer
+        companyName={companyName}
+        fileName={viewingFile}
+        onBack={handleBackFromViewer}
+      />
+    )
   }
 
   return (
@@ -127,14 +148,24 @@ const OwnerStatements: React.FC<OwnerStatementsProps> = ({ companyName, onBack }
                         </p>
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleGeneratePDF(file.filename)}
-                      disabled={generating}
-                    >
-                      <Download className="h-4 w-4 mr-1" />
-                      Generate PDF
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleViewStatements(file.filename)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Statements
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleGeneratePDF(file.filename)}
+                        disabled={generating}
+                      >
+                        <Download className="h-4 w-4 mr-1" />
+                        Generate PDF
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

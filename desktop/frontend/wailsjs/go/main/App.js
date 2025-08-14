@@ -66,6 +66,10 @@ export function DeleteReconciliationDraft(arg1, arg2) {
   return window['go']['main']['App']['DeleteReconciliationDraft'](arg1, arg2);
 }
 
+export function ExamineOwnerStatementStructure(arg1, arg2) {
+  return window['go']['main']['App']['ExamineOwnerStatementStructure'](arg1, arg2);
+}
+
 export function ExportNetDistribution(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportNetDistribution'](arg1, arg2, arg3);
 }
@@ -186,8 +190,16 @@ export function GetOutstandingChecks(arg1, arg2) {
   return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
 }
 
+export function GetOwnerStatementData(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetOwnerStatementData'](arg1, arg2, arg3);
+}
+
 export function GetOwnerStatementsList(arg1) {
   return window['go']['main']['App']['GetOwnerStatementsList'](arg1);
+}
+
+export function GetOwnersList(arg1, arg2) {
+  return window['go']['main']['App']['GetOwnersList'](arg1, arg2);
 }
 
 export function GetPlatform() {

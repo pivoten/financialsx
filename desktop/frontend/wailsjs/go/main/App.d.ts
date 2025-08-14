@@ -35,6 +35,8 @@ export function DeleteBankStatement(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function ExamineOwnerStatementStructure(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function FollowBatchNumber(arg1:string,arg2:string):Promise<Record<string, any>>;
@@ -95,7 +97,11 @@ export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function GetOwnerStatementData(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
 export function GetOwnerStatementsList(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetOwnersList(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 
 export function GetPlatform():Promise<Record<string, any>>;
 

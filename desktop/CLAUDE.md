@@ -3,11 +3,83 @@
 ## Project Overview
 FinancialsX Desktop is a Wails-based application for oil & gas financial management with comprehensive banking features. Built with Go backend and React frontend using ShadCN UI components.
 
+## CRITICAL UI BUG FIX - CardContent Vertical Centering
+
+### The Problem That Keeps Happening
+Content in ShadCN UI CardContent components appears top-aligned when you expect it to be centered.
+
+### Root Cause
+The CardContent component (at `components/ui/card.tsx` line 44) has default classes `p-6 pt-0`:
+- `p-6` adds 24px padding on all sides
+- `pt-0` then overrides top padding to 0
+- Result: Content is always pushed to the top
+
+### The Fix
+```tsx
+// ❌ WRONG - Will be top-aligned
+<CardContent className="py-8">
+  <div>This sticks to the top</div>
+</CardContent>
+
+// ✅ CORRECT - Will be vertically centered  
+<CardContent className="pt-6">  // or pt-8
+  <div>This is properly centered</div>
+</CardContent>
+```
+
+### Where This Has Been Fixed
+- `OwnerStatements.tsx` - Loading spinner
+- `StateReportsSection.tsx` - Loading state (line 67)
+- `StateReportsSection.tsx` - No wells message (line 79)
+
+### Time Impact
+This issue has wasted ~30 minutes each time it's encountered. ALWAYS check ShadCN component default classes when layout doesn't work as expected!
+
 ## Key Architecture
 - **Backend**: Go with Wails framework
 - **Frontend**: React with Vite, TypeScript, ShadCN UI
 - **Database**: DBF files for legacy data + SQLite for user management
 - **DBF Library**: `github.com/Valentin-Kaiser/go-dbase/dbase`
+
+## ⚠️ CRITICAL: DBF File Reading Rules ⚠️
+
+### NEVER Arbitrarily Limit DBF Record Counts
+
+**CRITICAL BUG DISCOVERED (August 2025)**: A hardcoded limit of 50,000 records in `RefreshGLBalance` caused a **$400,000 discrepancy** in financial calculations because GLMASTER.dbf had 53,963 records. The missing 4,000 records completely corrupted the GL balance calculations.
+
+#### Golden Rule for DBF Reading
+When using `company.ReadDBFFile()`, **ALWAYS** use `0, 0` for offset and limit parameters unless:
+1. You are explicitly implementing pagination for UI display
+2. The user has specifically requested a limited view  
+3. You are doing a quick sample/preview of the data
+
+#### Examples
+
+**❌ WRONG - Can cause massive financial errors:**
+```go
+// This missed 4,000 records and caused $400K discrepancy!
+glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 50000, "", "")
+```
+
+**✅ CORRECT - Ensures all data is processed:**
+```go
+// Read ALL records to ensure accurate calculations
+glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
+```
+
+#### Critical Areas That Must Read All Records
+- **GL Balance Calculations** - Missing transactions corrupts account balances
+- **Outstanding Check Calculations** - Missing checks affects bank reconciliation
+- **Financial Reporting** - Incomplete data leads to incorrect reports
+- **Data Validation/Auditing** - Can't validate what you don't read
+- **Account Reconciliation** - Missing entries prevents balancing
+- **Tax Reporting** - Incomplete data causes compliance issues
+
+#### Performance Considerations
+- DBF files can contain 100,000+ records
+- Reading all records is still fast (< 5 seconds for 50K records)
+- The cost of missing data FAR exceeds any performance benefit
+- Use caching (SQLite) for repeated access, not arbitrary limits
 
 ## Critical File Structure Issues & Fixes
 
@@ -688,9 +760,48 @@ Currently, audit results are only stored in React state. When users navigate awa
 
 ---
 
-**Last Updated**: August 6, 2025
+## TypeScript Migration Notes
+
+### Tailwind Configuration Fix
+When converting from JavaScript (.jsx) to TypeScript (.tsx), ensure the Tailwind configuration is updated:
+```javascript
+// tailwind.config.js
+content: [
+  './src/**/*.{ts,tsx,js,jsx}',  // Must include .ts and .tsx extensions
+]
+```
+Without this, Tailwind won't scan TypeScript files and CSS utility classes won't be generated.
+
+## Company Data Location
+
+### Automatic Discovery
+The application uses recursive search to find `compmast.dbf`:
+1. Searches from current working directory (max depth: 5)
+2. If not found, searches from parent directory (max depth: 3)
+3. If not found, searches from executable directory (max depth: 3)
+4. If not found, checks previously saved data path
+
+### Manual Folder Selection
+If `compmast.dbf` cannot be found automatically:
+1. User sees "Cannot find company data files" message
+2. "Select Data Folder" button appears
+3. User selects folder containing `compmast.dbf`
+4. Path is validated and saved for future sessions
+5. Company folders are resolved relative to this location
+
+### Data Path Persistence
+- Selected path saved to: `{OS_TEMP_DIR}/financialsx_datapath.txt`
+- Automatically reused in future sessions
+- Company data paths resolved relative to `compmast.dbf` location
+
+---
+
+**Last Updated**: August 9, 2025
 **Key Fix Applied**: Changed data structure key from "data" to "rows" for DBF file reading
-**Latest Enhancement**: Implemented SQLite-based Bank Reconciliation System with JSON field extensibility
+**TypeScript Migration**: Converted frontend from JavaScript to TypeScript, fixed Tailwind configuration
+**Latest Enhancements**: 
+- Implemented SQLite-based Bank Reconciliation System with JSON field extensibility
+- Added recursive search for compmast.dbf with user-selectable fallback
 **Major Features Added**:
 - **SQLite Reconciliation System**: Enterprise-grade database persistence replacing localStorage
 - **CIDCHEC-Based Tracking**: Reliable check identification across sessions using unique IDs
@@ -699,4 +810,5 @@ Currently, audit results are only stored in React state. When users navigate awa
 - **6 New API Endpoints**: Full draft workflow with save/load/commit/history capabilities
 - **Migration Framework**: Structure for importing existing CHECKREC.DBF data
 - **Auto-Save Functionality**: Database persistence with user feedback
-**Status**: Bank Reconciliation system upgraded to SQLite with modern architecture, ready for production use
+- **Company Data Discovery**: Recursive search with manual folder selection fallback
+**Status**: Application fully functional with TypeScript, automatic company discovery, and modern reconciliation system

@@ -1,0 +1,1072 @@
+{
+  "formName": "apbill",
+  "controls": [
+    {
+      "name": "dataenvironment",
+      "type": {
+        "description": "",
+        "uiComponent": null,
+        "category": "Logic"
+      },
+      "label": "dataenvironment",
+      "props": "Top = 12\r\nLeft = 48\r\nWidth = 929\r\nHeight = 711\r\nAutoOpenTables = .F.\r\nInitialSelectedAlias = \"appurchh\"\r\nDataSource = .NULL.\r\nName = \"Dataenvironment\"\r\n",
+      "table": ""
+    },
+    {
+      "name": "formapbill",
+      "type": {
+        "description": "",
+        "uiComponent": "Form",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Activate IF DODEFAULT()    swselect('appurchh')    swselect('vendor')    SET ORDER TO cvendorid    IF SEEK(appurchh.cvendorid)       THISFORM.txtcVendName.VALUE = cvendname    ELSE       THISFORM.txtcVendName.VALUE = ' '    ENDIF        thisform.lnoclearext = .f. ENDIF  ENDPROC PROCEDURE adddetailline * *  Adds the detail line to the APPURCHD table *  LOCAL m.cItemDesc, m.cAcctNo, m.cUnitno, m.cDeptNo, m.nExtension, m.cidpurd, m.cCatCode, lnCount, lnRec, llCloseRun, m.cBatch, llFoundBad LOCAL llReturn, lnAmount, lnSaltBBL, lnSaltWaterEnd, lnWellEnd, loError *:Global cAcctNo, cBatch, cCatCode, cDeptNo, cDisperm, cExtDesc, cGroup, cItemDesc, cOwnerID *:Global cProdPeriod, cProdYear, cTaxCode, cUnitno, cWasteCode, cWellID, cdispcode, cexpclass *:Global dExpDate, nDiscPct, nDiscount, nExtension, nInterest, nItemTax, nSaltBBL, temp[1]  llReturn = .T.  TRY    swselect('appurchh')    m.cBatch = cBatch     THISFORM.lnoclearext = .T.  &&  If any confirmation boxes popup, this will prevent the activate from wiping out the extension amount     * Set the default for property lSendToAllocate    THISFORM.lSendToAllocate = m.goApp.lSendToAllocate     WITH THISFORM        IF EMPTY(THISFORM.txtcAcctNo.VALUE)          THISFORM.omessage.warning('The account cannot be left blank')          THISFORM.setnextcontrol(.txtcAcctNo)          llReturn = .F.          EXIT       ENDIF        m.cItemDesc   = .txtcItemDesc.VALUE       m.cUnitno     = .txtcUnitNo.VALUE       m.cDeptNo     = .txtcDeptNo.VALUE       m.cCatCode    = .txtcCatCode.VALUE       m.nExtension  = .txtnExtension.VALUE       m.cProdPeriod = .txtcProdPeriod.VALUE       m.cProdYear   = .txtcProdYear.VALUE       m.cOwnerID    = .txtcOwnerID.VALUE       m.cDisperm    = .txtcDisperm.VALUE       m.cdispcode   = .txtcdispCode.VALUE       m.cWasteCode  = .txtwastecode.VALUE       m.cAcctno     = .txtcAcctNo.VALUE       m.cexpclass   = .cboclass.VALUE       m.nSaltBBL    = .txtnSaltBBL.VALUE       m.cAFENo      = .txtafeno.value        m.cDeck       = .cbodeck.value        * Check Water hauling variables for NULL       IF ISNULL(m.nSaltBBL)          m.nSaltBBL = 0       ENDIF       IF ISNULL(m.cDisperm)          m.cDisperm = ''       ENDIF       IF ISNULL(m.cdispcode)          m.cdispcode = ''       ENDIF       IF ISNULL(m.cWasteCode)          m.cWasteCode = ''       ENDIF        * Change all one-man items to class 0       IF NOT EMPTY(m.cOwnerID) AND m.cexpclass # 'P'          m.cexpclass = '0'       ENDIF        *       *  Get the group for the well       *       swselect('wells')       LOCATE FOR cWellID = m.cUnitno       IF FOUND()          m.cGroup = cGroup       ELSE          m.cGroup = '00'       ENDIF        *       *  Check to see if the production or JIB period is closed. If it is, don't allow the       *  expense to be entered.       *         IF THISFORM.CheckExp(m.cBatch)          THIS.omessage.warning('The expenses on this bill have already been processed. They cannot be modified.')          llReturn = .F.          EXIT       ENDIF        IF NOT EMPTY(m.cOwnerID)          IF m.cUnitno <> 'ALLOC'             swselect('wellinv')             LOCA FOR cWellID = m.cUnitno AND cOwnerID = m.cOwnerID             IF NOT FOUND('wellinv')                THISFORM.omessage.DISPLAY('You cannot allocate a well expense to an owner that has no interests in that well.')                THISFORM.lnoclearext = .T.                llReturn             = .F.                EXIT             ENDIF          ELSE             SELE wellsel             SCAN                m.cWellID = cWellID                swselect('wellinv')                LOCA FOR cWellID = m.cUnitno AND cOwnerID = m.cOwnerID                IF NOT FOUND('wellinv')                   THISFORM.omessage.DISPLAY('You cannot allocate a well expense to an owner that has no interests in well: ' + m.cWellID)                   THISFORM.lnoclearext = .T.                   llReturn             = .F.                   EXIT                ENDIF             ENDSCAN          ENDIF       ENDIF        IF NOT EMPTY(m.cUnitno) AND EMPTY(m.cCatCode) AND NOT THISFORM.lInvestment          THISFORM.omessage.warning('This expense has a well ID associated with it but no expense category. The ' + ;             'expense will not go through distribution/JIB processing.')       ENDIF        IF NOT EMPTY(m.cUnitno)  AND ;          NOT EMPTY(m.cCatCode) AND ;          NOT EMPTY(m.cProdYear) AND ;          NOT EMPTY(m.cProdPeriod) AND ;          m.cUnitno <> 'ALLOC' AND ;          NOT THISFORM.lInvestment          *  Make sure the well has owners          SELECT cWellID FROM wellinv WHERE cWellID = m.cUnitno INTO ARRAY temp          IF _TALLY = 0             THISFORM.omessage.warning('Unable to allocate to well: ' + m.cUnitno + ' This well has no owners. Expenses will be sent to allocation file.')             THISFORM.lSendToAllocate = .T.          ENDIF       ENDIF        IF EMPTY(m.cDeptNo) AND THISFORM.lDeptRequired          THISFORM.omessage.DISPLAY('A valid department is required when using this account no.')          THISFORM.setnextcontrol(THISFORM.txtcDeptNo)          llReturn = .F.          EXIT       ENDIF       IF EMPTY(m.cUnitno) AND THISFORM.lWellRequired          THISFORM.omessage.DISPLAY('A valid well ID is required when using this account no.')          THISFORM.setnextcontrol(THISFORM.txtcUnitNo)          llReturn = .F.          EXIT       ENDIF        IF TYPE('.txtnSaltBBL.value') <> 'N'          IF TYPE('.txtnSaltBBL.value') = 'C'             m.nSaltBBL = VAL(.txtnSaltBBL.VALUE)          ELSE             m.nSaltBBL = 0          ENDIF       ELSE          m.nSaltBBL    = .txtnSaltBBL.VALUE       ENDIF       IF m.nExtension = 0          THISFORM.omessage.warning('An amount must be entered in the extension.')          .setnextcontrol(.txtnExtension)          llReturn = .F.          EXIT       ENDIF       m.nDiscPct  = 0       m.nItemTax  = 0       m.nInterest = 0       m.cTaxCode  = ' '       m.dExpDate  = {}       m.nDiscount = 0       m.cExtDesc  = 0        IF m.cUnitno = 'ALLOC'          WAIT WINDOW NOWAIT 'Allocating expense amongst chosen wells...Please wait'          *  This expense is to be allocated among more than 1 well.          SELECT wellsel          COUNT FOR NOT DELETED() TO lnCount          lnRec      = 0          llFoundBad = .F.  &&  Whether there are any wells w/o a DOI set up that we need to warn them about           IF lnCount > 0             *  Calculate how much should go to each well.             lnAmount = ROUND((m.nExtension / lnCount), 2)             *  Calculate the amount left over in case the amount didn't divide evenly among the wells             lnWellEnd = m.nExtension - (lnAmount * lnCount)              *  Divide up any saltwater BBLs entered             IF m.nSaltBBL <> 0                lnSaltBBL = ROUND((m.nSaltBBL / lnCount), 0)                 *  Add up any extra BBLs to give to the last well                lnSaltWaterEnd = m.nSaltBBL - (lnSaltBBL * lnCount)             ELSE                lnSaltBBL      = 0                lnSaltWaterEnd = 0             ENDIF              m.cOwnerID = ''             WAIT WIND NOWAIT 'Allocating Expenses Evenly Among The Chosen Wells...'             SCAN                m.cUnitno = cWellID                 swselect('wellinv')  &&  Check wellinv for any owners, so we know whether to blank out the year/period                LOCATE FOR cWellID == m.cUnitno                IF NOT FOUND()                   STORE '' TO m.cProdYear, m.cProdPeriod                   llFoundBad = .T.                ELSE                   m.cProdPeriod = .txtcProdPeriod.VALUE  &&  It has interests, so re-assign the year/period values                   m.cProdYear   = .txtcProdYear.VALUE                ENDIF                 SELECT wellsel                m.nExtension = lnAmount                m.nSaltBBL   = lnSaltBBL                lnRec        = lnRec + 1                IF lnRec = lnCount                   *  Adjust the last well so the total adds to the amount entered.                   m.nExtension = m.nExtension + lnWellEnd                   m.nSaltBBL   = m.nSaltBBL + lnSaltWaterEnd                ENDIF                          .cmdatamanager.new('Appurchd')                .cmdatamanager.REPLACE('APPURCHD', 'Citemdesc', m.cItemDesc)                .cmdatamanager.REPLACE('APPURCHD', 'Cacctno', m.cAcctNo)                .cmdatamanager.REPLACE('APPURCHD', 'Cunitno', m.cUnitno)                .cmdatamanager.REPLACE('APPURCHD', 'Ccatcode', m.cCatCode)                .cmdatamanager.REPLACE('APPURCHD', 'Cexpclass', m.cexpclass)                .cmdatamanager.REPLACE('APPURCHD', 'Cdeptno', m.cDeptNo)                .cmdatamanager.REPLACE('APPURCHD', 'Cprodyear', m.cProdYear)                .cmdatamanager.REPLACE('APPURCHD', 'Cprodperiod', m.cProdPeriod)                .cmdatamanager.REPLACE('APPURCHD', 'Nextension', m.nExtension)                .cmdatamanager.REPLACE('APPURCHD', 'Nsaltbbl', m.nSaltBBL)                .cmdatamanager.REPLACE('APPURCHD', 'Cdisperm', m.cDisperm)                .cmdatamanager.REPLACE('APPURCHD', 'Cdispcode', m.cdispcode)                .cmdatamanager.REPLACE('APPURCHD', 'Cwastecode', m.cWasteCode)                .cmdatamanager.REPLACE('APPURCHD', 'Litemdetail', .F.)                .cmdatamanager.REPLACE('APPURCHD', 'cOwnerID', m.cOwnerID)                .cmdatamanager.REPLACE('APPURCHD', 'cAFEno', m.cAFENo)                .cmdatamanager.REPLACE('APPURCHD', 'cDeck', m.cDeck)             ENDSCAN              WAIT CLEAR          ELSE             THISFORM.omessage.warning('There were no wells selected. You must select at least 1 well when ALLOC is used.')             THISFORM.setnextcontrol(.txtcUnitNo)             llReturn = .F.             EXIT          ENDIF          .setnextcontrol(.txtcVendorID)       ELSE          .cmdatamanager.new('Appurchd')          .cmdatamanager.REPLACE('APPURCHD', 'Citemdesc', m.cItemDesc)          .cmdatamanager.REPLACE('APPURCHD', 'Cacctno', m.cAcctNo)          .cmdatamanager.REPLACE('APPURCHD', 'Cunitno', m.cUnitno)          .cmdatamanager.REPLACE('APPURCHD', 'Ccatcode', m.cCatCode)          .cmdatamanager.REPLACE('APPURCHD', 'Cexpclass', m.cexpclass)          .cmdatamanager.REPLACE('APPURCHD', 'Cdeptno', m.cDeptNo)          .cmdatamanager.REPLACE('APPURCHD', 'Cprodyear', m.cProdYear)          .cmdatamanager.REPLACE('APPURCHD', 'Cprodperiod', m.cProdPeriod)          .cmdatamanager.REPLACE('APPURCHD', 'Nextension', m.nExtension)          .cmdatamanager.REPLACE('APPURCHD', 'Nsaltbbl', m.nSaltBBL)          .cmdatamanager.REPLACE('APPURCHD', 'Cdisperm', m.cDisperm)          .cmdatamanager.REPLACE('APPURCHD', 'Cdispcode', m.cdispcode)          .cmdatamanager.REPLACE('APPURCHD', 'Cwastecode', m.cWasteCode)          .cmdatamanager.REPLACE('APPURCHD', 'Litemdetail', .F.)          .cmdatamanager.REPLACE('APPURCHD', 'cOwnerID', m.cOwnerID)          .cmdatamanager.REPLACE('APPURCHD', 'cAFEno', m.cAFENo)          .cmdatamanager.REPLACE('APPURCHD', 'cDeck', m.cDeck)          .setnextcontrol(.txtcUnitNo)       ENDIF       .txtcAcctNo.lenabled  = .T.       .txtcOwnerID.ENABLED  = .T.       .cmdLookOwner.ENABLED = .T.        IF NOT FILE(m.goApp.ccommonfolder+'keepbilldesc.txt')          .txtcItemDesc.VALUE   = ' '       ENDIF       IF THISFORM.txtcUnitNo.VALUE = 'ALLOC '  &&  If using ALLOC, blank out the well ID and name, so it doesn't repeatedly bring up the well list, as the focus gets set to that textbox for each line being added - BH 06/02/08          .txtcAcctNo.VALUE   = ' '          .txtcAcctNo.ENABLED = .T.          .txtcacctDesc.VALUE = ' '          .txtcUnitNo.VALUE   = ' '          .txtcwellName.VALUE = ' '       ENDIF       .txtcDeptNo.VALUE = ' '       IF NOT EMPTY(THISFORM.txtcUnitNo.VALUE)          .txtcacctDesc.VALUE = ' '          .txtcAcctNo.VALUE   = ''       ENDIF       .txtcDeptDesc.VALUE = ' '       .txtcOwnerID.VALUE  = ' '       .txtcdispCode.VALUE = ' '       .txtcDisperm.VALUE  = ' '       .txtwastecode.VALUE = ' '       .txtafeno.value = ''       .cboclass.VALUE     = ''       .lInvestment        = .F.       .txtnExtension.SetValue(0)       .txtnSaltBBL.SetValue(0)       .GridDetails.REFRESH()       .CalcTot()       .lValidWell    = .F.       .setstate()       .txtnExtension.ENABLED = .T.       THISFORM.txtcUnitNo.SETFOCUS()    ENDWITH CATCH TO loError    llReturn = .F.    DO errorlog WITH 'AddDetailLine', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('detail line') ENDTRY  THISFORM.lWellRequired = .F. THISFORM.lDeptRequired = .F.  RETURN llReturn   ENDPROC PROCEDURE calctot * *  Calculates the invoice totals * LOCAL lnSelect, lnRecno, lnTotal, lcBatch, lnSubTotal, lnBalance, lcFilter LOCAL lnCount LOCAL llReturn, loError  llReturn = .T.  TRY    lnSelect = SELECT()     swselect('appurchh')    lcBatch = appurchh.cbatch     swselect('appurchd')    lnRecno  = RECNO()    lcFilter = FILTER()    SET FILTER TO     lnSubTotal = 0    swselect('appurchd')    SCAN       lnSubTotal = lnSubTotal + nExtension    ENDSCAN     IF lnRecno <= RECC()       GOTO lnRecno    ENDIF     lnBalance = lnSubTotal - appurchh.npayments     IF appurchh.nInvTot <> lnSubTotal       THIS.cmdatamanager.REPLACE('appurchh', 'nInvTot', lnSubTotal)       THIS.cmdatamanager.REPLACE('appurchh', 'nSubTotal', lnSubTotal)       THIS.cmdatamanager.REPLACE('appurchh', 'ninvbal', lnBalance)       THISFORM.txtnInvTot.REFRESH()       THISFORM.txtninvbal.REFRESH()    ENDIF     SELECT (lnSelect)     UNLOCK CATCH TO loError    llReturn = .F.    DO errorlog WITH 'CalcTot', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('process the bill') ENDTRY  RETURN llReturn ENDPROC PROCEDURE cancelallchanges LPARAMETERS cWorkareaList  thisform.Caption = 'Enter Bills' thisform.cmdDuplicate.Visible = .t. thisform.cmdReverse.Visible   = .t.  DODEFAULT(cWorkAreaList) ENDPROC PROCEDURE catlookup LOCAL lcList PRIV llOK  llOK = .T.  SELECT cCatCode,cCateg,cExpClass,IIF(lAFEType,'A','') AS cAFEType, IIF(lJIBOnly,'J','') as cJIBOnly  ;    FROM expcat INTO CURSOR exptmp readwrite  SELECT exptmp INDEX ON cCatCode           TAG cCatCode INDEX ON cCateg             TAG cCateg INDEX ON cExpClass+cCatCode TAG cExpClass INDEX on cafetype           TAG cafetype INDEX on cjibonly           TAG cjibonly  lcList = 'ccatcode\\Code,ccateg\\Category,cexpclass\\Cls,cAFEType\\AFE,cJIBOnly\\JIB'  DO FORM picklist WITH 'exptmp', lcList, thisform.gridDetails.column2.txtCatCode.value, 5, .T., .T.  IF llOK    thisform.cmdatamanager.replace('appurchd', 'cCatCode', exptmp.ccatcode)    thisform.setstate() ENDIF    ENDPROC PROCEDURE checkexp LPARA tcbatch  *  Check to see if expenses entered for wells were allocated *  If so, and the period isn't closed, delete it.  Otherwise *  let the user know he can't delete this entry. LOCAL lcwellid, llReturn, lljibwell, llnetwell, loError llReturn = .F.  TRY    swselect('expense')    SCAN FOR cbatch = tcbatch       lcwellid = cwellid       swselect('wellinv')       LOCATE FOR cwellid = lcwellid AND ctypeinv = 'W' AND ljib       lljibwell =  FOUND()       LOCATE FOR cwellid = lcwellid AND ctypeinv = 'W' AND NOT ljib       llnetwell =  FOUND()       swselect('expense')       IF lljibwell AND nRunNoJib <> 0          THISFORM.cclosedrun = 'J' + expense.crunyearjib + PADL(ALLT(STR(expense.nRunNoJib)), 3, '0')          llReturn            = .T.          EXIT       ENDIF       IF llnetwell AND nRunNoRev <> 0          THISFORM.cclosedrun = 'R' + expense.crunyearrev + PADL(ALLT(STR(expense.nRunNoRev)), 3, '0')          llReturn            = .T.          EXIT       ENDIF    ENDSCAN CATCH TO loError    llReturn = .F.    DO errorlog WITH 'CheckExp', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError ENDTRY  RETURN llReturn ENDPROC PROCEDURE checkhist LPARA tcYear, tcPeriod, tcGroup, tcWellID LOCAL llHist, llSepClose, lcDeleted LOCAL llJIB, llReturn, llTeturn, loError * *  Checks to see if the given period is closed *  Returns .T. if the period is closed * llReturn = .F.  TRY    lcDeleted = SET('DELETED')    SET DELETED ON * *  Check to see if there are any JIB owners in the well. We need to check to see if the JIB period *  is closed if there are JIB owners. Otherwise, we check the revenue period 'cause it means we're *  netting expenses from revenue. *    swselect('wellinv')    LOCATE FOR cWellID = tcWellID AND lJIB = .T.    IF FOUND()       llJIB = .T.    ELSE       llJIB = .F.    ENDIF     IF llJIB       IF tcGroup = '**'          swselect('sysctl')          LOCATE FOR cyear + cperiod = tcYear + tcPeriod AND lDisbMan AND cTypeClose = 'J'          IF FOUND()             llReturn = .T.          ENDIF       ELSE          swselect('sysctl')          SET ORDER TO yrprdgrp          IF SEEK(tcYear + tcPeriod + tcGroup + 'YJ')             llReturn = .T.          ENDIF       ENDIF    ELSE       IF tcGroup = '**'          swselect('sysctl')          LOCATE FOR cyear + cperiod = tcYear + tcPeriod AND lDisbMan AND cTypeClose = 'R'          IF FOUND()             llTeturn = .T.          ENDIF       ELSE          swselect('sysctl')          SET ORDER TO yrprdgrp          IF SEEK(tcYear + tcPeriod + tcGroup + 'YR')             llReturn = .T.          ENDIF       ENDIF    ENDIF    SET DELETED &lcDeleted  CATCH TO loError    llReturn = .F.    DO errorlog WITH 'CheckHist', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError ENDTRY  RETURN llReturn  ENDPROC PROCEDURE checkpaid **  Check to see if the bill has been paid, and if so, disable the amounts  ** **  when editing the detail lines                                           **  swselect('appmtdet') LOCATE FOR cBillToken = appurchh.cBatch AND nAmtPaid <> 0 IF FOUND()    THISFORM.lPaid = .T.    IF NOT EMPTY(appmtdet.ccheckno)       thisform.lblpaid.Caption = 'This bill has been paid by check no: ' + ALLTRIM(appmtdet.ccheckno) + ;                                  '. You will be unable to change the vendor or amount of the bill.'    ELSE       thisform.lblpaid.Caption = 'This bill has been paid! ' + ;                                  'You will be unable to change the vendor or amount of the bill.'    ENDIF                                 ELSE    THISFORM.lPaid = .F. ENDIF  ENDPROC PROCEDURE Click THISFORM.lblPaid.VISIBLE = .F.  ENDPROC PROCEDURE coalookup LOCAL lcSelect, lcList PRIV llOK  llOK = .F. lcList = 'cacctno/acctno,cacctdesc/acctdesc'  lcSelect = SELECT()  DO FORM picklist WITH 'Coa', lcList, 'cacctno', 2  IF llOK    thisform.cmdatamanager.replace('appurchd', 'cAcctNo', coa.cacctno)    thisform.setstate() ENDIF      ENDPROC PROCEDURE deptlookup LOCAL lcSelect, lcList PRIV llOK  llOK = .F. lcList = 'cdeptno\\Dept No,cdeptdesc\\Department Description'  lcSelect = SELECT()  DO FORM picklist WITH 'Gldept', lcList, appurchd.cdeptno, 2,.f.,.t.  IF llOK    thisform.cmdatamanager.replace('appurchd', 'cDeptNo', gldept.cdeptno) ENDIF     SELECT (lcSelect)   ENDPROC PROCEDURE Destroy * Cleanup by releasing the distproc object THISFORM.grouptran.UNLOAD() ON KEY LABEL F5 * ON KEY LABEL F3 * ON KEY LABEL F2 * ON KEY LABEL TAB  ON KEY LABEL ENTER  ON KEY LABEL PGDN ON KEY LABEL PGUP DODEFAULT()  ENDPROC PROCEDURE dmexpense LOCAL lcBatch, lcYear, lcPeriod, m.cOwnerID, llCloseRun, lcWellStat LOCAL lAPTran, lAllocated, lClosed, lFixed, lOneMan, lcWellID1, lcWellID2, llAllocexp, llReturn LOCAL loError *:Global cBatch, cCateg, cMemo, cPaidByCk, cPayee, cPeriod, cPrdPaid, cRunYearJIB, cRunYearRev *:Global cWellID, cYear, cidexpe, cidexph, cidexps, crefid, cvendorid, dExpDate, dPostDate, nAmount *:Global nRunNoJIB, nRunNoRev, nSaltWater  llReturn = .T. llSendToAllocate = .F.  TRY ********************************************************************* *  Adds the expense entries to the disbursement manager EXPSUSP or *  EXPENSE tables depending on whether the production year and *  period are specified. *********************************************************************    THISFORM.lSendToAllocate = m.goApp.lSendToAllocate    llSendToAllocate         = m.goApp.lSendToAllocate  *  Check to see if expenses entered for wells were allocated *  If so, and the period isn't closed, delete it.  Otherwise *  let the user know he can't delete this entry.    lcBatch = appurchh.cBatch  *  Commented out because this same double-check is being done in beforeupdate() - BH 10/19/2012 *!*\tIF NOT checkexp(lcBatch) *!*\t   RETURN .F. *!*\tENDIF     swselect('afeopt')    GO TOP    llAllocexp = lAllocExp     swselect('expsusp')    SCAN FOR cBatch == lcBatch       DELETE NEXT 1    ENDSCAN     swselect('expense')    SCAN FOR cBatch == lcBatch       DELE NEXT 1    ENDSCAN     m.cvendorid   = appurchh.cvendorid    m.dExpDate    = appurchh.dinvdate    lcYear        = THISFORM.glmaint.getperiod(m.dExpDate, .T.)    lcPeriod      = THISFORM.glmaint.getperiod(m.dExpDate, .F.)    m.crefid      = appurchh.cinvnum    m.cPayee      = THISFORM.txtcVendName.VALUE    m.lAPTran     = .T.    m.cBatch      = lcBatch    m.dPostDate   = appurchh.dPostDate    m.cMemo       = ''    m.cPaidByCk   = ''    m.cPrdPaid    = ''    m.lFixed      = .F.    m.lClosed     = .F.    m.lAllocated  = .F.    m.nRunNoRev   = 0    m.nRunNoJIB   = 0    m.cRunYearRev = ''    m.cRunYearJIB = ''     swselect('appurchd')    SCAN FOR cBatch == lcBatch AND NOT lItemDetail AND NOT EMPTY(cUnitNo) AND NOT EMPTY(cCatCode)       SCATTER MEMVAR *  Don't process any non-well expenses       swselect('wells')       LOCATE FOR cWellID == m.cUnitNo       IF NOT FOUND()          LOOP       ELSE          lcWellStat = wells.cWellStat  &&  Store current well status, so we know whether to send it to the allocation file or not       ENDIF *  Don't process any expenses that aren't tied *  to a valid expense category or AFE category code       swselect('expcat')       LOCATE FOR cCatCode == m.cCatCode       IF NOT FOUND()          LOOP       ELSE          IF lAFEType             IF NOT llAllocexp                IF m.goApp.lAFEOpt = .T.  &&  Only loop out if they actually have the AFE module.  Otherwise, treat like a normal expense - BH 11/4/05                   LOOP                ENDIF             ELSE                IF m.cAcctNo <> glopt.cexpclear                   LOOP                ENDIF             ENDIF          ENDIF          m.cCateg = cCateg       ENDIF        m.cWellID    = m.cUnitNo       m.nSaltWater = m.nSaltBBL       m.cMemo      = m.citemdesc        IF EMPTY(m.cOwnerID)          m.nAmount = swNetExp(m.nExtension, m.cWellID, .F., m.cExpClass, 'B', .F., m.cOwnerID, m.cCatCode, m.cDeck)       ELSE          m.nAmount = m.nExtension       ENDIF              * Check to see if the well has any interests       * If not, send the expense to the allocation file       swselect('wellinv')       LOCATE for cWellID == m.cUnitno AND ctypeinv = 'W'       IF NOT FOUND()          llSendToAllocate = .t.       ELSE          llSendToAllocate = m.goapp.lSendToAllocate       ENDIF         IF (EMPTY(m.cProdYear) OR EMPTY(m.cProdPeriod)) AND THISFORM.lSendToAllocate  &&  Only put current period on it if the send to allocation file is marked          m.cYear   = lcYear          m.cPeriod = lcPeriod       ELSE          m.cYear   = m.cProdYear          m.cPeriod = m.cProdPeriod       ENDIF        IF NOT EMPTY(m.cOwnerID)          m.lOneMan = .T.       ELSE          m.lOneMan = .F.       ENDIF        IF NOT EMPTY(m.cProdYear) AND NOT EMPTY(m.cProdPeriod) AND NOT llSendToAllocate AND NOT INLIST(lcWellStat, 'I', 'S', 'P')          m.cidexph = ''          m.cidexpe = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Expense')          SET DELETED OFF          SELECT expense1          SET ORDER TO cidexpe          DO WHILE SEEK(m.cidexpe)             m.cidexpe = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Expense')          ENDDO          SET DELETED ON          swselect('expense')          m.cYear   = m.cProdYear          m.cPeriod = m.cProdPeriod          INSERT INTO expense FROM MEMVAR       ELSE          m.cidexps    = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Expense')          SET DELETED OFF          swselect('expsusp')          SET ORDER TO cidexps          DO WHILE SEEK(m.cidexps)             m.cidexps    = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Expense')          ENDDO          SET DELETED ON          INSERT INTO expsusp FROM MEMVAR       ENDIF    ENDSCAN  *!*      swselect('expense') *!*      TABLEUPDATE(.T., .T.) *!*      swselect('expsusp') *!*      TABLEUPDATE(.T., .T.) CATCH TO loError    llReturn = .F.    DO errorlog WITH 'DMExpense', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('process the bill') ENDTRY  RETURN llReturn   ENDPROC PROCEDURE duplicatebill lcBatch = appurchh.cbatch THISFORM.SAVE() thisform.cmdduplicate.Visible = .f. * Reverse the amounts SELECT * FROM appurchh INTO CURSOR temphdr READWRITE  WHERE cbatch = lcBatch REPLACE dinvdate WITH DATE(), dpostdate WITH DATE()  SELECT * FROM appurchd INTO CURSOR tempdet READWRITE  WHERE cbatch = lcBatch  THISFORM.new('Appurchh')  SELECT temphdr SCATTER MEMVAR MEMO  RELEASE M.cbatch SELECT appurchh m.nPayments =  0 m.nInvBal   = m.nInvTot GATHER MEMVAR MEMO  IF MESSAGEBOX('Do you want to change the production period on this receipt?', 36, THISFORM.CAPTION) = 6    DO FORM selectperiod TO lcYearPrd    lnLength = LEN(lcYearPrd)    IF lnLength < 6  &&  No valid year and period passed back, so assign it the current month and year       lcYear   = PADL(ALLTRIM(STR(MONTH(DATE()))), 2, '0')       lcPeriod = ALLTRIM(STR(YEAR(DATE())))    ELSE       lcYear   = LEFT(lcYearPrd, 4)       lcPeriod = RIGHT(lcYearPrd, 2)    ENDIF    llNewPeriod = .T. ELSE    llNewPeriod = .F. ENDIF SELECT tempdet SCAN    SCATTER MEMVAR MEMO        IF llNewPeriod       m.cProdPeriod = lcPeriod       m.cProdYear   = lcYear    ENDIF         lnExtension = m.nExtension    RELEASE M.cidpurd    m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')    SET DELETED OFF    SELECT appurchd1    SET ORDER TO cidpurd    DO WHILE SEEK(m.cidpurd)       m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')    ENDDO    SET DELETED ON    THISFORM.cmdatamanager.new('Appurchd')    m.nExtension = lnExtension    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Citemdesc', m.cItemDesc)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cacctno', m.cAcctNo)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cunitno', m.cUnitno)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Ccatcode', m.cCatCode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cexpclass', m.cexpclass)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdeptno', m.cDeptNo)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cprodyear', m.cProdYear)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cprodperiod', m.cProdPeriod)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Nextension', m.nextension)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Nsaltbbl', m.nSaltBBL)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdisperm', m.cDisperm)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdispcode', m.cdispcode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cwastecode', m.cWasteCode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Litemdetail', .F.)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'cOwnerID', m.cOwnerID)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'cAFEno', m.cAFENo)    thisform.valterms()    THISFORM.setnextcontrol(thisform.txtcUnitNo)    THISFORM.gridDetails.REFRESH() ENDSCAN  THISFORM.REFRESH()    ENDPROC PROCEDURE editdetailline LOCAL llReturn, loError llReturn = .T.  TRY    WITH THISFORM        .txtcAcctNo.VALUE   = appurchd.cacctno       .txtcItemDesc.VALUE = appurchd.citemdesc       .txtcUnitNo.VALUE   = appurchd.cUnitNo       .txtcCatCode.VALUE  = appurchd.ccatcode       .txtcDeptNo.VALUE   = appurchd.cDeptNo       .txtnExtension.setvalue(appurchd.nExtension)       .txtcProdYear.VALUE   = appurchd.cProdYear       .txtcProdPeriod.VALUE = appurchd.cProdPeriod       .txtcOwnerID.VALUE    = appurchd.cOwnerID       .txtnSaltBBL.VALUE    = appurchd.nSaltBBL       .txtcDispCode.VALUE   = appurchd.cdisperm       .cboclass.VALUE       = appurchd.cexpclass  * Fill in the account description       swselect('coa')       SET ORDER TO acctno       IF SEEK(appurchd.cacctno)          .txtcAcctDesc.VALUE = coa.cacctdesc       ENDIF  *  Fill in the well name       swselect('wells')       SET ORDER TO cwellid       IF SEEK(appurchd.cUnitNo)          .txtcWellName.VALUE = wells.cwellname          .lValidWell         = .T.          .lInvestment        = IIF(wells.cwellstat = 'V', .T., .F.)       ELSE          .txtcWellName.VALUE = ''       ENDIF        IF THISFORM.lInvestment           THISFORM.cmdlookowner.VISIBLE = .F.          THISFORM.txtcOwnerID.VISIBLE  = .F.       ELSE          THISFORM.cmdlookowner.VISIBLE = .T.          THISFORM.txtcOwnerID.VISIBLE  = .T.       ENDIF  *  Fill in the category name       swselect('expcat')       SET ORDER TO ccatcode       IF SEEK(appurchd.ccatcode)          .txtcCatDesc.VALUE = expcat.ccateg       ENDIF  *  Fill in the Department Name       swselect('gldept')       SET ORDER TO cDeptNo       IF SEEK(appurchd.cDeptNo)          .txtcDeptDesc.VALUE = gldept.cDeptDesc       ENDIF        .txtcUnitNo.SETFOCUS()       swselect('appurchd')       THISFORM.cmdatamanager.deleterecord('Appurchd')       THISFORM.calctot()       THISFORM.gridDetails.refresh()       THISFORM.REFRESH()        IF THISFORM.lPaid  &&  If paid, don't let them change the amount of the detail line          .txtnExtension.ENABLED = .F.       ENDIF        THISFORM.txtcCatCode.VALID()  &&  Enable/disable the account based on whether it's an AFE category & various options - BH 10/03/2008    ENDWITH     swselect('appurchh')  * *  Let the form know something changed *    THISFORM.setstate() CATCH TO loError    llReturn = .F.    DO errorlog WITH 'EditDetailLine', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('detail line') ENDTRY  RETURN llReturn  ENDPROC PROCEDURE getprice LPARAMETERS tcPriceCode ENDPROC PROCEDURE Init swselect('appurchh') SET ORDER to INVHKEY   && DTOS(DINVDATE)+CINVNUM+CVENDORID  IF DODEFAULT()    swselect('options')    GO TOP    this.lSepClose = lSepClose    on key label F5 _screen.activeform.zerotot()    ON KEY LABEL F3 _screen.ActiveForm.resave_expenses()     IF m.goApp.lDocuments AND !m.goApp.lCloudServer       thisform.AddObject('oFileDialog','sffiledialog')       thisform.cmdDocument.visible = .t.    ELSE       thisform.cmdDocument.visible = .f.    ENDIF         swselect('apopt')    IF apopt.lUseInvDate       thisform.txtdpostdate.Visible = .f.       thisform.lbldpostdate.Visible = .f.    ENDIF         IF m.goapp.lPartnershipMod       swselect('progopt')       GO top       THISFORM.lJVPosting = lJVPosting    ELSE       THISFORM.lJVPosting = .F.    ENDIF         IF MESSAGEBOX('Do you want to add a new bill?',36,'Enter/Bills') = 6       thisform.new('Appurchh')    ENDIF      ENDIF        ENDPROC PROCEDURE KeyPress LPARAMETERS nKeyCode, nShiftAltCtrl  IF nKeyCode = 3 OR nKeyCode = 18       thisform.txtcUnitno.SetFocus ENDIF   DODEFAULT(nKeyCode, nShiftAltCtrl) ENDPROC PROCEDURE list LPARAMETERS cworkarea  LOCAL lcList LOCAL llReturn, loError PRIV llOK  llReturn = .T.  TRY    llOK = .T.     IF THIS.flushcontrolbuffer() AND THIS.beforenav('appurchh') \t  SELECT  appurchh.cvendorid, ; \t\t\t  appurchh.cInvNum, ; \t\t\t  appurchh.dinvdate, ; \t\t\t  appurchh.ninvtot, ; \t\t\t  vendor.csortfield AS cvendname, ; \t\t\t  appurchh.cbatch ; \t\t  FROM appurchh, vendor ; \t\t  WHERE appurchh.cvendorid = vendor.cvendorid ; \t\t\t  AND NOT lItemPurch  ;  &&  No inventory purchases should show in the list \t\t  INTO CURSOR tempap1 ; \t\t  ORDER BY appurchh.cvendorid        IF _TALLY > 0          IF USED('tempap')             USE IN tempap          ENDIF          USE DBF('tempap1') AGAIN IN 0 ALIAS tempap EXCL          SET SAFETY OFF          SELECT tempap          INDEX ON cbatch     TAG cbatch          INDEX ON cvendorid + STR(YEAR(dinvdate)) + STR(MONTH(dinvdate)) + STR(DAY(dinvdate)) + cInvNum  TAG cvendorid          INDEX ON cInvNum + STR(YEAR(dinvdate)) + STR(MONTH(dinvdate)) + STR(DAY(dinvdate))    TAG cInvNum          INDEX ON dinvdate TAG dinvdate          INDEX ON UPPER(cvendname) + STR(YEAR(dinvdate)) + STR(MONTH(dinvdate)) + STR(DAY(dinvdate)) + cInvNum  TAG cvendname          INDEX ON ninvtot    TAG ninvtot           IF UPPER(m.goApp.cUser) = 'DEVELOPER'             lcList = 'cbatch\\Batch,cinvnum\\Invoice Number,dInvDate\\Invoice Date,cvendorid\\Vendor ID,cvendname\\Vendor Name,ninvtot\\Invoice Total'              DO FORM picklist WITH 'tempap', lcList, appurchh.cInvNum, 6, .T., .T.          ELSE             lcList = 'cinvnum\\Invoice Number,dInvDate\\Invoice Date,cvendorid\\Vendor ID,cvendname\\Vendor Name,ninvtot\\Invoice Total'              DO FORM picklist WITH 'tempap', lcList, appurchh.cInvNum, 5, .T., .T.          ENDIF           IF llOK             swselect('appurchh')             SET ORDER TO cbatch             SEEK(tempap.cbatch)             THISFORM.cmdatamanager.setrecordposition('Appurchh')             THISFORM.txtcprodPeriod.VALUE = ''             THISFORM.txtcprodYear.VALUE   = ''             THISFORM.REFRESH()          ENDIF       ENDIF    ELSE       llReturn = .F.    ENDIF CATCH TO loError    llReturn = .F.    DO errorlog WITH 'List', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('list') ENDTRY  RETURN llReturn  ENDPROC PROCEDURE lookcoa LOCAL lcList PRIV llOK  llOK = .F. lcList = 'cacctno/acctno,cacctdesc/acctdesc'  DO FORM picklist WITH 'Coa', lcList, 'cacctno', 2  IF llOK    thisform.grdPurchdet.column1.txtcAcctNo.value = coa.cacctno    thisform.cmdatamanager.replace('appurchd', 'cacctno', coa.cacctno)    thisform.grdPurchdet.column1.txtcAcctNo.refresh() ENDIF     thisform.grdPurchdet.column1.txtcAcctNo.SetFocus() ENDPROC PROCEDURE new LPARAMETERS cWorkarea  IF VARTYPE(m.cWorkArea) # 'C'    m.cWorkArea = 'Appurchh' ENDIF   IF PROPER(m.cWorkArea) = 'Appurchh'    DODEFAULT()    THISFORM.CAPTION = ALLTRIM(THISFORM.CAPTION) + '  ** NEW BILL **' ENDIF  ENDPROC PROCEDURE ownerlookup LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cOwnerID\\Owner ID,csortfield\\Owner Name'  IF USED('tempown')    USE IN tempown ENDIF IF USED('tempown1')    USE IN tempown1 ENDIF  IF NOT EMPTY(appurchd.cunitno)    SET SAFETY OFF    SELECT cOwnerID, cSortField FROM investor ;       WHERE cOwnerID IN (SELECT cOwnerID FROM wellinv WHERE cWellID = appurchd.cunitno) ;       INTO CURSOR tempown1 ;       ORDER BY cOwnerID     IF _TALLY > 0        USE DBF('tempown1') AGAIN IN 0 ALIAS tempown       SELECT tempown       INDEX ON cOwnerID TAG cOwnerID       INDEX ON cSortField TAG cSortField        DO FORM picklist WITH 'tempown', lcList, appurchd.cownerid, 2, .T.,.T.        IF llOK          THISFORM.txtcownerid.VALUE = tempown.cOwnerID          THISFORM.txtcownerid.REFRESH()       ENDIF        THISFORM.cmdatamanager.replace('appurchd','cownerid',tempown.cownerid)       thisform.setstate()    ENDIF ENDIF   ENDPROC PROCEDURE pagedown IF thisform.lpageddown = .f.    thisform.lpageddown = .t.    thisform.txtcunitNo.SetFocus()    ON KEY LABEL PGDN     KEYBOARD '{PGDN}' ELSE        thisform.lpageddown = .f. ENDIF   ENDPROC PROCEDURE pageup thisform.txtwUnitNo.setfocus()  KEYBOARD '{PGUP}'  ENDPROC PROCEDURE resave_expenses LOCAL lcBatch LOCAL lcrun, lctype, lcyear, llReturn, loError  llReturn = .T.  TRY    IF NOT THISFORM.omessage.CONFIRM('Are you sure you want to save the well expenses from this bill again?')       llReturn = .F.       EXIT    ENDIF  * * Resave the well expenses from this bill if they haven't been processed *    lcBatch = appurchh.cbatch  * *  Check to see if expenses have been allocated and the production period closed. *    IF THISFORM.checkexp(lcBatch)       lctype = SUBSTR(THISFORM.cclosedrun, 1, 1)       lcyear = SUBSTR(THISFORM.cclosedrun, 2, 4)       lcrun  = SUBSTR(THISFORM.cclosedrun, 6, 3)       THISFORM.omessage.warning('Expenses for one or more wells in this bill have been allocated and processed during ' + IIF(lctype = 'J', 'JIB', 'Revenue') + ' run: ' + ;            lcyear + '/' + lcrun + '. ' + ;            'You cannot resave the well expenses.')       llReturn = .F.       EXIT     ENDIF     swselect('expense')    SCAN FOR cbatch == lcBatch       DELETE NEXT 1    ENDSCAN     THISFORM.dmexpense()     THISFORM.omessage.DISPLAY('The well expenses have been replaced.') CATCH TO loError    llReturn = .F.    DO errorlog WITH 'Resave_Expenses', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('resave the well expenses') ENDTRY  RETURN llReturn ENDPROC PROCEDURE reversebill lcBatch = appurchh.cbatch THISFORM.SAVE() thisform.cmdreverse.Visible = .f.  * Reverse the amounts SELECT * FROM appurchh INTO CURSOR temphdr READWRITE  WHERE cbatch = lcBatch lnTot = nInvTot * -1 REPLACE nInvTot WITH lnTot, ;    nsubtotal WITH lnTot, ;    npayments WITH 0, ;    ninvbal WITH lnTot SELECT * FROM appurchd INTO CURSOR tempdet READWRITE  WHERE cbatch = lcBatch REPLACE nextension WITH nextension * -1 ALL  THISFORM.new('Appurchh')  SELECT temphdr SCATTER MEMVAR MEMO  RELEASE M.cbatch SELECT appurchh m.cinvnum = ALLTRIM(m.cinvnum)+'-REV' GATHER MEMVAR MEMO  SELECT tempdet SCAN    SCATTER MEMVAR MEMO    lnExtension = m.nExtension    RELEASE M.cidpurd    m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')    SET DELETED OFF    SELECT appurchd1    SET ORDER TO cidpurd    DO WHILE SEEK(m.cidpurd)       m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')    ENDDO    SET DELETED ON    THISFORM.cmdatamanager.new('Appurchd')    m.nExtension = lnExtension    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Citemdesc', m.cItemDesc)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cacctno', m.cAcctNo)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cunitno', m.cUnitno)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Ccatcode', m.cCatCode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cexpclass', m.cexpclass)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdeptno', m.cDeptNo)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cprodyear', m.cProdYear)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cprodperiod', m.cProdPeriod)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Nextension', m.nextension)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Nsaltbbl', m.nSaltBBL)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdisperm', m.cDisperm)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cdispcode', m.cdispcode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Cwastecode', m.cWasteCode)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'Litemdetail', .F.)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'cOwnerID', m.cOwnerID)    THISFORM.cmdatamanager.REPLACE('APPURCHD', 'cAFEno', m.cAFENo)    THISFORM.setnextcontrol(thisform.txtcUnitNo)    THISFORM.gridDetails.REFRESH() ENDSCAN  THISFORM.REFRESH()    ENDPROC PROCEDURE save LPARAMETERS cworkarealist  * Make sure appurchh is still open swselect('Appurchh', .T.)  IF DODEFAULT()     thisform.cmdreverse.Visible = .t.     thisform.cmdduplicate.Visible = .t.     THISFORM.txtcVendorID.SETFOCUS()     THISFORM.setnextcontrol(THISFORM.txtcVendorID)     THISFORM.activatenextcontrol()     thisform.new('Appurchh') ENDIF  WAIT CLEAR    ENDPROC PROCEDURE setstate this.lChanged = .T. m.goStateManager.RefreshAll('Form Edit') ENDPROC PROCEDURE valterms * *  Validates the terms code in the appurchh record and *  calculates the due date and disc date based upon *  the terms settings and the appurchh.dinvdate * LOCAL lcidTerm, lnNetDueIn, lnDiscIn, ldInvDate LOCAL llReturn, lnDiscPct, loError  llReturn = .T.  TRY    ldInvDate = appurchh.dinvdate * *  If the invoice date is empty, don't try to calculate *  the due date or discount date *    IF EMPTY(ldInvDate)       llReturn = .F.       EXIT    ENDIF * *  Get the terms table primary key from the purchase header *  record.      lcidTerm  = appurchh.cidterm  * *  Lookup the terms code in the terms table to get the *  # of days the invoice is due in and the # of days *  set for discounts *    swselect('terms')    SET ORDER TO cidterm    IF SEEK(lcidTerm)       lnNetDueIn = nNetDueIn       lnDiscIn   = nDiscIn       lnDiscPct  = nDiscPct    ELSE *  Terms have not been selected for this purchase so assume *  COD.       STORE 0 TO lnNetDueIn, lnDiscIn, lnDiscPct    ENDIF  * *  Calculate and set the values of the due date and *  discount date fields *     IF THISFORM.txtdDueDate.VALUE <> ldInvDate + lnNetDueIn  &&  Only replace if different, to avoid bogus changes - BH 11/10/05       THISFORM.cmdatamanager.REPLACE('Appurchh', 'dDueDate', ldInvDate + lnNetDueIn)       THISFORM.txtdDueDate.REFRESH()    ENDIF    IF THISFORM.txtdDiscDate.VALUE <> ldInvDate + lnDiscIn       THISFORM.cmdatamanager.REPLACE('Appurchh', 'dDiscDate', ldInvDate + lnDiscIn)       THISFORM.txtdDiscDate.REFRESH()    ENDIF CATCH TO loError    llReturn = .F.    DO errorlog WITH 'ValTerms', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError ENDTRY  RETURN llReturn ENDPROC PROCEDURE viewdocument LPARAMETERS tcBatch  LOCAL lnReturn, llReturn, lcOutputFile LOCAL liKey, lcPath   swselect('documents') SET ORDER TO cFK IF SEEK(tcBatch)    lcOutputFile = cPath     llReturn = .T.     IF NOT FILE(lcOutputFile)       llReturn = .F.    ENDIF     viewdocument(lcOutputFile)  ENDIF ENDPROC PROCEDURE welllookup LOCAL lcSelect, lcList PRIV llOK  llOK = .F. lcList = 'cunitno\\Unit No,cname\\Name,ctype\\Type'  set safety off swselect('allunits') index on cunitno tag cunitno index on cname tag cname set safety on  lcSelect = SELECT()  DO FORM picklist WITH 'allunits', lcList, 'cwellid', 3, .f.,.t.  IF llOK    thisform.cmdatamanager.replace('appurchd', 'cUnitNo', allunits.cunitno)    thisform.setstate() ENDIF     SELECT (lcSelect)   ENDPROC PROCEDURE zerotot LOCAL lcDate LOCAL llReturn, loError *:Global cBatch, cBillToken, cacctno, cidAppmd, cinvnum, cvendorid, dDiscDate, dPmtDate, dbilldate *:Global dduedate, nDiscTaken, nDiscTot, nInvBal, nTotDue, nTotPaid, nTotdisc, namtpaid  llReturn = .T.  TRY    IF THISFORM.oMessage.CONFIRM('Are you sure that you want to create a payment record for this bill?')       TRY          DO FORM SOURCE\\csgetdate WITH 'AP' TO lcDate          WAIT WIND NOWAIT 'Creating Payment Record...'          m.cBatch = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Batch')           swselect('appmthdr')  &&  Create Payment Header Record          SET ORDER TO cBatch          DO WHILE SEEK(m.cBatch)             m.cBatch = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Batch')          ENDDO          m.dbilldate = lcDate          m.cacctno   = apopt.capcash          m.nTotdisc  = 0          swselect('appmtdet')          SUM(namtpaid + ndisctaken) FOR cBillToken == appurchh.cBatch TO m.nTotPmts          swselect('appmthdr')          m.nTotPaid = appurchh.ninvtot - m.nTotPmts          m.nTotDue  = m.nTotPaid          m.dPmtDate = lcDate          IF m.nTotPaid <> 0             INSERT INTO appmthdr FROM MEMVAR          ENDIF           m.cidAppmd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.AP Payment Detail')          swselect('appmtdet')  &&  Create Payment Detail Record          SET ORDER TO cidarpmd          DO WHILE SEEK(m.cidAppmd)             m.cidAppmd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.AP Payment Detail')          ENDDO          m.cinvnum    = appurchh.cinvnum          m.cvendorid  = appurchh.cvendorid          m.dduedate   = appurchh.dduedate          m.nInvBal    = m.nTotDue          m.dDiscDate  = appurchh.dDiscDate          m.nDiscTot   = 0          m.namtpaid   = m.nTotPaid          m.cBillToken = appurchh.cBatch          m.ndisctaken = 0          IF m.nTotPaid <> 0             INSERT INTO appmtdet FROM MEMVAR          ENDIF          swselect('appurchh',.t.)          REPLACE appurchh.nInvBal WITH 0, appurchh.npayments WITH appurchh.ninvtot          swselect('appurchh',.t.)          = TABLEUPDATE(.T.)          swselect('appmthdr',.t.)          = TABLEUPDATE(.T.)          swselect('appmtdet',.t.)          = TABLEUPDATE(.T.)          THISFORM.setstate()          THISFORM.lF5 = .T.       CATCH       ENDTRY    ENDIF CATCH TO loError    llReturn = .F.    DO errorlog WITH 'ZeroTot', loError.LINENO, 'Enter Bills-d', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('mark the bill as paid') ENDTRY  RETURN llReturn  ENDPROC PROCEDURE cmdatamanager.afterchange LPARAMETERS cworkarea,cfield  DO CASE \t   CASE UPPER(m.cField) + ',' $ 'NQUANTITY,NPRICE,' \t      m.nExtension = appurchd.nQuantity * appurchd.nPrice \t      RETURN this.Replace('ApPurchd', 'nExtension', m.nExtension )        ENDCASE RETURN .T.       ENDPROC PROCEDURE cmdatamanager.afterdelete LPARAMETERS cworkarea  DODEFAULT(cworkarea)  DO CASE    CASE m.cWorkarea = 'Appurchh'       TABLEUPDATE(.T.,.T.,'Appurchh')       TABLEUPDATE(.T.,.T.,'Appurchd')       SELECT appurchh       SET ORDER to invhkey       GO BOTTOM     CASE m.cWorkarea = 'Appurchd'       * Recalculate the invoice totals       thisform.calctot() ENDCASE   ENDPROC PROCEDURE cmdatamanager.afternav LPARAMETERS cworkarea LOCAL lcBatch  IF PROPER(m.cworkarea) == 'Appurchh'    swselect('appurchh')    lcBatch = cBatch     IF THISFORM.CheckExp(lcBatch)       THISFORM.CAPTION = 'Enter Bills - Processed in Run Closing'    ELSE       THISFORM.CAPTION = 'Enter Bills'    ENDIF     swselect('vendor')    SET ORDER TO cvendorid    IF SEEK(appurchh.cvendorid)       THISFORM.txtcVendName.VALUE = cvendname    ELSE       THISFORM.txtcVendName.VALUE = ' '    ENDIF    THISFORM.calctot()    THISFORM.lF5 = .F.    THISFORM.nBillTotal = appurchh.nInvTot     * Show the approved by and date approved fields if approved    IF appurchh.lapproved       THISFORM.lblapprovedBy.CAPTION = appurchh.capprovedby       THISFORM.lblDApproved.CAPTION = TTOC(appurchh.dapproved)    ELSE       THISFORM.lblapprovedBy.CAPTION = ''       THISFORM.lblDApproved.CAPTION = ''    ENDIF     swselect('appurchh')     THISFORM.CheckPaid()  &&  Check to see if the bill has been paid, and if so, don't let them change amounts     IF THISFORM.lPaid  &&  If paid, don't let them change the vendor       THISFORM.txtcVendorID.lENABLED = .F.       THISFORM.cmdVendor.lENABLED = .F.       THISFORM.lblPaid.VISIBLE = .T.    ELSE       THISFORM.txtcVendorID.lENABLED = .T.       THISFORM.cmdVendor.lENABLED = .T.       THISFORM.lblPaid.VISIBLE = .F.    ENDIF     *  Blank out the fields in the editing area, since it always confuses people when that data stays there after switching records    THISFORM.txtcunitNo.VALUE = ''    THISFORM.txtcwellName.VALUE = ''    THISFORM.txtccatCode.VALUE = ''    THISFORM.txtccatDesc.VALUE = ''    THISFORM.cboClass.VALUE = '0'    THISFORM.txtcitemdesc.VALUE = ''    THISFORM.txtcacctNo.VALUE = ''    THISFORM.txtcAcctDesc.VALUE = ''    THISFORM.txtcdeptNo.VALUE = ''    THISFORM.txtcdeptdesc.VALUE = ''     THISFORM.setnextcontrol(THISFORM.txtcVendorID) ENDIF  THISFORM.gridDetails.DOSCROLL(6)  RETURN(DODEFAULT(cworkarea))  ENDPROC PROCEDURE cmdatamanager.afternew LPARAMETERS cworkarea LOCAL llFoundTerm, lcidTerm, lcBatch, lcidpurd m.nextension = 0  DO CASE    CASE UPPER(m.cworkarea) = 'APPURCHH'    && Purchases Header       * Look for duplicates so no uniqueness errors occur       lcBatch = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Batch')       SELECT appurchh1       SET ORDER TO cBatch       DO WHILE SEEK(lcBatch)          lcBatch = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Batch')       ENDDO       swselect('appurchh')       REPLACE cBatch  WITH lcBatch, ;          dInvDate WITH DATE(), ;          dPostDate WITH DATE(), ;          iSource WITH 1, ;          dAdded WITH DATETIME(), ;          cAddedBy WITH m.goapp.cUser                 thisform.opgSource.refresh()       *       *  Look for a default terms record so that we can set the terms       *  to that default       llFoundTerm = .F.       swselect('terms')       SCAN FOR lDefTerm = .T.          lcidTerm = cidTerm          llFoundTerm = .T.          EXIT       ENDSCAN       swselect('appurchh')       IF llFoundTerm  &&  Replace bill terms with default.  Once the vendor is selected, any default for them will overwrite this setting.          REPLACE cidTerm WITH lcidTerm       ENDIF        WITH THISFORM *         .cntdate1.txtDate.Value = '' *         .cntdate2.txtDate.Value = '' *         .cntdate3.txtDate.Value = ''          .txtcItemDesc.VALUE = ' '          .txtcAcctNo.VALUE = ' '          .txtcUnitNo.VALUE = ' '          .txtcDeptNo.VALUE = ' '          .txtcAcctDesc.VALUE = ' '          .txtcWellName.VALUE = ' '          .txtcCatDesc.VALUE = ' '          .txtcDeptDesc.VALUE = ' ' *        .txtcProdYear.VALUE = ' ' *        .txtcProdPeriod.VALUE = ' '          .txtcCatCode.VALUE = ' '          .txtcOwnerID.VALUE = ' '          .txtnExtension.SetValue(0)          .txtnSaltBBL.SetValue(0)          .txtcAcctNo.SETFOCUS()       ENDWITH        THISFORM.txtcVendorId.SETFOCUS()              THISFORM.lWellRequired = .F.       THISFORM.lDeptRequired = .F.     CASE UPPER(m.cworkarea) = 'APPURCHD'   &&  Purchase Detail       * Look for duplicates so no uniqueness errors occur       lcidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')       SET DELETED OFF       SELECT appurchd1       SET ORDER TO cidPurd       DO WHILE SEEK(lcidpurd)          lcidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')       ENDDO       SET DELETED ON       swselect('appurchd')       REPLACE appurchd.cidPurd WITH lcidpurd ENDCASE  THISFORM.txtnExtension.SET('value',0)  ENDPROC PROCEDURE cmdatamanager.beforedelete LPARAMETERS cworkarea  IF m.cworkarea = 'Appurchh' *  Make sure the period or year isn't closed     IF NOT THISFORM.glmaint.CheckPeriod(appurchh.dpostdate)         THISFORM.omessage.warning('Unable to delete this bill. Either the fiscal year or period represented by this date has been closed.')         RETURN .F.     ENDIF      lcBatch = appurchh.cBatch      IF THISFORM.checkexp(lcBatch)         THISFORM.omessage.warning('Expenses have been allocated to a production period and the period has been closed. ' + ;               'You cannot delete this bill.')         RETURN .F.     ENDIF  * Check to see if payments have been applied to this bill.     swselect('appmtdet')     LOCATE FOR cBillToken = lcBatch AND nAmtPaid <> 0 AND cInvNum = appurchh.cInvNum     IF FOUND()         THISFORM.omessage.warning('There are payments that have been applied to this bill. It cannot be deleted until the check that paid it is voided.')         RETURN .F.     ENDIF      swselect('appurchd')      THISFORM.glmaint.delbatch(lcBatch, 'AP')      swselect('expense')     SCAN FOR cBatch == lcBatch         DELE NEXT 1     ENDSCAN      swselect('expsusp')     SCAN FOR cBatch == lcBatch         DELE NEXT 1     ENDSCAN      BEGIN TRANSACTION     swselect('glmaster', .T.)     = TABLEUPDATE(.T.)     swselect('expense', .T.)     = TABLEUPDATE(.T.)     swselect('expsusp', .T.)     = TABLEUPDATE(.T.)     swselect('coabal', .T.)     = TABLEUPDATE(.T.)     swselect('appurchh', .T.)     = TABLEUPDATE(.T.)     swselect('appurchd', .T.)     = TABLEUPDATE(.T.)     END TRANSACTION      THISFORM.setchanged(.F.)  ENDIF  DODEFAULT(cworkarea)   ENDPROC PROCEDURE cmdatamanager.beforenav LPARAMETERS cWorkarea  IF m.cWorkArea = 'Appurchh'    SELECT appurchh    SET ORDER to invhkey  ENDIF  ENDPROC PROCEDURE cmdatamanager.beforenew LPARAMETERS cWorkarea  * Save the entry if they haven't clicked save in between bills IF m.cWorkArea == 'Appurchh' AND thisform.lChanged = .T.    IF thisform.flushcontrolbuffer()       thisform.save()    ENDIF ENDIF  ENDPROC PROCEDURE cmdatamanager.beforeupdate LPARAMETERS cworkarealist LOCAL lcBatch, lcAPAcct, lcTaxAcct, llReturn, lcSelect, lnRecNo, lcFilter LOCAL lctype, lcyear, lcrun LOCAL ldPostDate, llRetVal, llUseInvdate, lnBalance, loError *:Global cdeptno, nAmount  llReturn = .T.  TRY     lcBatch = appurchh.cbatch     IF NOT THISFORM.lChanged       llReturn = .F.       EXIT    ENDIF     IF EMPTY(appurchh.cVendorID)       THISFORM.oMessage.warning('You must specify a vendor before saving a bill.')       llReturn = .F.       EXIT    ENDIF     IF NOT THISFORM.isnew('appurchh') AND THISFORM.nbilltotal # appurchh.nInvTot AND THISFORM.nbilltotal # appurchh.nInvBal AND appurchh.nPayments # 0       THISFORM.oMessage.warning('The changes you are attempting to save will change the amount of this bill. You cannot change the amount of a fully or partially paid bill.')       llReturn = .F.       EXIT    ENDIF     IF appurchh.nInvTot = 0       swselect('appurchd')       LOCATE FOR cbatch == lcBatch AND nextension # 0       IF NOT FOUND()          MESSAGEBOX('You cannot save a zero amount invoice....', 16, 'Missing Detail')          llReturn = .F.          EXIT       ENDIF    ENDIF     swselect('vendor')    LOCATE FOR cVendorID == appurchh.cVendorID    IF FOUND()       IF vendor.lIntegGL          IF NOT THISFORM.oMessage.CONFIRM('This vendor is marked to post to the G/L. If this bill is saved ' + ;                  'it will have to be paid through Pay Bills instead of being automatically ' + ;                  'posted as revenue for this vendor. Do you want to continue?')             llReturn = .F.             EXIT          ENDIF       ENDIF    ENDIF     lcSelect = SELECT()      swselect('apopt')    IF apopt.lUseInvDate       swselect('appurchh')       REPLACE appurchh.dpostdate WITH appurchh.dinvdate    ELSE * Check for a missing post date       IF EMPTY(appurchh.dpostdate)          THISFORM.oMessage.warning('The post date is invalid. Please enter a valid post date before saving.')          THISFORM.setnextcontrol(THISFORM.txtdpostDate)          llReturn = .F.          EXIT       ENDIF    ENDIF  *  Make sure the period or year isn't closed    IF NOT THISFORM.glmaint.CheckPeriod(appurchh.dpostdate)       THISFORM.oMessage.warning('This post date is invalid. Either the fiscal year or period represented by this date has been closed.')       llReturn = .F.       EXIT    ENDIF  * Get the partnership options    IF m.goapp.lPartnershipMod       swselect('progopt')       GO TOP       llJVPosting = lJVPosting    ELSE       llJVPosting = .F.    ENDIF  *  Check to see if expenses have been allocated and the production period closed.    IF THISFORM.checkexp(lcBatch)       lctype = SUBSTR(THISFORM.cclosedrun, 1, 1)       lcyear = SUBSTR(THISFORM.cclosedrun, 2, 4)       lcrun  = SUBSTR(THISFORM.cclosedrun, 6, 3)       THISFORM.oMessage.warning('Expenses for one or more wells in this bill have been allocated and processed during ' + IIF(lctype = 'J', 'JIB', 'Revenue') + ' run: ' + ;            lcyear + '/' + lcrun + '. ' + ;            'You cannot change this bill.')       llReturn = .F.       EXIT    ENDIF     IF llReturn       WAIT WINDOW NOWAIT 'Saving Changes, Please Wait.....'        lnBalance = appurchh.nInvTot - appurchh.nPayments        IF appurchh.nInvBal # lnBalance          IF NOT THIS.isnew('Appurchh') AND NOT THISFORM.lF5             IF appurchh.nPayments # 0                IF THISFORM.oMessage.CONFIRM('Should the invoice balance be updated to reflect the changes?')                   THIS.REPLACE('appurchh', 'nInvBal', lnBalance)                ENDIF             ELSE                THIS.REPLACE('appurchh', 'nInvBal', lnBalance)             ENDIF          ELSE             IF NOT THISFORM.lF5                THIS.REPLACE('appurchh', 'nInvBal', lnBalance)             ENDIF          ENDIF       ENDIF   * *  Delete the G/L journal entries for this invoice *       THISFORM.glmaint.delbatch(lcBatch, 'AP')  * * Get the default A/P account *       swselect('apopt')       GO TOP       lcAPAcct     = cAPAcct       llUseInvdate = lUseInvDate  *  Create the G/L journal entries for this invoice * *  A/P entry       THISFORM.glmaint.cSource = 'AP'       THISFORM.glmaint.cbatch  = lcBatch  * Check the option to use the invoice date as post date       IF NOT llUseInvdate          ldPostDate    = appurchh.dpostdate       ELSE          ldPostDate    = appurchh.dinvdate       ENDIF        THISFORM.glmaint.dGLDate = ldPostDate        THISFORM.glmaint.cReference = ALLTRIM(appurchh.cinvnum) + ': ' + appurchh.cReference       THISFORM.glmaint.cBunch     = THISFORM.cBunch  *  Detail Lines       swselect('appurchd')       lcFilter = FILTER()       SET FILTER TO       lnRecNo = RECNO()       SCAN FOR cbatch == lcBatch          THISFORM.glmaint.cbatch     = lcBatch          THISFORM.glmaint.dGLDate    = ldPostDate          THISFORM.glmaint.cReference = 'Pur: ' + ALLTRIM(appurchh.cinvnum)          THISFORM.glmaint.cDesc      = appurchd.citemdesc          THISFORM.glmaint.cAcctNo    = appurchd.cAcctNo          THISFORM.glmaint.cId        = appurchh.cVendorID          THISFORM.glmaint.cUnitNo    = appurchd.cUnitNo          THISFORM.glmaint.cCatCode   = appurchd.cCatCode          THISFORM.glmaint.nAmount    = appurchd.nextension          THISFORM.glmaint.cdeptno    = appurchd.cdeptno          THISFORM.glmaint.cafeno     = appurchd.cafeno          THISFORM.glmaint.updatebatch()       ENDSCAN        CREATE CURSOR tempdept ;          (cdeptno  C(8), ;            nAmount  N(12, 2))        swselect('appurchd')       SCAN FOR cbatch == lcBatch          m.cdeptno = cdeptno          m.nAmount = nextension          INSERT INTO tempdept FROM MEMVAR       ENDSCAN       GO TOP  \t  SELECT  cdeptno,; \t\t\t  SUM(nAmount) AS nAmount ; \t\t  FROM tempdept ; \t\t  INTO CURSOR temp ; \t\t  ORDER BY cdeptno ; \t\t  GROUP BY cdeptno  *  A/P entry       THISFORM.glmaint.cSource    = 'AP'       THISFORM.glmaint.cbatch     = lcBatch       THISFORM.glmaint.dGLDate    = ldPostDate       THISFORM.glmaint.cReference = ALLTRIM(appurchh.cinvnum) + ': ' + appurchh.cReference       THISFORM.glmaint.cDesc      = THISFORM.txtcVendName.VALUE       THISFORM.glmaint.cAcctNo    = lcAPAcct       THISFORM.glmaint.cId        = appurchh.cVendorID       THISFORM.glmaint.mNotes     = 'appurchh.mnotes'       THISFORM.glmaint.cUnitNo    = ''       THISFORM.glmaint.cafeno     = ''       THISFORM.glmaint.cCatCode   = ''  &&  Blank out the cat code for the AP entry - BH 10/22/2008         SELECT temp       SCAN          SCATTER MEMVAR          THISFORM.glmaint.cdeptno = m.cdeptno          THISFORM.glmaint.nAmount = m.nAmount * -1          THISFORM.glmaint.updatebatch()       ENDSCAN  * *  Check to make sure the batch balances *       llReturn = THISFORM.glmaint.chkBalance()        IF llReturn          IF NOT THIS.isnew('Appurchh')             SELECT appurchh             REPLACE dChanged WITH DATETIME(), ;                cChangedBy WITH m.goapp.cUser          ENDIF           llRetVal = THISFORM.dmexpense()          swselect('glmaster', .T.)          = TABLEUPDATE(.T., .T.)          THISFORM.setchanged(.F.)          WAIT WINDOW NOWAIT 'Changes Saved....' TIMEOUT 2          THISFORM.nbilltotal = appurchh.nInvTot  &&  Save the bill total as the variable for future checking * Check to make sure the batch made it to the G/L          swselect('glmaster')          SET ORDER TO glbatch          IF NOT SEEK(lcBatch)             MESSAGEBOX('There was a problem saving the entry to the G/L. Please try again.', 48, 'Problem Saving Bill')             llReturn = .F.          ENDIF       ELSE          MESSAGEBOX('The G/L batch for this bill was not in balance. Unable to save the bill at this time.', 16, 'Problem Saving')       ENDIF    ENDIF CATCH TO loError    llReturn = .F.    DO errorlog WITH 'BeforeUpdate', loError.LINENO, 'Enter Bills', loError.ERRORNO, loError.MESSAGE, '', loError    ErrorMessageText('save the bill') ENDTRY  RETURN (llReturn)         ENDPROC ",
+      "props": "ShowWindow = 2\r\nDoCreate = .T.\r\nHeight = 627\r\nWidth = 928\r\nMDIForm = .T.\r\nCaption = \"Enter Bills\"\r\nHelpContextID = 18\r\nVisible = .T.\r\nBackColor = 255,255,255\r\namtvalue = 0\r\ncdataenvironment = (\"AP\")\r\ncdisplayname = \r\nclistexpression = appurchh.cbatch\r\ncnavworkarea = appurchh\r\ncworkarea = appurchh\r\nlconfirmsave = .T.\r\nlexpliciteditmode = .F.\r\nljvposting = .F.\r\nlnoclearext = .F.\r\nlnomessages = .F.\r\nlpageddown = .F.\r\nlsendtoallocate = .F.\r\nnbilltotal = 0\r\n_memberdata = \u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001     765<VFPData><memberdata name=\"lnodataentry\" type=\"property\" display=\"lNoDataEntry\"/><memberdata name=\"lsendtoallocate\" type=\"property\" display=\"lSendToAllocate\"/><memberdata name=\"viewdocument\" display=\"ViewDocument\"/><memberdata name=\"adddetailline\" display=\"AddDetailLine\"/><memberdata name=\"editdetailline\" display=\"EditDetailLine\"/><memberdata name=\"coalookup\" display=\"CoaLookup\"/><memberdata name=\"catlookup\" display=\"CatLookup\"/><memberdata name=\"welllookup\" display=\"WellLookup\"/><memberdata name=\"deptlookup\" display=\"DeptLookup\"/><memberdata name=\"ownerlookup\" display=\"OwnerLookup\"/><memberdata name=\"ljvposting\" display=\"lJVPosting\"/><memberdata name=\"reversebill\" display=\"ReverseBill\"/><memberdata name=\"duplicatebill\" display=\"DuplicateBill\"/></VFPData>\r\nName = \"FormApbill\"\r\nMwresize1.Top = 73\r\nMwresize1.Left = 251\r\nMwresize1.TabIndex = 2\r\nMwresize1.ZOrderSet = 8\r\nMwresize1.Name = \"Mwresize1\"\r\nMwresize1.lblHighLight.Name = \"lblHighLight\"\r\nMwresize1.lblShading.Name = \"lblShading\"\r\ncmlookupmanager.Name = \"cmlookupmanager\"\r\ncmdatamanager.TabIndex = 1\r\ncmdatamanager.ZOrderSet = 1\r\ncmdatamanager.Name = \"cmdatamanager\"\r\n",
+      "table": ""
+    },
+    {
+      "name": "Shpshapecustom3",
+      "type": {
+        "description": "",
+        "uiComponent": "Separator",
+        "category": "UI"
+      },
+      "label": "Shpshapecustom3",
+      "props": "Top = 8\r\nLeft = 755\r\nHeight = 81\r\nWidth = 156\r\nZOrderSet = 0\r\nName = \"Shpshapecustom3\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Shpshapecustom2",
+      "type": {
+        "description": "",
+        "uiComponent": "Separator",
+        "category": "UI"
+      },
+      "label": "Shpshapecustom2",
+      "props": "Top = 555\r\nLeft = 688\r\nHeight = 69\r\nWidth = 236\r\nBackColor = 206,230,255\r\nZOrderSet = 2\r\nName = \"Shpshapecustom2\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Shpshapecustom1",
+      "type": {
+        "description": "",
+        "uiComponent": "Separator",
+        "category": "UI"
+      },
+      "label": "Shpshapecustom1",
+      "props": "Top = 105\r\nLeft = 2\r\nHeight = 84\r\nWidth = 922\r\nBackColor = 206,230,255\r\nZOrderSet = 4\r\nName = \"Shpshapecustom1\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcDispCode",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtcDispCode",
+      "props": "Left = 262\r\nTabIndex = 60\r\nTop = 571\r\nVisible = .F.\r\nZOrderSet = 5\r\nName = \"txtcDispCode\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtwastecode",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtwastecode",
+      "props": "Left = 298\r\nTabIndex = 58\r\nTop = 595\r\nVisible = .F.\r\nZOrderSet = 6\r\nName = \"txtwastecode\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcdisperm",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtcdisperm",
+      "props": "Left = 286\r\nTabIndex = 59\r\nTop = 583\r\nVisible = .F.\r\nZOrderSet = 7\r\nName = \"txtcdisperm\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblCvendorid",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblCvendorid",
+      "props": "AutoSize = .T.\r\nCaption = \"Vendor ID\"\r\nHeight = 19\r\nLeft = 9\r\nTop = 9\r\nWidth = 57\r\nTabIndex = 7\r\nZOrderSet = 9\r\nName = \"lblCvendorid\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtCvendname",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .F.     ENDPROC ",
+      "props": "ControlSource = \"\"\r\nHeight = 20\r\nLeft = 204\r\nMargin = 1\r\nMaxLength = 40\r\nReadOnly = .F.\r\nTabIndex = 4\r\nTop = 7\r\nWidth = 360\r\nBackColor = 212,208,200\r\nZOrderSet = 10\r\nName = \"txtCvendname\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblDpostdate",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblDpostdate",
+      "props": "Caption = \"Post Date\"\r\nHeight = 19\r\nLeft = 581\r\nTop = 9\r\nWidth = 57\r\nTabIndex = 8\r\nZOrderSet = 11\r\nName = \"lblDpostdate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtCinvnum",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE LostFocus * *  Check for duplicate invoice numbers * IF THISFORM.cmdatamanager.isnew('Appurchh')    SELECT appurchh1    SET ORDER TO vendinv    IF SEEK(THISFORM.txtcVendorID.VALUE+THISFORM.txtcInvNum.VALUE) AND NOT EMPTY(THIS.VALUE)       IF NOT THISFORM.oMessage.CONFIRM('This appears to be a duplicate invoice.  Do you want to continue?')          THISFORM.SetNextControl(THISFORM.txtcInvNum)       ENDIF    ENDIF ENDIF swselect('appurchh') DODEFAULT()  ENDPROC ",
+      "props": "ControlSource = \"appurchh.cinvnum\"\r\nHeight = 20\r\nLeft = 74\r\nMargin = 1\r\nMaxLength = 20\r\nTabIndex = 9\r\nTop = 37\r\nWidth = 117\r\nZOrderSet = 12\r\nName = \"txtCinvnum\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblCinvnum",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblCinvnum",
+      "props": "AutoSize = .T.\r\nCaption = \"Invoice No\"\r\nHeight = 19\r\nLeft = 9\r\nTop = 39\r\nWidth = 61\r\nTabIndex = 12\r\nZOrderSet = 13\r\nName = \"lblCinvnum\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtCreference",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtCreference",
+      "props": "ControlSource = \"appurchh.creference\"\r\nHeight = 20\r\nLeft = 243\r\nMargin = 1\r\nMaxLength = 30\r\nTabIndex = 10\r\nTop = 37\r\nWidth = 249\r\nZOrderSet = 14\r\nName = \"txtCreference\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblCreference",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblCreference",
+      "props": "AutoSize = .T.\r\nCaption = \"Ref:\"\r\nHeight = 19\r\nLeft = 214\r\nTop = 39\r\nWidth = 25\r\nTabIndex = 14\r\nZOrderSet = 15\r\nName = \"lblCreference\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblCidterm",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblCidterm",
+      "props": "AutoSize = .T.\r\nCaption = \"Terms\"\r\nHeight = 19\r\nLeft = 510\r\nTop = 39\r\nWidth = 36\r\nTabIndex = 16\r\nZOrderSet = 16\r\nName = \"lblCidterm\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblDinvdate",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblDinvdate",
+      "props": "AutoSize = .T.\r\nCaption = \"Invoice Date\"\r\nHeight = 19\r\nLeft = 9\r\nTop = 73\r\nWidth = 72\r\nTabIndex = 20\r\nZOrderSet = 17\r\nName = \"lblDinvdate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblDduedate",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblDduedate",
+      "props": "AutoSize = .T.\r\nAlignment = 0\r\nCaption = \"Due\"\r\nHeight = 19\r\nLeft = 191\r\nTop = 73\r\nWidth = 25\r\nTabIndex = 21\r\nZOrderSet = 18\r\nName = \"lblDduedate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtNinvbal",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .F. ENDPROC ",
+      "props": "ControlSource = \"appurchh.ninvbal\"\r\nHeight = 20\r\nInputMask = \"999,999,999.99\"\r\nLeft = 786\r\nMargin = 1\r\nTabIndex = 45\r\nTop = 592\r\nWidth = 115\r\nZOrderSet = 19\r\nName = \"txtNinvbal\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblDdiscdate",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblDdiscdate",
+      "props": "AutoSize = .T.\r\nAlignment = 0\r\nCaption = \"Disc Date\"\r\nHeight = 19\r\nLeft = 323\r\nTop = 73\r\nWidth = 57\r\nTabIndex = 22\r\nZOrderSet = 20\r\nName = \"lblDdiscdate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblNinvbal",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblNinvbal",
+      "props": "Caption = \"Invoice Balance\"\r\nHeight = 19\r\nLeft = 704\r\nTop = 594\r\nWidth = 91\r\nTabIndex = 47\r\nZOrderSet = 21\r\nName = \"lblNinvbal\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtNinvtot",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .F. ENDPROC ",
+      "props": "ControlSource = \"appurchh.ninvtot\"\r\nHeight = 20\r\nInputMask = \"999,999,999.99\"\r\nLeft = 786\r\nMargin = 1\r\nTabIndex = 56\r\nTop = 568\r\nWidth = 115\r\nZOrderSet = 22\r\nName = \"txtNinvtot\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblNinvtot",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblNinvtot",
+      "props": "Caption = \"Invoice Total\"\r\nHeight = 19\r\nLeft = 704\r\nTop = 570\r\nWidth = 72\r\nTabIndex = 57\r\nZOrderSet = 23\r\nName = \"lblNinvtot\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtdpostdate",
+      "type": {
+        "description": "",
+        "uiComponent": "DatePicker",
+        "category": "UI"
+      },
+      "label": "PROCEDURE LostFocus IF EMPTY(thisform.txtdinvdate.value) AND thisform.txtdinvdate.value <> this.Value   &&  Only replace the invoice date if it's currently empty    thisform.txtdinvdate.set('value',this.Value) ENDIF     DODEFAULT() ENDPROC ",
+      "props": "ControlSource = \"appurchh.dpostdate\"\r\nHeight = 20\r\nLeft = 635\r\nTabIndex = 6\r\nTop = 7\r\nWidth = 75\r\nlcheckdate = .T.\r\nlmorethan90 = .T.\r\nZOrderSet = 24\r\nName = \"txtdpostdate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cboTerms",
+      "type": {
+        "description": "",
+        "uiComponent": "Select",
+        "category": "UI"
+      },
+      "label": "PROCEDURE afterchange thisform.valterms() DODEFAULT() ENDPROC PROCEDURE Init LOCAL lnCount * *  Builds the data displayed in the combo list box *  SELECT cTermDesc, cidTerm FROM terms INTO ARRAY laTerms ORDER BY cTermDesc lnCount = _tally  This.addlistitem('NONE',1,1) This.addlistitem('',1,2)  IF lnCount > 0    FOR lnX = 1 TO ALEN(laTerms,1)       this.addlistitem(laTerms[lnX,1],lnX+1,1)       this.addlistitem(laTerms[lnX,2],lnX+1,2)    ENDFOR    ENDIF     DODEFAULT() ENDPROC ",
+      "props": "BoundColumn = 2\r\nControlSource = \"appurchh.cidterm\"\r\nHeight = 20\r\nLeft = 553\r\nMargin = 2\r\nTabIndex = 11\r\nTop = 37\r\nWidth = 144\r\nZOrderSet = 25\r\nName = \"cboTerms\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdVendor",
+      "type": {
+        "description": "",
+        "uiComponent": null,
+        "category": "Logic"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cVendorID,cSortfield' THISFORM.lnoclearext = .T.  DO FORM picklist WITH 'Vendor', lcList, thisform.txtcvendorid.value, 2  IF llOK    THISFORM.cmdatamanager.REPLACE('appurchh','cVendorId', Vendor.cVendorID)    THISFORM.txtcVendName.VALUE = vendor.cvendname    THISFORM.txtcVendName.REFRESH()    THISFORM.txtcVendorId.REFRESH    THISFORM.setstate() ENDIF  THISFORM.setnextcontrol(THISFORM.txtcVendorId)  ON KEY LABEL F10 _screen.activeform.Save() ON KEY LABEL CTRL+A _screen.activeform.New() ON KEY LABEL CTRL+D _screen.activeform.Delete() ON KEY LABEL CTRL+L _screen.activeform.List()  ENDPROC ",
+      "props": "Top = 7\r\nLeft = 159\r\nTabIndex = 5\r\nZOrderSet = 26\r\nName = \"cmdVendor\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdDocument",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lnx, llReturn, llNewDoc  llNewDoc = .T.  swSELECT('documents') m.cfk      = 'AP'+appurchh.cbatch LOCATE FOR cfk == m.cfk IF FOUND()    IF MESSAGEBOX('There is a document attached to this bill. Do you want to view the document? Choosing No will allow you to attach a new document.', 36, 'Attached Document') = 6       THISFORM.viewdocument(m.cfk)       llNewDoc = .F.    ELSE       llNewDoc = .T.    ENDIF ENDIF IF llNewDoc     THISFORM.oFileDialog.FileName = ''    llReturn = THISFORM.oFileDialog.openfile()    IF NOT THISFORM.oFileDialog.lcancelled       m.cDesc    = THISFORM.omessage.gettext('Enter a description for this file.','Get File Description')       m.cpath    = THISFORM.ofilEDIALOG.aFiles[1]       IF EMPTY(m.cDesc) OR ISNULL(m.cDesc)          m.cDesc = ALLTRIM(m.cpath)       ENDIF        m.cDocLink = 'AP'       swSELECT('documents')       LOCATE FOR cfk == m.cfk       IF NOT FOUND()          INSERT INTO documents FROM MEMVAR       ELSE          REPLACE cpath WITH m.cpath, ;                  cdesc WITH m.cdesc       ENDIF       THISFORM.setchanged(.T., 'Documents')       m.gostatemanager.refreshall('Form')    ENDIF ENDIF  ENDPROC ",
+      "props": "Top = 69\r\nLeft = 483\r\nHeight = 24\r\nWidth = 96\r\nCaption = \"Add \\<Document\"\r\nTabIndex = 18\r\nTabStop = .F.\r\nZOrderSet = 27\r\nName = \"cmdDocument\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtdInvDate",
+      "type": {
+        "description": "",
+        "uiComponent": "DatePicker",
+        "category": "UI"
+      },
+      "label": "PROCEDURE LostFocus  IF DODEFAULT()    thisform.valterms() ENDIF  ENDPROC ",
+      "props": "ControlSource = \"appurchh.dinvdate\"\r\nHeight = 20\r\nInputMask = \"\"\r\nLeft = 75\r\nTabIndex = 13\r\nTop = 71\r\nWidth = 75\r\nlmorethan90 = .T.\r\nZOrderSet = 29\r\nName = \"txtdInvDate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdRecur",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  IF USED('tempap1')    USE IN tempap1 ENDIF  IF USED('tempap')    USE IN tempap ENDIF  SELECT appurech.cvendorid, ;    appurech.creference, ;    appurech.ninvtot, ;    vendor.cvendname, ;    appurech.cbatch ;    FROM appurech, vendor ;    WHERE appurech.cvendorid = vendor.cvendorid ;    INTO CURSOR tempap1 ;    ORDER BY appurech.cvendorid  IF _TALLY > 0     USE DBF('tempap1') AGAIN IN 0 ALIAS tempap EXCL     SELECT tempap    INDEX ON cvendorid  TAG cvendorid    INDEX ON creference TAG creference    INDEX ON cvendname  TAG cvendname     lcList = 'cvendorid,cvendname,creference,ninvtot'     DO FORM picklist WITH 'tempap', lcList, 'cbatch', 4, .T.     IF llOK       lcBatch = tempap.cbatch       swselect('appurech')       SET ORDER TO cbatch       SEEK(lcBatch)       SCATTER MEMVAR       m.cbatch = appurchh.cbatch       jcBatch  = m.cbatch       m.nInvBal = m.ninvtot       m.nSubTotal = m.ninvtot       swselect('appurchh')       GATHER MEMVAR MEMO        swselect('appurecd')       LOCATE FOR NOT EMPTY(cUnitNo) AND NOT EMPTY(ccatcode) AND cbatch = lcBatch       IF FOUND()  &&  Well expenses, so ask for the year and period to allocate them to          DO FORM apselprd TO lcYearPrd          lnLength = LEN(lcYearPrd)          IF lnLength < 6  &&  No valid year and period passed back, so send them to the allocation file             lcYear = ''             lcPeriod = ''          ELSE             lcYear = LEFT(lcYearPrd,4)             lcPeriod = RIGHT(lcYearPrd,2)          ENDIF       ENDIF       SCAN FOR cbatch = lcBatch          swselect('appurecd')          SCATTER MEMVAR          * Look for duplicates so no uniqueness errors occur          m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')          SET DELETED OFF          SELECT appurchd1          SET ORDER TO cidpurd          DO WHILE SEEK(m.cidpurd)             m.cidpurd = THISFORM.oRegistry.IncrementCounter('%Shared.Counters.Purchase Detail')          ENDDO          SET DELETED ON          swselect('appurecd')          m.cbatch = jcBatch          IF NOT EMPTY(cUnitNo) AND NOT EMPTY(ccatcode)  &&  Well expense, so plug in the year and period             m.cProdYear = lcYear             m.cProdPeriod = lcPeriod          ELSE             m.cProdYear = ''             m.cProdPeriod = ''          ENDIF          INSERT INTO appurchd FROM MEMVAR       ENDSCAN       swselect('appurchh')               THISFORM.REFRESH()       THISFORM.calctot()    ENDIF ELSE    THISFORM.omessage.DISPLAY('There are no recurring bills defined.') ENDIF  thisform.setnextcontrol(thisform.txtdpostdate) ON KEY LABEL F10 _SCREEN.ACTIVEFORM.SAVE() ON KEY LABEL CTRL+A _SCREEN.ACTIVEFORM.New() ON KEY LABEL CTRL+D _SCREEN.ACTIVEFORM.DELETE() ON KEY LABEL CTRL+L _SCREEN.ACTIVEFORM.LIST()  ENDPROC PROCEDURE When RETURN thisform.cmdatamanager.isnew('Appurchh')  ENDPROC ",
+      "props": "Top = 70\r\nLeft = 600\r\nHeight = 24\r\nWidth = 96\r\nAnchor = 768\r\nCaption = \"\\<Recurring Bills\"\r\nTabIndex = 52\r\nZOrderSet = 29\r\nName = \"cmdRecur\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcVendorID",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.cmdVendor.Click() DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    swselect('vendor')    LOCATE FOR cvendorid == this.value    IF FOUND()        THISFORM.txtcVendName.SET('value',vendor.cvendname)    ELSE       THISFORM.txtcVendName.SET('value','')    ENDIF  ENDIF                       ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 *   ENDPROC PROCEDURE Valid swselect('vendor') SET ORDER TO cvendorid IF SEEK(THIS.VALUE) AND THISFORM.isnew('Appurchh')  &&  Fill in the terms with the vendor's default    IF lHold  &&  Don't let them continue with a vendor marked to be on hold       THISFORM.oMessage.Warning('This vendor is on hold.  No bills can be entered for them.')       THIS.SET('value','')       RETURN 0    ENDIF    IF NOT EMPTY(vendor.cidterm) AND vendor.cidterm <> THISFORM.cboTerms.VALUE       THISFORM.cboTerms.SET('value',vendor.cidterm)    ENDIF    ENDIF  DODEFAULT()  ENDPROC ",
+      "props": "ControlSource = \"appurchh.cvendorid\"\r\nFormat = \"K!\"\r\nHeight = 20\r\nInputMask = \"XXXXXXXXXX\"\r\nLeft = 74\r\nTabIndex = 3\r\nTop = 7\r\nWidth = 79\r\nclistexpression = vendor.cvendorid\r\nclistworkarea = vendor\r\nZOrderSet = 31\r\nName = \"txtcVendorID\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtCitemdesc",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtCitemdesc",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \" \"\r\nHeight = 20\r\nLeft = 308\r\nMaxLength = 40\r\nSelectOnEntry = .T.\r\nTabIndex = 35\r\nTop = 135\r\nWidth = 245\r\nZOrderSet = 32\r\nName = \"txtCitemdesc\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLease",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  swselect('options') go top llshowinact = lshowinact  lcList = 'cLeaseID,cleasename' set safety off swselect('land') set safety on THISFORM.lnoclearext = .T.  DO FORM picklist WITH 'Land', lcList, thisform.txtcunitno.value, 2  IF llOK    thisform.txtcUnitNo.value   = land.cleaseid    thisform.txtcWellName.value = land.cleasename    thisform.txtcUnitNo.refresh()    thisform.txtcWellName.refresh() ENDIF     thisform.setnextcontrol(This.Parent.txtcUnitNo)  ON KEY LABEL F10 _screen.activeform.Save() ON KEY LABEL CTRL+A _screen.activeform.New() ON KEY LABEL CTRL+D _screen.activeform.Delete() ON KEY LABEL CTRL+L _screen.activeform.List()  ENDPROC ",
+      "props": "Top = 112\r\nLeft = 47\r\nHeight = 20\r\nWidth = 41\r\nfontname = \"Aptos\"\r\nFontSize = 8\r\nCaption = \"Lease\"\r\nTabIndex = 26\r\nTabStop = .F.\r\nZOrderSet = 33\r\nName = \"cmdLease\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLookUnit",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  swselect('options') go top llshowinact = lshowinact  lcList = 'cWellID,cwellname, cgroup' set safety off swselect('wells') set safety on THISFORM.lnoclearext = .T.  DO FORM picklist WITH 'Wells', lcList, thisform.txtcunitno.value, 3  IF llOK    thisform.txtcUnitNo.value   = wells.cwellid    thisform.txtcWellName.value = wells.cwellname    thisform.txtcUnitNo.refresh()    thisform.txtcWellName.refresh() ENDIF     thisform.setnextcontrol(This.Parent.txtcUnitNo)  ON KEY LABEL F10 _screen.activeform.Save() ON KEY LABEL CTRL+A _screen.activeform.New() ON KEY LABEL CTRL+D _screen.activeform.Delete() ON KEY LABEL CTRL+L _screen.activeform.List()  ENDPROC ",
+      "props": "Top = 112\r\nLeft = 7\r\nHeight = 20\r\nWidth = 41\r\nfontname = \"Aptos\"\r\nFontSize = 8\r\nCaption = \"Well\"\r\nTabIndex = 24\r\nTabStop = .F.\r\nZOrderSet = 34\r\nName = \"cmdLookUnit\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcDeptNo",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.cmdLookDept.Click() thisform.txtcdeptdesc.Visible = .T. DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    swselect('gldept')    LOCATE FOR cdeptno == this.value    IF FOUND()       this.Parent.txtcDeptDesc.set('value',gldept.cdeptdesc)    ELSE       this.Parent.txtcDeptDesc.set('value','')    ENDIF ENDIF         ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 * thisform.txtcdeptdesc.Visible = .F. IF NOT thisform.txtnExtension.Enabled AND NOT THISFORM.lValidWell  &&  If editing a paid bill and there's no well, we need to add the detail after this field    THISFORM.txtnExtension.GOTFOCUS()    THISFORM.txtnExtension.LOSTFOCUS() ENDIF  DODEFAULT()  ENDPROC PROCEDURE Valid DODEFAULT() IF EMPTY(THIS.VALUE)    IF NOT MDOWN()       IF THISFORM.lDeptRequired          THISFORM.omessage.DISPLAY('A valid department code is required when using this account no.')          RETURN 0       ENDIF    ENDIF ENDIF   ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nFormat = \"K!\"\r\nHeight = 20\r\nInputMask = \"\"\r\nLeft = 725\r\nMaxLength = 8\r\nSelectOnEntry = .T.\r\nTabIndex = 38\r\nTop = 135\r\nWidth = 68\r\nclistexpression = cdeptno\r\nclistworkarea = gldept\r\nZOrderSet = 35\r\nName = \"txtcDeptNo\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtafeno",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _SCREEN.ACTIVEFORM.cmdAFENo.CLICK()  DODEFAULT()  ENDPROC PROCEDURE Valid IF DODEFAULT()    IF NOT EMPTY(THIS.VALUE)       swselect('afehdr')       LOCATE FOR cafeno = THIS.VALUE AND cwellid = THISFORM.txtcunitNo.value       IF NOT FOUND()          MESSAGEBOX('This AFE No is not valid for well: ' + ALLTRIM(THISFORM.txtcUnitNo.VALUE) + ' Please choose a valid AFE.',0,'Invalid AFE')          RETURN 0       ENDIF    ENDIF ENDIF  ENDPROC PROCEDURE When RETURN thisform.lValidWell ENDPROC ",
+      "props": "Height = 20\r\nLeft = 638\r\nMaxLength = 10\r\nTabIndex = 37\r\nTop = 135\r\nWidth = 76\r\nclistexpression = afehdr.cafeno\r\nclistworkarea = afehdr\r\nZOrderSet = 36\r\nName = \"txtafeno\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtdDueDate",
+      "type": {
+        "description": "",
+        "uiComponent": "DatePicker",
+        "category": "UI"
+      },
+      "label": "txtdDueDate",
+      "props": "ControlSource = \"appurchh.dduedate\"\r\nHeight = 20\r\nLeft = 219\r\nTabIndex = 15\r\nTop = 71\r\nWidth = 75\r\nZOrderSet = 37\r\nName = \"txtdDueDate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcCatCode",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.cmdLookCat.Click() thisform.txtccatDesc.Visible = .T. DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    swselect('expcat')    LOCATE FOR ccatcode == this.Value    IF FOUND()       this.Parent.txtccatDesc.set('value',expcat.ccateg)    ELSE       this.Parent.txtccatDesc.set('value','')    ENDIF ENDIF             ENDPROC PROCEDURE LostFocus LOCAL odialog, lnbbl, lcdisp, lnLastKey ON KEY LABEL f2 * lnLastKey = LASTKEY()  &&  Store the last key, so if it's a tab or enter, we can set the cursor to the right field after returning from the brine lookup thisform.txtccatDesc.Visible = .F. WITH THISFORM     IF 'SALT'  $ UPPER(.txtccatdesc.VALUE) OR ;       'BRINE' $ UPPER(.txtccatdesc.VALUE) OR ;       'WATER' $ UPPER(.txtccatdesc.VALUE)       THISFORM.lnoclearext = .T.       *   .txtnSaltBBL.VALUE = thisform.oMessage.GetText('Enter the number of BBLs of water.  (4 digits max)','Amount of Water in BBL')          m.odialog = CREATEOBJECT('frmWaterDialog',.txtnsaltbbl.VALUE,.txtcdisperm.VALUE,.txtcdispcode.VALUE,.txtWasteCode.VALUE, !m.goapp.lPARpts)          m.odialog.SHOW()          lnbbl   = m.odialog.txtwaterbbl.VALUE          lcperm  = m.odialog.cbodisposal.VALUE          lcdisp  = m.odialog.cbodispcode.VALUE          lcWaste = m.odialog.cbowastecode.value          m.odialog.RELEASE()          .txtnsaltbbl.VALUE = lnbbl          .txtcdisperm.VALUE = lcperm          .txtWasteCode.value = lcWaste          .txtcdispcode.value = lcdisp        IF lnLastKey = 13 OR lnLastKey = 9  &&  Tab or enter, so set the cursor to the cboClass control          thisform.setnextcontrol(thisform.cboClass)       ENDIF     ENDIF ENDWITH  DODEFAULT()  ENDPROC PROCEDURE Valid DODEFAULT()  swselect('afeopt') GO TOP llAllocexp = lAllocExp  IF NOT EMPTY(THIS.VALUE)    THISFORM.lValidWell = .T.    swselect('expcat')    SET ORDER TO ccatcode    IF SEEK(THIS.VALUE)       IF EMPTY(thisform.txtcitemdesc.value)          THISFORM.txtcitemdesc.VALUE = expcat.ccateg          THISFORM.txtcitemdesc.REFRESH()       ENDIF        IF expcat.cexpclass = 'P' OR expcat.ccatcode = 'PLUG'          MESSAGEBOX('The \"PLUG\" expense code is designated for the Plugging module ' + ;                     'and cannot be processed on this window. Use the Fixed Expenses ' + ;                     'or Well Expenses by Well (8/8th) window for any plugging fund ' + ;                     'adjustments that need made.',16,'Plugging Expense')          RETURN 0       ENDIF               THISFORM.cboclass.VALUE = expcat.cexpclass       IF NOT lafetype OR llAllocexp          IF NOT EMPTY(glopt.cexpclear)             IF NOT thisform.lInvestment AND NOT thisform.lJVPosting                THISFORM.txtcacctno.VALUE = glopt.cexpclear             ENDIF           ELSE             THISFORM.omessage.warning('The expense clearing account must be chosen in G/L Preferences before allocating expenses to wells.')             RETURN          ENDIF           * If it's an investment well, don't disable the posting account, so it can be changed, if desired - BH 04/21/08          IF THISFORM.linvestment  OR thisform.lJVPosting             IF EMPTY(thisform.txtcAcctNo.Value)                  * Only change the account if it's blank, which it should be after adding a detail line                THISFORM.txtcacctno.VALUE = expcat.cdraccto             ENDIF           ELSE             THISFORM.txtcacctno.lenabled = .F.          ENDIF          swselect('coa')          LOCATE FOR cacctno = THISFORM.txtcacctno.VALUE          IF FOUND()             THISFORM.txtcacctdesc.SET('value',coa.cacctdesc)          ELSE             THISFORM.txtcacctdesc.SET('value','Unknown')          ENDIF       ELSE  &&  Check to see whether there's an AFE account we need to fill in.          THISFORM.txtcacctno.lenabled = .T.          THISFORM.txtcacctno.SET('value',expcat.cdraccto)          swselect('coa')          LOCATE FOR cacctno = THISFORM.txtcacctno.VALUE          IF FOUND()             THISFORM.txtcacctdesc.SET('value',coa.cacctdesc)          ELSE             THISFORM.txtcacctdesc.SET('value','Unknown')          ENDIF          RETURN .T.       ENDIF    ENDIF ELSE    thisform.lValidWell = .t.    THISFORM.txtccatDesc.VALUE = ''    THISFORM.txtcacctno.lenabled = .T.    thisform.txtcacctno.Value = ' '    IF LASTKEY() <> -1 &&  F2       IF NOT MDOWN()          THISFORM.lValidWell = .f.       endif    ENDIF ENDIF  THISFORM.txtcacctno.REFRESH() thisform.cboClass.Requery()   ENDPROC PROCEDURE When DODEFAULT() RETURN thisform.lValidWell ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nEnabled = .T.\r\nHeight = 20\r\nLeft = 102\r\nMaxLength = 4\r\nSelectOnEntry = .T.\r\nTabIndex = 32\r\nTop = 135\r\nWidth = 40\r\nclistexpression = ccatcode\r\nclistworkarea = expcat\r\nZOrderSet = 38\r\nName = \"txtcCatCode\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcProdPeriod",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Valid IF NOT EMPTY(THIS.VALUE)    THIS.VALUE = PADL(ALLTRIM(THIS.VALUE),2,'0')    IF NOT BETWEEN(THIS.VALUE,'01','12')       THISFORM.omessage.warning('Please enter a valid production period. The period must be between 01 and 12')       RETURN 0    ENDIF    IF EMPTY(THISFORM.txtcprodyear.VALUE)       THISFORM.txtcprodyear.SET('value',ALLT(STR(YEAR(DATE()))))    ENDIF    THIS.REFRESH() ELSE    IF THISFORM.linvestment       THISFORM.omessage.warning('The given well is an investment well.  You must provide the production period for investment wells.')       RETURN 0    ENDIF ENDIF  ENDPROC PROCEDURE When RETURN NOT EMPTY(thisform.txtccatCode.Value) ENDPROC ",
+      "props": "Height = 20\r\nLeft = 75\r\nMaxLength = 2\r\nSelectOnEntry = .T.\r\nTabIndex = 46\r\nTop = 160\r\nWidth = 24\r\nZOrderSet = 39\r\nName = \"txtcProdPeriod\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtnExtension",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus thisform.cconfirmset = set('confirm') set confirm on dodefault() ENDPROC PROCEDURE LostFocus lcConfirm = THISFORM.cConfirmSet SET CONFIRM &lcConfirm  IF NOT THISFORM.lvalidwell    *  Check to make sure the following keys were not pressed    *  F1 \t\t\t= 28    *  Backspace \t= 127    *  Shift-Tab\t\t= 15    *  Left Arrow\t= 19    *  Up Arrow\t\t= 5    IF LASTKEY() <> 28 AND ;          LASTKEY() <> 127 AND ;          LASTKEY() <> 15 AND ;          LASTKEY() <> 19 AND ;          LASTKEY() <> 5       THISFORM.AddDetailLine()    ENDIF ENDIF  ENDPROC ",
+      "props": "Alignment = 3\r\nValue = 0.00\r\nHeight = 20\r\nInputMask = \"99999999.99\"\r\nLeft = 796\r\nMaxLength = 0\r\nSelectOnEntry = .T.\r\nTabIndex = 39\r\nTop = 135\r\nWidth = 104\r\nZOrderSet = 40\r\nName = \"txtnExtension\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblCitemdesc",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblCitemdesc",
+      "props": "Caption = \"Description\"\r\nHeight = 19\r\nLeft = 310\r\nTop = 114\r\nWidth = 66\r\nTabIndex = 29\r\nZOrderSet = 41\r\nName = \"lblCitemdesc\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblNextension",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblNextension",
+      "props": "AutoSize = .T.\r\nCaption = \"Amount\"\r\nHeight = 19\r\nLeft = 861\r\nTop = 114\r\nWidth = 46\r\nTabIndex = 30\r\nZOrderSet = 42\r\nName = \"lblNextension\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLookDept",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cdeptno\\Dept No,cdeptdesc\\Department Description' THISFORM.lnoclearext = .T.  DO FORM picklist WITH 'gldept', lcList, thisform.txtcdeptno.value, 2,.f.,.t.  IF llOK    thisform.txtcDeptNo.value = gldept.cdeptno    thisform.txtcDeptDesc.value = gldept.cDeptDesc    thisform.txtcDeptNo.refresh()    thisform.txtcDeptDesc.refresh() ENDIF     thisform.setnextcontrol(thisform.txtcDeptNo)  ON KEY LABEL F10 _screen.activeform.Save() ON KEY LABEL CTRL+A _screen.activeform.New() ON KEY LABEL CTRL+D _screen.activeform.Delete() ON KEY LABEL CTRL+L _screen.activeform.List()  ENDPROC ",
+      "props": "Top = 112\r\nLeft = 733\r\nHeight = 20\r\nWidth = 53\r\nfontname = \"Aptos\"\r\nFontSize = 8\r\nCaption = \"Dept\"\r\nTabIndex = 28\r\nTabStop = .F.\r\nZOrderSet = 43\r\nName = \"cmdLookDept\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcUnitNo",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.cmdLookUnit.Click() thisform.txtcwellName.Visible = .t. DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    SELECT allunits    LOCATE FOR cunitno == this.Value    IF FOUND()       this.Parent.txtcwellName.set('value',allunits.cname)    ELSE       this.Parent.txtcwellName.set('value','')    ENDIF ENDIF             ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 * thisform.txtcwellName.Visible = .f.    IF THISFORM.lInvestment OR NOT thisform.lvalidwell OR THISFORM.lJVPosting    IF NOT thisform.lJVPosting       thisform.cmdlookowner.visible = .F.       thisform.txtcownerid.visible  = .F.       thisform.txtcprodPeriod.Visible = .f.       thisform.txtcprodYear.Visible = .f.       thisform.lblprodPeriod.Visible = .f.    ENDIF            thisform.txtcdispcode.visible = .f.    thisform.lblslash.Visible = .f.     ELSE       thisform.cmdlookowner.visible = .T.    thisform.txtcownerid.visible  = .T.    thisform.txtcdispcode.visible = .f.    thisform.lblprodPeriod.Visible = .t.    thisform.lblslash.Visible = .t.    thisform.txtcprodPeriod.Visible = .t.    thisform.txtcprodYear.Visible = .t. ENDIF     thisform.cbodeck.Requery()  DODEFAULT()  ENDPROC PROCEDURE Valid LOCAL lnCount, llInActive  IF NOT EMPTY(THIS.VALUE)    IF this.Value = 'ALLOC '       llInactive = .F.       thisform.txtcownerID.Enabled = .t.       thisform.cmdLookOwner.Enabled = .t.       IF LEN(ALLTRIM(THIS.VALUE)) > 5          lcGroup = SUBSTR(THIS.VALUE,6,2)          swselect('groups')          LOCATE FOR cGroup = lcGroup          IF FOUND()             DO FORM dmselwells NAME selwells LINKED  WITH lcGroup             RELEASE selwells          ELSE             DO FORM dmselwells NAME selwells linked WITH '**'             RELEASE selwells          ENDIF       ELSE          DO FORM dmselwells NAME selwells LINKED WITH '**'          RELEASE selwells        ENDIF       SELECT wellsel       COUNT FOR NOT DELETED() TO lnCount              IF lnCount > 0          THISFORM.lValidWell = .T.          SELECT wellsel          SCAN             swselect('wells')             SET ORDER TO cwellid             IF SEEK(wellsel.cwellid) AND INLIST(wells.cWellStat,'I','S','P','V') AND NOT llInActive  &&  All non-active statuses except investment                IF wells.cWellStat = 'V'                   thisform.oMessage.Warning('You cannot choose an investment well when using the ALLOC function.  Well: ' + ALLTRIM(wells.cwellid) + ' is marked as an investment well.  No detail line will be added for it.')                   SELECT wellsel                   DELETE NEXT 1                    EXIT                else                                  THISFORM.omessage.warning('One or more of the wells chosen to allocate are not active.  Those expenses will be sent to the allocation file.')                   llInactive = .t.                   thisform.lvalidwell = .t.                 ENDIF              ENDIF          ENDSCAN          SELECT wellsel       ELSE          THISFORM.lValidWell = .F.       ENDIF       thisform.setnextcontrol(thisform.txtcCatCode)    ELSE       swselect('wells')       SET ORDER TO cwellid        IF SEEK(THIS.VALUE)          IF INLIST(wells.cWellStat,'I','S','P')  &&  All non-active statuses except investment             THISFORM.lValidWell = .t.             THISFORM.omessage.warning('This well is not an active well. Its expenses will be sent to the allocation file.')          ELSE             THISFORM.lValidWell = .T.             if wells.cWellStat = 'V'  &&  Investment well, so turn on the investment flag                THISFORM.lInvestment = .T.             else                thisform.lInvestment = .f.             endif          ENDIF       ELSE          swselect('land')          LOCATE FOR cleaseid = THIS.VALUE          IF FOUND()             THISFORM.lValidWell = .F.          ELSE             THISFORM.omessage.warning('The Well/Lease ID entered is not valid.  Please re-enter.')             RETURN 0          ENDIF       ENDIF    ENDIF ELSE    thisform.txtcacctno.lenabled = .t.    thisform.txtcAcctNo.Enabled  = .T.    *thisform.txtcAcctNo.set('value','')    *thisform.txtcAcctDesc.set('value','')    THISFORM.lValidWell = .F.    THIS.PARENT.txtcWellName.SET('value','')    this.Parent.txtccatCode.set('value','')  &&  Blank out exp cat, class, and year/period if no well is chosen    this.Parent.txtccatDesc.set('value','')    this.Parent.cboClass.set('value','')    this.Parent.txtcprodPeriod.set('value','')    this.Parent.txtcprodyear.set('value','') ENDIF DODEFAULT()  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nFormat = \"K!\"\r\nHeight = 20\r\nLeft = 7\r\nMaxLength = 10\r\nSelectOnEntry = .T.\r\nTabIndex = 31\r\nTop = 135\r\nWidth = 77\r\nclistexpression = wells.cwellid\r\nclistworkarea = wells\r\nlallowexceptions = .T.\r\nZOrderSet = 44\r\nName = \"txtcUnitNo\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcProdYear",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE LostFocus IF DODEFAULT()    IF THISFORM.txtcownerID.ENABLED = .F.       IF (LASTKEY() = 13 OR LASTKEY() = 9) AND NOT MDOWN()  &&  Tab or enter, but not a mouseclick          THISFORM.AddDetailLine()       ENDIF    ELSE       * If investment well, this is the last field to be filled in       IF THISFORM.lInvestment           IF (LASTKEY() = 13 OR LASTKEY() = 9) AND NOT MDOWN()  &&  Tab or enter, but not a mouseclick             THISFORM.AddDetailLine()          ENDIF       ENDIF    ENDIF ENDIF  ENDPROC PROCEDURE Valid DODEFAULT()  IF NOT EMPTY(THIS.VALUE)    IF NOT BETWEEN(THIS.VALUE,'1980','2030')       WAIT WIND NOWAIT 'Invalid production year entered. Please correct.'       RETURN 0    ENDIF ELSE    IF NOT EMPTY(THIS.PARENT.txtcProdPeriod.VALUE)       THIS.SET('value',ALLTRIM(STR(YEAR(DATE()))))    ENDIF ENDIF    ENDPROC PROCEDURE When RETURN NOT EMPTY(thisform.txtccatCode.Value) ENDPROC ",
+      "props": "Height = 20\r\nLeft = 111\r\nMaxLength = 4\r\nSelectOnEntry = .T.\r\nTabIndex = 48\r\nTop = 160\r\nWidth = 39\r\nZOrderSet = 45\r\nName = \"txtcProdYear\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdAFENo",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cafeno,cwellid'  IF NOT EMPTY(THISFORM.txtcunitno.VALUE)     IF _TALLY > 0        SELECT cafeno, cwellid ;          FROM afehdr ;          WHERE cwellid = THISFORM.txtcunitno.VALUE ;          INTO CURSOR tempafe READWRITE ;          ORDER BY cafeno        INDEX ON cafeno TAG cafeno       INDEX ON cwellid TAG cwellid        DO FORM picklist WITH 'tempafe', lcList, THISFORM.txtafeno.VALUE, 2, .T.        IF llOK          THISFORM.txtafeno.VALUE = afehdr.cafeno          THISFORM.txtafeno.REFRESH()       ENDIF        THISFORM.setnextcontrol(THISFORM.txtafeno)    ENDIF ENDIF  ENDPROC PROCEDURE When RETURN MDOWN() ENDPROC ",
+      "props": "Top = 112\r\nLeft = 638\r\nHeight = 20\r\nFontBold = .F.\r\nCaption = \"AFE No\"\r\nTabIndex = 50\r\nTabStop = .F.\r\nZOrderSet = 46\r\nName = \"cmdAFENo\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblSlash",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblSlash",
+      "props": "FontSize = 10\r\nCaption = \"/\"\r\nLeft = 104\r\nTop = 161\r\nTabIndex = 53\r\nZOrderSet = 47\r\nName = \"lblSlash\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLookOwner",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cOwnerID\\Owner ID,csortfield\\Owner Name'  IF USED('tempown')    USE IN tempown ENDIF IF USED('tempown1')    USE IN tempown1 ENDIF  IF NOT EMPTY(THISFORM.txtcunitno.VALUE)    SET SAFETY OFF    SELECT cOwnerID, cSortField FROM investor ;       WHERE cOwnerID IN (SELECT cOwnerID FROM wellinv WHERE cWellID = THISFORM.txtcunitno.VALUE) ;       INTO CURSOR tempown1 ;       ORDER BY cOwnerID     IF _TALLY > 0        USE DBF('tempown1') AGAIN IN 0 ALIAS tempown       SELECT tempown       INDEX ON cOwnerID TAG cOwnerID       INDEX ON cSortField TAG cSortField        DO FORM picklist WITH 'tempown', lcList, THISFORM.txtcownerid.VALUE, 2, .T.,.T.        IF llOK          THISFORM.txtcownerid.VALUE = tempown.cOwnerID          THISFORM.txtcownerid.REFRESH()       ENDIF        THISFORM.setnextcontrol(THIS.PARENT.txtcownerid)    ENDIF ENDIF  THISFORM.lnoclearext = .T.  ENDPROC PROCEDURE When RETURN MDOWN() ENDPROC ",
+      "props": "Top = 160\r\nLeft = 741\r\nHeight = 20\r\nCaption = \"Allocate All To\"\r\nTabIndex = 44\r\nTabStop = .F.\r\nZOrderSet = 48\r\nName = \"cmdLookOwner\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcOwnerID",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _SCREEN.ACTIVEFORM.cmdLookOwner.CLICK()  DODEFAULT()  ENDPROC PROCEDURE LostFocus IF (LASTKEY() = 13 OR LASTKEY() = 9) AND not mDown()  &&  Tab or enter, but not a mouseclick    THISFORM.AddDetailLine() ENDIF  ON KEY LABEL F2 *  ENDPROC PROCEDURE When RETURN NOT EMPTY(thisform.txtccatCode.Value) ENDPROC ",
+      "props": "Height = 20\r\nLeft = 824\r\nMaxLength = 10\r\nTabIndex = 51\r\nTop = 160\r\nWidth = 76\r\nclistexpression = investor.cownerid\r\nclistworkarea = investor\r\nZOrderSet = 49\r\nName = \"txtcOwnerID\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLookCat",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  IF THISFORM.flushcontrolbuffer()     IF NOT THISFORM.lValidWell         RETURN .F.     ENDIF      llOK = .T.      SELECT cCatCode,cCateg,cExpClass,IIF(lAFEType,'A','') AS cAFEType, IIF(lJIBOnly,'J','') AS cJIBOnly  ;         FROM expcat INTO CURSOR exptmp READWRITE       SELECT exptmp     INDEX ON cCatCode           TAG cCatCode     INDEX ON cCateg             TAG cCateg     INDEX ON cExpClass+cCatCode TAG cExpClass     INDEX ON cAFEType           TAG cAFEType     INDEX ON cJIBOnly           TAG cJIBOnly      lcList = 'ccatcode\\Code,ccateg\\Category,cexpclass\\Cls,cAFEType\\AFE,cJIBOnly\\JIB'      DO FORM picklist WITH 'exptmp', lcList, THISFORM.txtcCatCode.VALUE, 5, .T., .T.      IF llOK         THISFORM.txtcCatCode.SET('VALUE',exptmp.cCatCode)         THISFORM.txtcCatDesc.SET('value',exptmp.cCateg)         THISFORM.cboclass.VALUE = exptmp.cExpClass         THISFORM.cboclass.REFRESH()     ENDIF      THISFORM.setnextcontrol(THISFORM.txtcCatCode)      ON KEY LABEL F10 _SCREEN.ACTIVEFORM.SAVE()     ON KEY LABEL CTRL+A _SCREEN.ACTIVEFORM.New()     ON KEY LABEL CTRL+D _SCREEN.ACTIVEFORM.DELETE()     ON KEY LABEL CTRL+L _SCREEN.ACTIVEFORM.LIST() ENDIF  ENDPROC ",
+      "props": "Top = 112\r\nLeft = 95\r\nHeight = 20\r\nWidth = 55\r\nfontname = \"Aptos\"\r\nFontSize = 8\r\nCaption = \"Exp Code\"\r\nTabIndex = 27\r\nTabStop = .F.\r\nZOrderSet = 50\r\nName = \"cmdLookCat\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblProdPeriod",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblProdPeriod",
+      "props": "Caption = \"Prod Period\"\r\nLeft = 15\r\nTop = 162\r\nTabIndex = 52\r\nZOrderSet = 51\r\nName = \"lblProdPeriod\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtnSaltBBL",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "txtnSaltBBL",
+      "props": "Height = 20\r\nLeft = 286\r\nSelectOnEntry = .T.\r\nTabIndex = 49\r\nTop = 583\r\nVisible = .F.\r\nWidth = 36\r\nZOrderSet = 52\r\nName = \"txtnSaltBBL\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdReverse",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click IF THISFORM.oMessage.CONFIRM('Are you sure you want to reverse this bill?')    thisform.ReverseBill()     ENDIF  DODEFAULT()  ENDPROC ",
+      "props": "Top = 576\r\nLeft = 88\r\nHeight = 36\r\nWidth = 80\r\nAnchor = 768\r\nCaption = \"Reverse Bill\"\r\nTabIndex = 53\r\nZOrderSet = 52\r\nName = \"cmdReverse\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdDelete",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click IF THISFORM.oMessage.CONFIRM('Are you sure you want to delete this detail line?')    THISFORM.cmdatamanager.DELETE('Appurchd')    thisform.setstate() ENDIF  DODEFAULT()  ENDPROC ",
+      "props": "Top = 576\r\nLeft = 4\r\nHeight = 36\r\nWidth = 80\r\nAnchor = 768\r\nCaption = \"Delete Row\"\r\nTabIndex = 53\r\nZOrderSet = 52\r\nName = \"cmdDelete\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtdDiscDate",
+      "type": {
+        "description": "",
+        "uiComponent": "DatePicker",
+        "category": "UI"
+      },
+      "label": "txtdDiscDate",
+      "props": "ControlSource = \"appurchh.ddiscdate\"\r\nHeight = 20\r\nLeft = 375\r\nTabIndex = 17\r\nTop = 71\r\nWidth = 75\r\nZOrderSet = 54\r\nName = \"txtdDiscDate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcAcctNo",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.cmdLookCOA.Click() thisform.txtCacctdesc.Visible = .T. DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    swselect('coa')    LOCATE FOR cacctno == this.Value    IF FOUND()       this.Parent.txtcAcctDesc.set('value',coa.cacctdesc)    ELSE       this.Parent.txtcAcctDesc.set('value','')    ENDIF ENDIF         ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 * thisform.txtCacctdesc.Visible = .F. DODEFAULT()  ENDPROC PROCEDURE Valid THISFORM.lWellRequired = .F. THISFORM.lDeptRequired = .F.  IF NOT EMPTY(THIS.VALUE)    swselect('coa')    SET ORDER TO acctno    IF SEEK(THIS.VALUE)       IF NOT lTitle AND NOT lTotalAcct          IF EMPTY(THISFORM.txtcitemdesc.VALUE)             THISFORM.txtcItemDesc.VALUE = cAcctDesc             THISFORM.txtcItemDesc.REFRESH()          ENDIF          THISFORM.txtcAcctDesc.SET('value',coa.cAcctDesc)          THISFORM.lWellRequired = lAcctUnit          THISFORM.lDeptRequired = lAcctDept       ELSE          THISFORM.omessage.warning('You must use a detail account number. It cannot be a title or totaling account.')          RETURN 0       ENDIF       IF lBankAcct          thisform.oMessage.warning('A bank account cannot be used here. Use Cash Receipts or Disbursements or journal entries to transfer funds between accounts.')          RETURN 0       ENDIF     ENDIF ENDIF DODEFAULT()  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nHeight = 20\r\nInputMask = \"999999\"\r\nLeft = 559\r\nMaxLength = 6\r\nSelectOnEntry = .T.\r\nTabIndex = 36\r\nTop = 135\r\nWidth = 72\r\nclistexpression = cacctno\r\nclistworkarea = coa\r\nZOrderSet = 55\r\nName = \"txtcAcctNo\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Lbllabelcustom5",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Lbllabelcustom5",
+      "props": "FontBold = .F.\r\nFontSize = 7\r\nCaption = \"DOI Class\"\r\nLeft = 155\r\nTop = 115\r\nTabIndex = 61\r\nZOrderSet = 56\r\nName = \"Lbllabelcustom5\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdLookCOA",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click LOCAL lcList PRIV llOK  llOK = .T.  lcList = 'cAcctNo/acctno,cAcctDesc/acctdesc' THISFORM.lnoclearext = .T.  DO FORM picklist WITH 'Coa', lcList, thisform.txtcacctno.value, 2  IF llOK    thisform.txtcAcctNo.value = coa.cacctno    thisform.txtcAcctDesc.value = coa.cAcctDesc    thisform.txtcAcctNo.refresh()    thisform.txtcAcctDesc.refresh() ENDIF     thisform.setnextcontrol(This.Parent.txtcAcctNo)  ON KEY LABEL F10 _screen.activeform.Save() ON KEY LABEL CTRL+A _screen.activeform.New() ON KEY LABEL CTRL+D _screen.activeform.Delete() ON KEY LABEL CTRL+L _screen.activeform.List()  ENDPROC PROCEDURE When RETURN (thisform.txtcacctno.enabled) ENDPROC ",
+      "props": "Top = 112\r\nLeft = 559\r\nHeight = 20\r\nWidth = 72\r\nfontname = \"Aptos\"\r\nFontSize = 8\r\nCaption = \"Account\"\r\nTabIndex = 23\r\nTabStop = .F.\r\nZOrderSet = 57\r\nName = \"cmdLookCOA\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cboDeck",
+      "type": {
+        "description": "",
+        "uiComponent": "Select",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Init IF DODEFAULT()    this.Requery() ENDIF     ENDPROC PROCEDURE Requery LPARAMETERS tcDeck, tcYear, tcPeriod  IF DODEFAULT() \tTHIS.Clear() \tthis.Value = '' \tthis.DisplayValue = '' \tIF VARTYPE(tcYear) # 'C' \t   tcYear = '' \tENDIF  \tIF VARTYPE(tcPeriod) # 'C' \t   tcPeriod = '' \tENDIF       IF VARTYPE(tcDeck) # 'C'        tcDeck = ''     ENDIF              lcWellID = thisform.txtcunitNo.Value      IF EMPTY(lcWellID)        RETURN     ENDIF           lnIndex = 1          * Get a list of decks for the given well \tSELECT cdeck, ldefault, effstartyr, effstartprd FROM doidecks ; \t\tINTO CURSOR temp ; \t\tWHERE cwellid = lcwellid ; \t\tORDER BY cdeck DESC  ; \t\tGROUP BY cdeck      * Add the decks to the dropdown \tlnx = 1 \tIF _TALLY > 0 \t\tSELECT temp \t\tSCAN \t\t\tSCATTER MEMVAR \t\t\tIF EMPTY(m.cdeck) \t\t\t   m.cdeck = '(blank)' \t\t\tENDIF  \t\t\tTHIS.ADDLISTITEM(m.cdeck,lnx,1) \t\t\tTHIS.ADDLISTITEM(m.cdeck,lnx,2) \t\t\t \t\t\t* If we passed the deck or production period \t\t\t* set the deck to the given deck or the one \t\t\t* that has an effective date for the production period. \t\t\tIF NOT EMPTY(tcDeck) \t\t\t\tIF m.cDeck = tcDeck \t\t\t  \t \tlnIndex = lnx \t\t\t\tENDIF  \t\t\tELSE \t\t\t   IF tcYear = m.effstartyr AND tcPeriod = m.effstartprd \t\t\t      lnIndex = lnX \t\t\t   ENDIF  \t\t\tENDIF \t \t\t\tlnx = lnx + 1  \t\tENDSCAN \t    this.ListItemId = lnIndex \tELSE \t\t \t    this.ListItemId = 1 \tENDIF ENDIF  ENDPROC PROCEDURE Valid RETURN .t. ENDPROC ",
+      "props": "BoundColumn = 2\r\nControlSource = \"\"\r\nHeight = 20\r\nLeft = 203\r\nStyle = 0\r\nTabIndex = 34\r\nTop = 135\r\nZOrderSet = 55\r\nName = \"cboDeck\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "GridDetails",
+      "type": {
+        "description": "",
+        "uiComponent": "DataTable",
+        "category": "UI"
+      },
+      "label": "PROCEDURE DblClick THISFORM.EditDetailLine() ENDPROC ",
+      "props": "ColumnCount = 12\r\nScrollBars = 3\r\nTop = 189\r\nLeft = 3\r\nHeight = 360\r\nWidth = 921\r\nAnchor = 0\r\nPanel = 1\r\nRecordSource = \"appurchd\"\r\nTabIndex = 63\r\nHighlightStyle = 0\r\nlcolumnmemory = .F.\r\nZOrderSet = 59\r\nName = \"GridDetails\"\r\nColumn1.FontSize = 8\r\nColumn1.ControlSource = \"appurchd.cunitno\"\r\nColumn1.Sparse = .T.\r\nColumn1.Name = \"Column1\"\r\nColumn2.Width = 57\r\nColumn2.FontSize = 8\r\nColumn2.ControlSource = \"appurchd.ccatcode\"\r\nColumn2.Sparse = .T.\r\nColumn2.Name = \"Column2\"\r\nColumn3.Width = 20\r\nColumn3.FontSize = 8\r\nColumn3.ControlSource = \"appurchd.cexpclass\"\r\nColumn3.Name = \"Column3\"\r\nColumn4.Width = 195\r\nColumn4.FontSize = 8\r\nColumn4.ColumnOrder = 5\r\nColumn4.ControlSource = \"appurchd.citemdesc\"\r\nColumn4.Name = \"Column4\"\r\nColumn5.Width = 56\r\nColumn5.FontSize = 8\r\nColumn5.ColumnOrder = 6\r\nColumn5.ControlSource = \"appurchd.cacctno\"\r\nColumn5.Sparse = .T.\r\nColumn5.Name = \"Column5\"\r\nColumn6.Width = 89\r\nColumn6.FontSize = 8\r\nColumn6.ColumnOrder = 12\r\nColumn6.ControlSource = \"appurchd.nextension\"\r\nColumn6.Sparse = .T.\r\nColumn6.Name = \"Column6\"\r\nColumn7.FontSize = 8\r\nColumn7.ColumnOrder = 8\r\nColumn7.ControlSource = \"appurchd.cdeptno\"\r\nColumn7.Sparse = .T.\r\nColumn7.Name = \"Column7\"\r\nColumn8.Width = 45\r\nColumn8.FontSize = 8\r\nColumn8.ColumnOrder = 9\r\nColumn8.ControlSource = \"appurchd.cprodyear\"\r\nColumn8.Sparse = .T.\r\nColumn8.Name = \"Column8\"\r\nColumn9.Width = 39\r\nColumn9.FontSize = 8\r\nColumn9.ColumnOrder = 10\r\nColumn9.ControlSource = \"appurchd.cprodperiod\"\r\nColumn9.Sparse = .T.\r\nColumn9.Name = \"Column9\"\r\nColumn10.FontSize = 8\r\nColumn10.ColumnOrder = 11\r\nColumn10.ControlSource = \"appurchd.cownerid\"\r\nColumn10.Sparse = .T.\r\nColumn10.Name = \"Column10\"\r\nColumn11.ColumnOrder = 7\r\nColumn11.ControlSource = \"appurchd.cafeno\"\r\nColumn11.Name = \"Column11\"\r\nColumn12.FontSize = 8\r\nColumn12.ColumnOrder = 4\r\nColumn12.ControlSource = \"appurchd.cdeck\"\r\nColumn12.Name = \"Column12\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Well ID\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column1"
+    },
+    {
+      "name": "txtcWellID",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.welllookup() RETURN DODEFAULT() ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 IF EMPTY(this.Value)    thisform.gridDetails.column2.txtcatcode.set('value','')    thisform.gridDetails.column3.txtclass.set('value','') ELSE    swselect('glopt')    GO top    lcExpClear = cExpClear    thisform.gridDetails.column5.txtAccount.set('value',lcExpClear)    ENDIF  RETURN DODEFAULT() ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nVisible = .T.\r\nclistexpression = cwellid\r\nclistworkarea = wells\r\nName = \"txtcWellID\"\r\n",
+      "table": "formapbill.GridDetails.Column1"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Exp Code\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column2"
+    },
+    {
+      "name": "txtCatCode",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.catlookup() RETURN DODEFAULT() ENDPROC PROCEDURE InteractiveChange IF DODEFAULT()    thisform.gridDetails.column4.txtDescription.set('value',expcat.ccateg)    thisform.gridDetails.column4.txtDescription.refresh()    thisform.gridDetails.column3.txtClass.set('value',expcat.cexpclass)    thisform.gridDetails.column3.txtClass.refresh() ENDIF  ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 RETURN DODEFAULT() ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nVisible = .T.\r\nclistexpression = ccatcode\r\nclistworkarea = expcat\r\nName = \"txtCatCode\"\r\n",
+      "table": "formapbill.GridDetails.Column2"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Cls\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column3"
+    },
+    {
+      "name": "txtClass",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Valid IF DODEFAULT()    IF NOT EMPTY(appurchd.cunitno)       IF NOT INLIST(THIS.VALUE,'0','1','2','3','4','5','A','B')          IF THIS.VALUE = 'P'             IF NOT m.goapp.lPluggingModule                WAIT WINDOW NOWAIT 'Invalid expense class entered.'                RETURN 0             ENDIF          ELSE             IF THIS.VALUE = 'G'                IF NOT INLIST(appurchd.ccatcode,'COMP','GATH')                   WAIT WINDOW NOWAIT 'Invalid expense class entered.'                   RETURN 0                ENDIF             ELSE                WAIT WINDOW NOWAIT 'Invalid expense class entered.'                RETURN 0             ENDIF          ENDIF       ENDIF    ENDIF ENDIF  RETURN .T.  ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nVisible = .T.\r\nName = \"txtClass\"\r\n",
+      "table": "formapbill.GridDetails.Column3"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Description\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column4"
+    },
+    {
+      "name": "txtDescription",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _SCREEN.ACTIVEFORM.coalookup() RETURN DODEFAULT() ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 RETURN DODEFAULT() ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \"appurchd.citemdesc\"\r\nMaxLength = 40\r\nVisible = .T.\r\nName = \"txtDescription\"\r\n",
+      "table": "formapbill.GridDetails.Column4"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Account\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column5"
+    },
+    {
+      "name": "txtAccount",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus IF DODEFAULT()    IF NOT EMPTY(appurchd.cunitno) AND NOT EMPTY(appurchd.ccatcode)       KEYBOARD '{TAB}'     ELSE       ON KEY LABEL F2 _SCREEN.ACTIVEFORM.coalookup()       THIS.READONLY = .F.       RETURN .T.    ENDIF ENDIF   ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 RETURN DODEFAULT() ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nLeft = 26\r\nMaxLength = 6\r\nTop = 33\r\nclistexpression = cacctno\r\nclistworkarea = coa\r\nName = \"txtAccount\"\r\n",
+      "table": "formapbill.GridDetails.Column5"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Amount\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column6"
+    },
+    {
+      "name": "txtAmount",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus IF DODEFAULT()    thisform.amtvalue = this.Value ENDIF  ENDPROC PROCEDURE LostFocus IF DODEFAULT()    IF THIS.VALUE = 0       IF MESSAGEBOX(\"A bill detail entry can't be zero. Do you want to delete this line?\",36,'Delete Row?') = 6          THISFORM.cmdatamanager.DELETE('appurchd')          SELECT appurchd          GO BOTT          THISFORM.gridDetails.REFRESH()          GO TOP          THISFORM.txtcvendorID.SETFOCUS()          THISFORM.gridDetails.SETFOCUS()          thisform.txtcunitNo.SetFocus()       ELSE          this.set('value',thisform.amtvalue)          RETURN .F.       ENDIF    ENDIF    THISFORM.calctot() ENDIF  ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.lpaid OR thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE     RETURN .t. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nVisible = .T.\r\nName = \"txtAmount\"\r\n",
+      "table": "formapbill.GridDetails.Column6"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Dept\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column7"
+    },
+    {
+      "name": "txtDeptno",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.activeform.deptlookup() RETURN DODEFAULT() ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 RETURN DODEFAULT() ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF thisform.caption = 'Enter Bills - Processed in Run Closing'    RETURN .f. ELSE    RETURN .t. ENDIF  ENDPROC ",
+      "props": "FontSize = 8\r\nBorderStyle = 0\r\nControlSource = \"appurchd.cdeptno\"\r\nMargin = 0\r\nForeColor = 0,0,0\r\nBackColor = 255,255,255\r\nclistexpression = gldept.cdeptno\r\nclistworkarea = gldept\r\nName = \"txtDeptno\"\r\n",
+      "table": "formapbill.GridDetails.Column7"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Caption = \"Year\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column8"
+    },
+    {
+      "name": "txtYear",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Valid IF DODEFAULT()    IF NOT BETWEEN(THIS.VALUE,'1980','2030') AND NOT EMPTY(this.Value)       WAIT WIND NOWAIT 'Invalid production year entered. Please correct.'       RETURN 0    ENDIF     ENDIF ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF NOT EMPTY(appurchd.ccatcode)    IF thisform.caption = 'Enter Bills - Processed in Run Closing'       RETURN .f.    ELSE       RETURN .t.    ENDIF  ELSE    RETURN .f. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nVisible = .T.\r\nName = \"txtYear\"\r\n",
+      "table": "formapbill.GridDetails.Column8"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "FontSize = 9\r\nCaption = \"Period\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column9"
+    },
+    {
+      "name": "txtPeriod",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Valid IF DODEFAULT()    IF LEN(ALLTRIM(THIS.VALUE)) < 2       THIS.VALUE = PADL(ALLTRIM(THIS.VALUE),2,'0')       IF THIS.VALUE = '00'          THIS.VALUE = ''       ENDIF    ENDIF    IF NOT BETWEEN(THIS.VALUE,'01','12') AND NOT EMPTY(THIS.VALUE)       WAIT WIND NOWAIT 'The period must be between 01 and 12., Please re-enter...'       RETURN 0    ENDIF ENDIF  ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF NOT EMPTY(appurchd.ccatcode)    IF thisform.caption = 'Enter Bills - Processed in Run Closing'       RETURN .f.    ELSE       RETURN .t.    ENDIF  ELSE    RETURN .f. ENDIF  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nVisible = .T.\r\nName = \"txtPeriod\"\r\n",
+      "table": "formapbill.GridDetails.Column9"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "FontSize = 9\r\nCaption = \"Allocate To\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column10"
+    },
+    {
+      "name": "txtAllocateTo",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE GotFocus ON KEY LABEL F2 _screen.ActiveForm.ownerlookup() RETURN DODEFAULT() ENDPROC PROCEDURE LostFocus ON KEY LABEL F2 RETURN DODEFAULT() ENDPROC PROCEDURE Valid IF DODEFAULT()    IF NOT EMPTY(THIS.VALUE)       swselect('wellinv')       LOCATE FOR cwellid = appurchd.cunitno AND cownerid = THIS.VALUE       IF NOT FOUND()          MESSAGEBOX(\"This owner doesn't have an interest in this well. You can only allocate all of this entry to an owner who is in the DOI for this well.\",16,'No Interest')          RETURN 0       ENDIF    ENDIF ENDIF  ENDPROC PROCEDURE When WITH this.Parent.Parent    .nrecno = RECNO( .RecordSource ) ENDWITH  thisform.Refresh() IF NOT EMPTY(appurchd.ccatcode)    IF thisform.caption = 'Enter Bills - Processed in Run Closing'       RETURN .f.    ELSE       RETURN .t.    ENDIF  ELSE    RETURN .f. ENDIF    ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \"appurchd.cownerid\"\r\nInputMask = \"XXXXXXXXXX\"\r\nMaxLength = 10\r\nVisible = .T.\r\nclistexpression = cownerid\r\nclistworkarea = investor\r\nName = \"txtAllocateTo\"\r\n",
+      "table": "formapbill.GridDetails.Column10"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "FontSize = 8\r\nAlignment = 2\r\nCaption = \"AFE No\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column11"
+    },
+    {
+      "name": "txtAFENo",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When thisform.Refresh() ENDPROC ",
+      "props": "ControlSource = \"appurchd.cafeno\"\r\nLeft = 35\r\nTop = 26\r\nclistexpression = afehdr.cafeno\r\nclistworkarea = afehdr\r\nName = \"txtAFENo\"\r\n",
+      "table": "formapbill.GridDetails.Column11"
+    },
+    {
+      "name": "Header1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Header1",
+      "props": "Alignment = 2\r\nCaption = \"Deck\"\r\nName = \"Header1\"\r\n",
+      "table": "formapbill.GridDetails.Column12"
+    },
+    {
+      "name": "txtcDeck",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When thisform.Refresh() ENDPROC ",
+      "props": "FontSize = 8\r\nBorderStyle = 0\r\nControlSource = \"appurchd.cdeck\"\r\nMargin = 0\r\nForeColor = 0,0,0\r\nBackColor = 255,255,255\r\nName = \"txtcDeck\"\r\n",
+      "table": "formapbill.GridDetails.Column12"
+    },
+    {
+      "name": "cboClass",
+      "type": {
+        "description": "",
+        "uiComponent": "Select",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Init IF DODEFAULT()   this.Requery() ENDIF    ENDPROC PROCEDURE Requery THIS.Clear() THIS.ADDLISTITEM('0',1,1) THIS.ADDLISTITEM('Working Interest',1,2) THIS.ADDLISTITEM('1',2,1) THIS.ADDLISTITEM('Class 1',2,2) THIS.ADDLISTITEM('2',3,1) THIS.ADDLISTITEM('Class 2',3,2) THIS.ADDLISTITEM('3',4,1) THIS.ADDLISTITEM('Class 3',4,2) THIS.ADDLISTITEM('4',5,1) THIS.ADDLISTITEM('Class 4',5,2) THIS.ADDLISTITEM('5',6,1) THIS.ADDLISTITEM('Class 5',6,2) THIS.ADDLISTITEM('A',7,1) THIS.ADDLISTITEM('After Casing Point',7,2) THIS.ADDLISTITEM('B',8,1) THIS.ADDLISTITEM('Before Casing Point',8,2) lnI = 9 IF m.goapp.lPluggingModule    THIS.ADDLISTITEM('Plugging', lnI, 2)    THIS.ADDLISTITEM('P', lnI, 1)    lnI = lnI + 1  ENDIF     IF INLIST(ALLTRIM(THISFORM.txtccatcode.VALUE),'COMP','GATH')     THIS.ADDLISTITEM('G',lnI,1)     THIS.ADDLISTITEM('Net Gas Interest',lnI,2) ENDIF  ENDPROC PROCEDURE When RETURN NOT EMPTY(thisform.txtccatCode.Value) ENDPROC ",
+      "props": "ColumnCount = 2\r\nHeight = 20\r\nLeft = 153\r\nTabIndex = 33\r\nTop = 135\r\nWidth = 48\r\nZOrderSet = 60\r\nName = \"cboClass\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "cmdDuplicate",
+      "type": {
+        "description": "",
+        "uiComponent": "Button",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click IF THISFORM.oMessage.CONFIRM('Are you sure you want to duplicate this bill?')    thisform.DuplicateBill()    this.Visible = .f. ENDIF  DODEFAULT()  ENDPROC ",
+      "props": "Top = 576\r\nLeft = 173\r\nHeight = 36\r\nWidth = 80\r\nAnchor = 768\r\nCaption = \"Duplicate Bill\"\r\nTabIndex = 53\r\nZOrderSet = 52\r\nName = \"cmdDuplicate\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblPaid",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click this.Visible = .f. DODEFAULT() ENDPROC ",
+      "props": "AutoSize = .F.\r\nFontBold = .T.\r\nFontSize = 9\r\nWordWrap = .T.\r\nAlignment = 0\r\nBackStyle = 1\r\nCaption = \"This bill has been fully or partially paid.  You will be unable to change the vendor or amount of the bill.\"\r\nHeight = 60\r\nLeft = 261\r\nTop = 561\r\nVisible = .F.\r\nWidth = 300\r\nForeColor = 255,0,0\r\nBackColor = 255,255,255\r\nTabIndex = 62\r\nZOrderSet = 62\r\nName = \"lblPaid\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcAcctDesc",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When RETURN .F. ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nHeight = 20\r\nLeft = 207\r\nTabIndex = 42\r\nTabStop = .F.\r\nTop = 161\r\nVisible = .F.\r\nWidth = 348\r\nBackColor = 212,208,200\r\nlreadonly = .F.\r\nZOrderSet = 63\r\nName = \"txtcAcctDesc\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcWellName",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When RETURN .F. ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \" \"\r\nHeight = 20\r\nLeft = 207\r\nMaxLength = 30\r\nTabIndex = 40\r\nTop = 161\r\nVisible = .F.\r\nWidth = 351\r\nBackColor = 212,208,200\r\nZOrderSet = 64\r\nName = \"txtcWellName\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtcCatDesc",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .F.  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \" \"\r\nHeight = 20\r\nLeft = 207\r\nMaxLength = 30\r\nTabIndex = 41\r\nTop = 161\r\nVisible = .F.\r\nWidth = 346\r\nBackColor = 212,208,200\r\nZOrderSet = 65\r\nName = \"txtcCatDesc\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "txtCdeptdesc",
+      "type": {
+        "description": "",
+        "uiComponent": "Input",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .F.  ENDPROC ",
+      "props": "fontname = \"Aptos\"\r\nFontSize = 8\r\nControlSource = \" \"\r\nHeight = 20\r\nLeft = 207\r\nMaxLength = 30\r\nTabIndex = 43\r\nTop = 161\r\nVisible = .F.\r\nWidth = 351\r\nBackColor = 212,208,200\r\nZOrderSet = 66\r\nName = \"txtCdeptdesc\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "chkApproved",
+      "type": {
+        "description": "",
+        "uiComponent": "Checkbox",
+        "category": "UI"
+      },
+      "label": "PROCEDURE Click IF this.Value    thisform.cmdatamanager.replace('appurchh','capprovedby',m.goapp.cuser)    thisform.cmdatamanager.replace('appurchh','dapproved',DATETIME())    thisform.lblapprovedBy.caption = appurchh.capprovedby    thisform.lblDApproved.caption = TTOC(appurchh.dapproved) ELSE    IF m.goapp.cuser = appurchh.capprovedby       thisform.cmdatamanager.replace('appurchh','capprovedby','')       thisform.cmdatamanager.replace('appurchh','dapproved',{})       thisform.lblapprovedBy.caption = ''       thisform.lblDApproved.caption = ''    ELSE       MESSAGEBOX('Only the person who approved the bill can mark it as unapproved!',16,thisform.caption)        ENDIF     ENDIF  ENDPROC ",
+      "props": "Top = 12\r\nLeft = 783\r\nAlignment = 0\r\nCaption = \"Approved to Pay\"\r\nValue = .F.\r\nControlSource = \"appurchh.lapproved\"\r\nTabIndex = 64\r\nZOrderSet = 67\r\nName = \"chkApproved\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblApprovedBy",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblApprovedBy",
+      "props": "AutoSize = .F.\r\nAlignment = 0\r\nCaption = \" \"\r\nHeight = 16\r\nLeft = 784\r\nTop = 37\r\nWidth = 98\r\nTabIndex = 65\r\nZOrderSet = 68\r\nName = \"lblApprovedBy\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "lblDapproved",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "lblDapproved",
+      "props": "Caption = \" \"\r\nLeft = 784\r\nTop = 56\r\nTabIndex = 66\r\nZOrderSet = 69\r\nName = \"lblDapproved\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Lbllabelcustom6",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Lbllabelcustom6",
+      "props": "Caption = \"Deck:\"\r\nLeft = 225\r\nTop = 116\r\nTabIndex = 25\r\nZOrderSet = 54\r\nName = \"Lbllabelcustom6\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Grouptran",
+      "type": {
+        "description": "",
+        "uiComponent": null,
+        "category": "Logic"
+      },
+      "label": "Grouptran",
+      "props": "Top = 555\r\nLeft = 61\r\nHeight = 35\r\nWidth = 16\r\nName = \"Grouptran\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "opgSource",
+      "type": {
+        "description": "",
+        "uiComponent": "RadioGroup",
+        "category": "UI"
+      },
+      "label": "PROCEDURE When DODEFAULT() RETURN .f. ENDPROC ",
+      "props": "ButtonCount = 3\r\nControlSource = \"appurchh.iSource\"\r\nHeight = 60\r\nLeft = 571\r\nTop = 564\r\nWidth = 108\r\nName = \"opgSource\"\r\nOption1.FontSize = 8\r\nOption1.Caption = \"Manual\"\r\nOption1.Height = 17\r\nOption1.Left = 5\r\nOption1.Top = 5\r\nOption1.Width = 61\r\nOption1.Name = \"Option1\"\r\nOption2.FontSize = 8\r\nOption2.Caption = \"Imported\"\r\nOption2.Height = 17\r\nOption2.Left = 5\r\nOption2.Top = 22\r\nOption2.Width = 61\r\nOption2.Name = \"Option2\"\r\nOption3.AutoSize = .T.\r\nOption3.FontSize = 8\r\nOption3.Caption = \"EnergyLink\"\r\nOption3.Height = 16\r\nOption3.Left = 5\r\nOption3.Top = 39\r\nOption3.Width = 71\r\nOption3.Name = \"Option3\"\r\n",
+      "table": "formapbill"
+    },
+    {
+      "name": "Lbllabelcustom1",
+      "type": {
+        "description": "",
+        "uiComponent": "Label",
+        "category": "UI"
+      },
+      "label": "Lbllabelcustom1",
+      "props": "BackStyle = 1\r\nCaption = \"Source\"\r\nLeft = 576\r\nTop = 552\r\nName = \"Lbllabelcustom1\"\r\n",
+      "table": "formapbill"
+    }
+  ]
+}

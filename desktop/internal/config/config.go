@@ -15,6 +15,7 @@ type Config struct {
 	Settings struct {
 		DataDirectory string `json:"data_directory"`
 		LogLevel      string `json:"log_level"`
+		DebugMode     bool   `json:"debug_mode"`
 		// Add other settings as needed
 	} `json:"settings"`
 }
@@ -138,4 +139,17 @@ func GetAPIKey(service string) string {
 	default:
 		return ""
 	}
+}
+
+// SetDebugMode enables or disables debug mode
+func SetDebugMode(enabled bool) error {
+	config := GetConfig()
+	config.Settings.DebugMode = enabled
+	return SaveConfig(config)
+}
+
+// GetDebugMode returns the current debug mode setting
+func GetDebugMode() bool {
+	config := GetConfig()
+	return config.Settings.DebugMode
 }

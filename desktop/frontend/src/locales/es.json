@@ -1,0 +1,79 @@
+{
+  "app": {
+    "name": "Pivoten FinancialsX",
+    "tagline": "Edición Legacy Mejorada",
+    "copyright": "© 2025 Pivoten. Todos los derechos reservados."
+  },
+  "login": {
+    "title": "Pivoten FinancialsX",
+    "subtitle": "Inicie sesión para acceder a sus datos financieros",
+    "username": "Usuario",
+    "password": "Contraseña",
+    "rememberMe": "Recordarme",
+    "signIn": "Iniciar Sesión",
+    "requestAccess": "Solicitar Acceso",
+    "resetPassword": "Restablecer Contraseña",
+    "forgotPassword": "¿Olvidó su contraseña?",
+    "errors": {
+      "invalidCredentials": "Usuario o contraseña inválidos",
+      "accountLocked": "Cuenta bloqueada. Contacte al administrador.",
+      "networkError": "Error de red. Por favor intente nuevamente.",
+      "sessionExpired": "Su sesión ha expirado. Por favor inicie sesión nuevamente."
+    }
+  },
+  "company": {
+    "selectTitle": "Seleccionar Empresa",
+    "selectSubtitle": "Elija una empresa para continuar",
+    "noCompanies": "No se encontraron empresas",
+    "loading": "Cargando empresas...",
+    "cannotFind": "No se pueden encontrar los archivos de datos de la empresa",
+    "selectFolder": "Seleccionar Carpeta de Datos",
+    "searching": "Buscando datos de empresa..."
+  },
+  "navigation": {
+    "dashboard": "Panel",
+    "operations": "Operaciones",
+    "financials": "Finanzas",
+    "banking": "Banca",
+    "reconciliation": "Conciliación Bancaria",
+    "outstandingChecks": "Cheques Pendientes",
+    "data": "Datos",
+    "dbfExplorer": "Explorador DBF",
+    "reporting": "Reportes",
+    "utilities": "Utilidades",
+    "settings": "Configuración",
+    "userManagement": "Gestión de Usuarios",
+    "help": "Ayuda",
+    "logout": "Cerrar Sesión",
+    "profile": "Perfil"
+  },
+  "dashboard": {
+    "welcome": "Bienvenido de nuevo, {{username}}",
+    "quickActions": "Acciones Rápidas",
+    "recentActivity": "Actividad Reciente",
+    "systemStatus": "Estado del Sistema",
+    "notifications": "Notificaciones"
+  },
+  "common": {
+    "loading": "Cargando...",
+    "email": "Correo electrónico",
+    "error": "Error",
+    "success": "Éxito",
+    "warning": "Advertencia",
+    "info": "Información",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Agregar",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "export": "Exportar",
+    "import": "Importar",
+    "refresh": "Actualizar",
+    "close": "Cerrar",
+    "yes": "Sí",
+    "no": "No"
+  }
+}

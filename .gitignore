@@ -22,6 +22,8 @@
 
 # Wails build output
 desktop/build/
+desktop/desktop
+desktop/desktop.exe
 
 # ===== Node / frontend =====
 node_modules/

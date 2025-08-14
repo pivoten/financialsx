@@ -37,6 +37,11 @@ type DB struct {
 	conn *sql.DB
 }
 
+// GetDB returns the underlying sql.DB connection
+func (db *DB) GetDB() *sql.DB {
+	return db.conn
+}
+
 func New(companyName string) (*DB, error) {
 	var dbPath string
 	

@@ -29,6 +29,9 @@ func SimpleLog(message string) {
 	}
 	exeDir := filepath.Dir(exePath)
 	
+	// Clean up old debug files periodically (on first log of the day)
+	cleanupOldDebugFiles(exeDir)
+	
 	// Use a simple debug file in the exe directory
 	if debugPath == "" {
 		timestamp := time.Now().Format("2006-01-02")
@@ -93,4 +96,49 @@ func Close() {
 // GetDebugPath returns the current debug file path
 func GetDebugPath() string {
 	return debugPath
+}
+
+var lastCleanup time.Time
+
+// cleanupOldDebugFiles removes debug files older than 10 days
+func cleanupOldDebugFiles(dir string) {
+	// Only cleanup once per day
+	if time.Since(lastCleanup) < 24*time.Hour {
+		return
+	}
+	lastCleanup = time.Now()
+	
+	// Calculate cutoff time (10 days ago)
+	cutoff := time.Now().AddDate(0, 0, -10)
+	
+	// Read directory
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	
+	// Check each file
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		
+		name := entry.Name()
+		// Check if it's a debug file (debug_YYYY-MM-DD.txt pattern)
+		if len(name) > 6 && name[:6] == "debug_" && filepath.Ext(name) == ".txt" {
+			// Get file info
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			
+			// Check if file is older than cutoff
+			if info.ModTime().Before(cutoff) {
+				// Delete old debug file
+				filePath := filepath.Join(dir, name)
+				os.Remove(filePath)
+				fmt.Printf("Removed old debug file: %s\n", name)
+			}
+		}
+	}
 }

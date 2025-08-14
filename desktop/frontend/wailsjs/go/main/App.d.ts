@@ -3,11 +3,25 @@
 import {auth} from '../models';
 import {company} from '../models';
 
+export function AnalyzeGLBalancesByYear(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function AuditBankReconciliation(arg1:string):Promise<Record<string, any>>;
 
 export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
+export function AuditCheckGLMatching(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
+
+export function AuditDuplicateCIDCHEC(arg1:string):Promise<Record<string, any>>;
+
+export function AuditPayeeCIDVerification(arg1:string):Promise<Record<string, any>>;
+
 export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function AuditVoidChecks(arg1:string):Promise<Record<string, any>>;
+
+export function CheckGLPeriodFields(arg1:string):Promise<Record<string, any>>;
+
+export function CheckOwnerStatementFiles(arg1:string):Promise<Record<string, any>>;
 
 export function ClearMatchesAndRerun(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 
@@ -21,7 +35,15 @@ export function DeleteBankStatement(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function ExamineOwnerStatementStructure(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function FollowBatchNumber(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GenerateChartOfAccountsPDF(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
+export function GenerateOwnerStatementPDF(arg1:string,arg2:string):Promise<string>;
 
 export function GetAPIKey(arg1:string):Promise<string>;
 
@@ -30,6 +52,8 @@ export function GetAccountBalance(arg1:string,arg2:string):Promise<number>;
 export function GetAllRoles():Promise<Array<auth.Role>>;
 
 export function GetAllUsers():Promise<Array<auth.User>>;
+
+export function GetAuthState():Promise<Record<string, any>>;
 
 export function GetBalanceHistory(arg1:string,arg2:string,arg3:number):Promise<Array<Record<string, any>>>;
 
@@ -40,6 +64,8 @@ export function GetBankAccountsForAudit(arg1:string):Promise<Array<Record<string
 export function GetBankTransactions(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetChartOfAccounts(arg1:string,arg2:string,arg3:boolean):Promise<Record<string, any>>;
 
 export function GetClosingStatus(arg1:string):Promise<string>;
 
@@ -59,13 +85,25 @@ export function GetDBFTableDataPaged(arg1:string,arg2:string,arg3:number,arg4:nu
 
 export function GetDashboardData(arg1:string):Promise<Record<string, any>>;
 
+export function GetDebugMode():Promise<boolean>;
+
 export function GetLastReconciliation(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetLogFilePath():Promise<string>;
 
 export function GetMatchedTransactions(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetOwnerStatementData(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
+export function GetOwnerStatementsList(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetOwnersList(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
+
+export function GetPlatform():Promise<Record<string, any>>;
 
 export function GetRecentBankStatements(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 
@@ -75,13 +113,25 @@ export function GetReconciliationHistory(arg1:string,arg2:string):Promise<Record
 
 export function GetTableList(arg1:string):Promise<Record<string, any>>;
 
+export function GetVFPCompany():Promise<Record<string, any>>;
+
+export function GetVFPFormList():Promise<Array<Record<string, string>>>;
+
+export function GetVFPSettings():Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function InitializeCompanyDatabase(arg1:string):Promise<void>;
 
+export function InitializeLogging(arg1:boolean):Promise<Record<string, any>>;
+
+export function LaunchVFPForm(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function LogError(arg1:string,arg2:string):Promise<void>;
+
+export function LogMessage(arg1:string,arg2:string,arg3:string,arg4:Record<string, any>):Promise<Record<string, any>>;
 
 export function Login(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
@@ -111,11 +161,21 @@ export function RunNetDistribution(arg1:string,arg2:string,arg3:string,arg4:bool
 
 export function SaveReconciliationDraft(arg1:string,arg2:Record<string, any>):Promise<Record<string, any>>;
 
+export function SaveVFPSettings(arg1:string,arg2:number,arg3:boolean,arg4:number):Promise<void>;
+
 export function SearchDBFTable(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
+
+export function SelectDataFolder():Promise<string>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
+export function SetDataPath(arg1:string):Promise<void>;
+
+export function SetDebugMode(arg1:boolean):Promise<Record<string, any>>;
+
 export function SetOLEIdleTimeout(arg1:number):Promise<Record<string, any>>;
+
+export function SyncVFPCompany():Promise<Record<string, any>>;
 
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
 
@@ -125,7 +185,11 @@ export function TestLogging():Promise<string>;
 
 export function TestOLEConnection():Promise<Record<string, any>>;
 
+export function TestVFPConnection():Promise<Record<string, any>>;
+
 export function UnmatchTransaction(arg1:number):Promise<Record<string, any>>;
+
+export function UpdateBatchFields(arg1:string,arg2:string,arg3:Record<string, string>,arg4:string,arg5:Record<string, boolean>):Promise<Record<string, any>>;
 
 export function UpdateCompanyInfo(arg1:string):Promise<Record<string, any>>;
 
@@ -134,5 +198,7 @@ export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,
 export function UpdateUserRole(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateUserStatus(arg1:number,arg2:boolean):Promise<void>;
+
+export function ValidateGLBalances(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function ValidateSession(arg1:string,arg2:string):Promise<auth.User>;

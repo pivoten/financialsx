@@ -149,33 +149,35 @@
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-size: 14px; /* Base font size - smaller for cleaner look */
   }
   
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
-    line-height: 1.6;
+    line-height: 1.5;
+    font-weight: 400;
   }
   
-  /* Improved typography */
+  /* Clean, refined typography with smaller sizes */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+    @apply font-medium tracking-tight;
   }
   
   h1 {
-    @apply text-4xl;
+    @apply text-2xl; /* Was 4xl */
   }
   
   h2 {
-    @apply text-3xl;
+    @apply text-xl; /* Was 3xl */
   }
   
   h3 {
-    @apply text-2xl;
+    @apply text-lg; /* Was 2xl */
   }
   
   h4 {
-    @apply text-xl;
+    @apply text-base; /* Was xl */
   }
   
   h5 {

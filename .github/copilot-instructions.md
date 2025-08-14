@@ -12,6 +12,7 @@ Concise, repo-specific guidance for working on this Wails (Go + React) desktop c
 - Build: `cd desktop && wails build`
 - Frontend deps: `cd desktop/frontend && npm install`
 - Go: `go test ./...`, `go fmt ./...` (Go 1.24 per go.mod)
+ - Frontend TS: Vite + TS configured; entry `src/main.tsx`. TS is incremental (allowJs) — convert files gradually.
 
 ## Core modules & patterns
 - DBF access (`internal/company`): use `ReadDBFFile(...)`. Results use `rows` (not `data`). Handle field variants (e.g., account: `CACCTNO|ACCOUNT|ACCTNO`; amount: `AMOUNT|NAMOUNT|BALANCE`).

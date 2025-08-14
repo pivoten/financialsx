@@ -35,6 +35,9 @@ func Initialize() error {
 		os.MkdirAll(logsDir, 0755)
 	}
 	
+	// Clean up old logs (keep last 10 days)
+	cleanupOldLogs(logsDir, 10)
+	
 	// Set up log files
 	timestamp := time.Now().Format("2006-01-02")
 	logPath = filepath.Join(logsDir, fmt.Sprintf("financialsx_%s.log", timestamp))
@@ -190,4 +193,62 @@ func GetLogPath() string {
 // GetCrashPath returns the current crash log file path  
 func GetCrashPath() string {
 	return crashPath
+}
+
+// cleanupOldLogs removes log files older than the specified number of days
+func cleanupOldLogs(logsDir string, keepDays int) {
+	// Calculate cutoff time
+	cutoff := time.Now().AddDate(0, 0, -keepDays)
+	
+	// Read directory
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		// Can't read directory, skip cleanup
+		return
+	}
+	
+	// Check each file
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		
+		// Check if it's a log file
+		name := entry.Name()
+		if !isLogFile(name) {
+			continue
+		}
+		
+		// Get file info
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		
+		// Check if file is older than cutoff
+		if info.ModTime().Before(cutoff) {
+			// Delete old log file
+			filePath := filepath.Join(logsDir, name)
+			os.Remove(filePath)
+			fmt.Printf("Removed old log file: %s\n", name)
+		}
+	}
+}
+
+// isLogFile checks if a filename looks like one of our log files
+func isLogFile(name string) bool {
+	// Check for our log file patterns
+	patterns := []string{
+		"financialsx_",
+		"debug_",
+		"startup",
+	}
+	
+	for _, pattern := range patterns {
+		if len(name) >= len(pattern) && name[:len(pattern)] == pattern {
+			return true
+		}
+	}
+	
+	return false
 }

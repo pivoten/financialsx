@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +19,74 @@ import (
 var (
 	cachedDatafilesPath string
 	datafilesPathMutex  sync.RWMutex
+	isWindows          bool = runtime.GOOS == "windows"
+	platform           string = runtime.GOOS
 )
+
+// normalizeCompanyPath converts a company path based on the current platform
+// On Windows: Clean the path but keep it intact (remove trailing spaces/junk)
+// On Mac/Linux: Extract just the company folder name since folders are relative to compmast.dbf
+func normalizeCompanyPath(companyPath string) string {
+	// If empty, return as-is
+	if companyPath == "" {
+		return companyPath
+	}
+	
+	// On Windows, just clean excessive padding but keep the path structure including trailing slash
+	if isWindows {
+		// Find where the actual path ends (before excessive padding)
+		// Look for 5+ consecutive spaces as that indicates padding
+		bytes := []byte(companyPath)
+		spaceCount := 0
+		actualEnd := len(bytes)
+		for i := 0; i < len(bytes); i++ {
+			if bytes[i] == ' ' || bytes[i] == 0 {
+				spaceCount++
+				if spaceCount >= 5 {
+					// Found the padding, mark where the real path ends
+					actualEnd = i - spaceCount + 1
+					break
+				}
+			} else {
+				spaceCount = 0
+			}
+		}
+		
+		// Extract the actual path
+		cleaned := string(bytes[:actualEnd])
+		
+		// Simple cleanup - just trim trailing spaces/nulls but keep the backslash
+		cleaned = strings.TrimRight(cleaned, " \t\r\n\x00")
+		
+		// The path should already have a trailing backslash from the DBF
+		// But if not, add it
+		if cleaned != "" && !strings.HasSuffix(cleaned, "\\") {
+			cleaned = cleaned + "\\"
+		}
+		
+		return cleaned
+	}
+	
+	// On Mac/Linux, extract just the company folder name
+	// Handle Windows-style paths (from Windows-created DBF files)
+	if strings.Contains(companyPath, "\\") {
+		// Split by backslash and get the last non-empty component
+		parts := strings.Split(companyPath, "\\")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if parts[i] != "" {
+				return parts[i]
+			}
+		}
+	}
+	
+	// Handle Unix-style paths
+	if strings.Contains(companyPath, "/") {
+		return filepath.Base(companyPath)
+	}
+	
+	// If it's already just a folder name, return as-is
+	return companyPath
+}
 
 // writeErrorLog writes error messages to a log file
 func writeErrorLog(message string) {
@@ -36,6 +104,17 @@ func writeErrorLog(message string) {
 	
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	file.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
+}
+
+// GetSavedDataPath retrieves the saved data path from a config file
+// This is the path where compmast.dbf was found
+func GetSavedDataPath() string {
+	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // getDatafilesPath returns the path to the datafiles directory
@@ -201,12 +280,15 @@ func ValidateCompanyName(name string) error {
 
 // CreateCompanyDirectory creates a new company directory structure
 func CreateCompanyDirectory(name string) error {
+	// Normalize the company path based on platform
+	name = normalizeCompanyPath(name)
+	
 	// Only validate for empty name and invalid characters, not existence
 	if name == "" {
 		return fmt.Errorf("company name cannot be empty")
 	}
 
-	// Check for invalid characters
+	// Check for invalid characters in the normalized name
 	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range invalidChars {
 		if strings.Contains(name, char) {
@@ -234,32 +316,45 @@ func CreateCompanyDirectory(name string) error {
 func GetDBFFiles(companyName string) ([]string, error) {
 	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Called with: %s", companyName))
 	
-	// First, try to get the company path from the provided parameter
-	// This could be either the company name (legacy) or the actual data path
+	// Normalize the company path based on platform
+	companyName = normalizeCompanyPath(companyName)
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Normalized to: %s", companyName))
+	writeErrorLog(fmt.Sprintf("GetDBFFiles: Normalized company path: %s", companyName))
+	
 	var companyPath string
 	
 	// Check if companyName looks like a full path (absolute)
 	if filepath.IsAbs(companyName) {
-		// It's an absolute path, use it directly
+		// It's an absolute path, use it directly (Windows scenario)
 		companyPath = companyName
 		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using absolute path: %s", companyPath))
 		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using absolute path: %s", companyPath))
 	} else if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
-		// It's a relative path - make it relative to executable directory
-		exePath, _ := os.Executable()
-		exeDir := filepath.Dir(exePath)
-		companyPath = filepath.Join(exeDir, companyName)
+		// It's a relative path - resolve it
+		if isWindows {
+			// On Windows, make it relative to executable directory
+			exePath, _ := os.Executable()
+			exeDir := filepath.Dir(exePath)
+			companyPath = filepath.Join(exeDir, companyName)
+		} else {
+			// On Mac/Linux, it should be relative to datafiles
+			datafilesPath, err := getDatafilesPath()
+			if err != nil {
+				return nil, err
+			}
+			companyPath = filepath.Join(datafilesPath, filepath.Base(companyName))
+		}
 		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using relative path: %s (resolved to: %s)", companyName, companyPath))
 		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using relative path: %s -> %s", companyName, companyPath))
 	} else {
-		// Legacy mode - use the old datafiles structure
+		// Just a folder name - use the datafiles structure
 		datafilesPath, err := getDatafilesPath()
 		if err != nil {
 			return nil, err
 		}
 		companyPath = filepath.Join(datafilesPath, companyName)
-		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using legacy path: %s", companyPath))
-		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using legacy path: %s", companyPath))
+		writeErrorLog(fmt.Sprintf("GetDBFFiles: Using folder name: %s -> %s", companyName, companyPath))
+		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using folder name: %s -> %s", companyName, companyPath))
 	}
 	
 	// Check if company directory exists
@@ -267,20 +362,32 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		debug.LogError("GetDBFFiles", fmt.Errorf("company directory does not exist: %s", companyPath))
 		return nil, fmt.Errorf("company directory does not exist: %s", companyPath)
 	}
-	debug.LogInfo("GetDBFFiles", "Company directory exists")
+	
+	// Get absolute path for debugging
+	absPath, _ := filepath.Abs(companyPath)
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Company directory exists at: %s", absPath))
+	writeErrorLog(fmt.Sprintf("GetDBFFiles: Scanning directory: %s", absPath))
 	
 	// Find all DBF files (case insensitive)
 	var dbfFiles []string
 	
+	fileCount := 0
 	err := filepath.Walk(companyPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			writeErrorLog(fmt.Sprintf("GetDBFFiles: Error walking path %s: %v", path, err))
 			return err
 		}
 		
-		if !info.IsDir() && strings.ToLower(filepath.Ext(path)) == ".dbf" {
-			// Return just the filename, not the full path
-			filename := info.Name()
-			dbfFiles = append(dbfFiles, filename)
+		fileCount++
+		ext := strings.ToLower(filepath.Ext(path))
+		if !info.IsDir() {
+			writeErrorLog(fmt.Sprintf("GetDBFFiles: Found file: %s (ext: %s)", info.Name(), ext))
+			if ext == ".dbf" {
+				// Return just the filename, not the full path
+				filename := info.Name()
+				dbfFiles = append(dbfFiles, filename)
+				debug.LogInfo("GetDBFFiles", fmt.Sprintf("Added DBF file: %s", filename))
+			}
 		}
 		
 		return nil
@@ -290,7 +397,8 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		return nil, fmt.Errorf("failed to scan directory: %w", err)
 	}
 	
-	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d DBF files", len(dbfFiles)))
+	writeErrorLog(fmt.Sprintf("GetDBFFiles: Scanned %d total items, found %d DBF files", fileCount, len(dbfFiles)))
+	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d DBF files out of %d total items", len(dbfFiles), fileCount))
 	return dbfFiles, nil
 }
 
@@ -358,6 +466,23 @@ func ReadDBFFileDirectly(filePath, searchTerm string, offset, limit int, sortCol
 				value := field.GetValue()
 				rowData[column.Name()] = value
 				
+				// Special logging for CTAXID field in VENDOR.DBF
+				baseFileName := filepath.Base(filePath)
+				if strings.ToUpper(baseFileName) == "VENDOR.DBF" && column.Name() == "CTAXID" && value != nil {
+					valueStr := fmt.Sprintf("%v", value)
+					if valueStr != "" && strings.TrimSpace(valueStr) != "" {
+						// Log the raw bytes of the CTAXID field
+						bytes := []byte(valueStr)
+						hexStr := ""
+						for _, b := range bytes {
+							hexStr += fmt.Sprintf("%02x ", b)
+						}
+						writeErrorLog(fmt.Sprintf("VENDOR CTAXID found - Raw: '%s', Length: %d, Hex: %s", 
+							valueStr, len(valueStr), hexStr))
+						debug.LogInfo("ReadDBFFileDirectly", fmt.Sprintf("VENDOR CTAXID - Hex: %s", hexStr))
+					}
+				}
+				
 				// Check if this field matches the search term
 				if isSearching && !matchFound && value != nil {
 					fieldStr := strings.ToLower(fmt.Sprintf("%v", value))
@@ -412,6 +537,20 @@ func ReadDBFFileDirectly(filePath, searchTerm string, offset, limit int, sortCol
 
 // ReadDBFFile reads a DBF file and returns its structure and data with pagination and sorting
 // If searchTerm is provided, it searches across all records and returns only matching ones
+//
+// ⚠️ CRITICAL WARNING: NEVER use arbitrary limits for financial calculations!
+// For GL balances, outstanding checks, or any financial reporting, ALWAYS use:
+//   offset=0, limit=0 (which means read ALL records)
+//
+// Only use non-zero limits for:
+//   - UI pagination/display
+//   - User-requested limited views  
+//   - Quick data sampling/preview
+//
+// Example of CORRECT usage for financial calculations:
+//   ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "") // Reads ALL records
+//
+// A hardcoded limit of 50,000 caused a $400,000 discrepancy in GL calculations!
 func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, sortColumn, sortDirection string) (map[string]interface{}, error) {
 	// Use defer/recover to prevent crashes
 	defer func() {
@@ -428,29 +567,53 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 	// Log the incoming parameters
 	writeErrorLog(fmt.Sprintf("ReadDBFFile: START - company='%s', file='%s'", companyName, fileName))
 	
+	// Normalize the company path based on platform
+	companyName = normalizeCompanyPath(companyName)
+	debug.LogInfo("ReadDBFFile", fmt.Sprintf("Normalized to: %s", companyName))
+	writeErrorLog(fmt.Sprintf("ReadDBFFile: Normalized company path: %s", companyName))
+	
 	// Check if companyName looks like a full path (absolute)
 	if filepath.IsAbs(companyName) {
-		// It's an absolute path, use it directly
+		// It's an absolute path, use it directly (Windows scenario with drive letter)
 		filePath = filepath.Join(companyName, fileName)
-		writeErrorLog(fmt.Sprintf("ReadDBFFile: Detected absolute path, result: %s", filePath))
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using absolute path, result: %s", filePath))
 		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using absolute path: %s", filePath))
-	} else if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") || strings.Contains(companyName, "\\") {
-		// It's a relative path - make it relative to executable directory
+	} else if isWindows {
+		// On Windows, all relative paths are relative to the EXE location
 		exePath, _ := os.Executable()
 		exeDir := filepath.Dir(exePath)
-		filePath = filepath.Join(exeDir, companyName, fileName)
-		writeErrorLog(fmt.Sprintf("ReadDBFFile: Detected relative path, company='%s', exeDir='%s', result='%s'", companyName, exeDir, filePath))
-		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using relative path: %s -> %s", companyName, filePath))
-	} else {
-		// Legacy mode - use the old datafiles structure
-		datafilesPath, err := getDatafilesPath()
-		if err != nil {
-			writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
-			return nil, err
+		
+		// Check if it contains path separators (relative path) or just a folder name
+		if strings.Contains(companyName, "\\") || strings.Contains(companyName, "/") {
+			// It's a relative path like "datafiles\company1"
+			filePath = filepath.Join(exeDir, companyName, fileName)
+		} else {
+			// It's just a folder name, assume it's under datafiles
+			filePath = filepath.Join(exeDir, "datafiles", companyName, fileName)
 		}
-		filePath = filepath.Join(datafilesPath, companyName, fileName)
-		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using legacy mode, datafilesPath='%s', result='%s'", datafilesPath, filePath))
-		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using legacy path: %s", filePath))
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Windows relative path, result: %s", filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Windows relative path: %s", filePath))
+	} else {
+		// On Mac/Linux, use the original logic
+		if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
+			// It's a relative path
+			datafilesPath, err := getDatafilesPath()
+			if err != nil {
+				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
+				return nil, err
+			}
+			filePath = filepath.Join(datafilesPath, filepath.Base(companyName), fileName)
+		} else {
+			// Just a folder name
+			datafilesPath, err := getDatafilesPath()
+			if err != nil {
+				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
+				return nil, err
+			}
+			filePath = filepath.Join(datafilesPath, companyName, fileName)
+		}
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Mac/Linux path, result='%s'", filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Mac/Linux path: %s", filePath))
 	}
 	fmt.Printf("Full file path: %s\n", filePath)
 	

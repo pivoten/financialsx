@@ -4,6 +4,7 @@ import { Input } from './ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Search, FileText, X } from 'lucide-react'
 import { FollowBatchNumber as FollowBatchNumberAPI, UpdateBatchFields } from '../../wailsjs/go/main/App'
+import BatchFlowChart from './BatchFlowChart'
 import {
   Dialog,
   DialogContent,
@@ -596,7 +597,20 @@ const FollowBatchNumber: React.FC = () => {
             </div>
           </div>
 
-          {/* Tables Grid */}
+          {/* Flow Chart Visualization */}
+          <BatchFlowChart 
+            batchNumber={batchData.batch_number}
+            searchResults={{
+              checks: batchData.checks,
+              glmaster: batchData.glmaster,
+              appmthdr: batchData.appmthdr,
+              appmtdet: batchData.appmtdet,
+              appurchh: batchData.appurchd, // Using appurchd data for appurchh in flow
+              appurchd: batchData.appurchd
+            }}
+          />
+
+          {/* Tables Grid - Clickable Cards */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {/* CHECKS.DBF */}
             <Card className="h-fit">

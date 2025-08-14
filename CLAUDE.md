@@ -514,6 +514,68 @@ Bidirectional communication between FinancialsX and legacy Visual FoxPro applica
 - `SyncVFPCompany()` - Synchronize company between apps
 - `GetVFPCompany()` - Get current VFP company
 
+## Chart of Accounts Report System
+
+### Overview
+Professional PDF generation for Chart of Accounts with filtering, sorting, and company branding.
+
+### Features
+- **PDF Generation**: High-quality PDF reports using gofpdf library
+- **Active/Inactive Filter**: Filter accounts by LINACTIVE field status
+- **Sorting Options**: Sort by account number or account type
+- **Company Branding**: Pulls company info from VERSION.DBF
+- **Professional Layout**: Landscape orientation with headers, footers, and table formatting
+- **Native Save Dialog**: OS-integrated file save with sanitized filenames
+
+### Technical Implementation
+- **Backend**: `GenerateChartOfAccountsPDF()` in main.go
+- **Frontend**: `ChartOfAccountsReport.tsx` component
+- **Data Source**: COA.dbf for accounts, VERSION.DBF for company info
+- **PDF Library**: github.com/jung-kurt/gofpdf
+- **Filename Format**: YYYY-MM-DD - {Company Name} - Chart of Accounts.pdf
+
+## Batch Flow Visualization System
+
+### Overview
+Interactive flow chart visualization for tracing batch numbers through the complete accounting cycle, from check payment to original purchase entry.
+
+### Features
+- **Visual Flow Chart**: Displays the complete transaction flow with connected nodes
+- **Clickable Cards**: Each table node is clickable to view full record details
+- **Consistent Card Sizing**: All cards maintain uniform 240px × 140px dimensions
+- **Modal Record Viewer**: Scrollable modal displays all records with proper formatting
+- **Color Coding**: Blue borders for tables with data, gray for empty tables
+- **Bidirectional Tracing**: Shows both payment and purchase GL entries
+
+### Flow Structure
+1. **CHECKS.DBF** - Check entry point (CBATCH)
+2. **GLMASTER.DBF** - Check payment GL entry
+3. **APPMTHDR.DBF** | **APPMTDET.DBF** - Payment header and details (side by side)
+4. **GLMASTER.DBF** - Original purchase GL entry (CSOURCE = 'AP')
+5. **APPURCHH.DBF** | **APPURCHD.DBF** - Purchase header and details (side by side)
+
+### Key Concepts
+- **CBATCH**: Batch number that links related transactions
+- **CBILLTOKEN**: Critical field linking payment side to entry side
+- **Dual GL Entries**: Shows both payment posting and original purchase posting
+
+### Technical Implementation
+- **Components**: 
+  - `FollowBatchNumber.tsx` - Main search interface with clickable result cards
+  - `BatchFlowChart.tsx` - Interactive flow chart visualization
+- **Backend**: `FollowBatchNumber()` API searches across multiple DBF files
+- **Modal Features**: 
+  - Max height 90vh with scrollable content area
+  - Grid layout for field display
+  - Formatted dates and currency values
+- **Visual Design**: Consistent card sizing, hover effects, and professional styling
+
+### User Experience
+- **Search History**: Recent batch searches with dropdown selection
+- **Update Batch Details**: Bulk field updates across related tables
+- **Visual Indicators**: "Click to view records" prompt on cards with data
+- **Responsive Layout**: Side-by-side display for header/detail relationships
+
 ## Next Steps
 
 - **Bill Entry Backend**: Create Go API endpoints for bill CRUD operations

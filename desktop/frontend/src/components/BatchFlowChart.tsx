@@ -120,7 +120,7 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
                 {data.count} record{data.count !== 1 ? 's' : ''} found
               </div>
               {highlight && (
-                <div className="text-xs text-gray-600 mt-1">
+                <div className="text-xs text-gray-600 mt-1 break-words whitespace-pre-line">
                   {highlight}
                 </div>
               )}
@@ -218,13 +218,22 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
               )}
             </div>
             <div className="flex flex-col items-center">
-              {renderTableNode(
-                <CreditCard className="h-4 w-4" />,
-                "APPMTDET.DBF",
-                "Payment Details",
-                searchResults.appmtdet,
-                `CBATCH: ${batchNumber}`
-              )}
+              {(() => {
+                let highlightText = `CBATCH: ${batchNumber}`
+                if (searchResults.appmtdet && searchResults.appmtdet.records && searchResults.appmtdet.records.length > 0) {
+                  const cbilltoken = searchResults.appmtdet.records[0].CBILLTOKEN
+                  if (cbilltoken) {
+                    highlightText = `CBATCH: ${batchNumber}\nCBILLTOKEN: ${cbilltoken}`
+                  }
+                }
+                return renderTableNode(
+                  <CreditCard className="h-4 w-4" />,
+                  "APPMTDET.DBF",
+                  "Payment Details",
+                  searchResults.appmtdet,
+                  highlightText
+                )
+              })()}
             </div>
           </div>
 

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { DashboardCard } from './DashboardCard'
 import ChartOfAccountsReport from './ChartOfAccountsReport'
-import { FileText, TrendingUp, BarChart3, DollarSign, Receipt, BookOpen } from 'lucide-react'
+import OwnerStatements from './OwnerStatements'
+import { FileText, TrendingUp, BarChart3, DollarSign, Receipt, BookOpen, Users } from 'lucide-react'
 
 interface FinancialReportsProps {
   companyName: string
@@ -17,6 +18,10 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ companyName, curren
 
   if (selectedReport === 'chart-of-accounts') {
     return <ChartOfAccountsReport companyName={companyName} onBack={handleBack} />
+  }
+  
+  if (selectedReport === 'owner-statements') {
+    return <OwnerStatements companyName={companyName} onBack={handleBack} />
   }
 
   return (
@@ -38,6 +43,15 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ companyName, curren
           icon={BookOpen}
           onClick={() => setSelectedReport('chart-of-accounts')}
           accentColor="blue"
+        />
+        
+        <DashboardCard
+          title="Owner Distributions"
+          subtitle="Statements"
+          description="Generate owner distribution statements from DBF files"
+          icon={Users}
+          onClick={() => setSelectedReport('owner-statements')}
+          accentColor="teal"
         />
         
         <DashboardCard

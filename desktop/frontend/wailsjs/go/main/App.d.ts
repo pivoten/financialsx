@@ -21,6 +21,8 @@ export function AuditVoidChecks(arg1:string):Promise<Record<string, any>>;
 
 export function CheckGLPeriodFields(arg1:string):Promise<Record<string, any>>;
 
+export function CheckOwnerStatementFiles(arg1:string):Promise<Record<string, any>>;
+
 export function ClearMatchesAndRerun(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 
 export function CloseOLEConnection():Promise<Record<string, any>>;
@@ -38,6 +40,8 @@ export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promi
 export function FollowBatchNumber(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GenerateChartOfAccountsPDF(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
+export function GenerateOwnerStatementPDF(arg1:string,arg2:string):Promise<string>;
 
 export function GetAPIKey(arg1:string):Promise<string>;
 
@@ -90,6 +94,8 @@ export function GetMatchedTransactions(arg1:string,arg2:string):Promise<Record<s
 export function GetNetDistributionStatus(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetOutstandingChecks(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetOwnerStatementsList(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetPlatform():Promise<Record<string, any>>;
 

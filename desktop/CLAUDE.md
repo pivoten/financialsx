@@ -3,6 +3,38 @@
 ## Project Overview
 FinancialsX Desktop is a Wails-based application for oil & gas financial management with comprehensive banking features. Built with Go backend and React frontend using ShadCN UI components.
 
+## CRITICAL UI BUG FIX - CardContent Vertical Centering
+
+### The Problem That Keeps Happening
+Content in ShadCN UI CardContent components appears top-aligned when you expect it to be centered.
+
+### Root Cause
+The CardContent component (at `components/ui/card.tsx` line 44) has default classes `p-6 pt-0`:
+- `p-6` adds 24px padding on all sides
+- `pt-0` then overrides top padding to 0
+- Result: Content is always pushed to the top
+
+### The Fix
+```tsx
+// ❌ WRONG - Will be top-aligned
+<CardContent className="py-8">
+  <div>This sticks to the top</div>
+</CardContent>
+
+// ✅ CORRECT - Will be vertically centered  
+<CardContent className="pt-6">  // or pt-8
+  <div>This is properly centered</div>
+</CardContent>
+```
+
+### Where This Has Been Fixed
+- `OwnerStatements.tsx` - Loading spinner
+- `StateReportsSection.tsx` - Loading state (line 67)
+- `StateReportsSection.tsx` - No wells message (line 79)
+
+### Time Impact
+This issue has wasted ~30 minutes each time it's encountered. ALWAYS check ShadCN component default classes when layout doesn't work as expected!
+
 ## Key Architecture
 - **Backend**: Go with Wails framework
 - **Frontend**: React with Vite, TypeScript, ShadCN UI

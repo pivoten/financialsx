@@ -8024,6 +8024,112 @@ func (a *App) GetChartOfAccounts(companyName string, sortBy string, includeInact
 	return result, nil
 }
 
+// CheckOwnerStatementFiles checks if owner statement DBF files exist for a company
+func (a *App) CheckOwnerStatementFiles(companyName string) map[string]interface{} {
+	// Log the function call
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Called for company: %s", companyName))
+	debug.SimpleLog(fmt.Sprintf("CheckOwnerStatementFiles: company=%s, platform=%s", companyName, runtime.GOOS))
+	
+	result := map[string]interface{}{
+		"hasFiles": false,
+		"files": []string{},
+		"error": "",
+	}
+	
+	// Log platform-specific path handling
+	if runtime.GOOS == "windows" {
+		logger.WriteInfo("CheckOwnerStatementFiles", "Running on Windows - using Windows path resolution")
+	} else {
+		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Running on %s - using Unix path resolution", runtime.GOOS))
+	}
+	
+	// Use ReadDBFFile to check if we can access files in ownerstatements subdirectory
+	// This will handle all the path resolution logic for us
+	ownerStatementsFile := filepath.Join("ownerstatements", "dummy.dbf")
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Checking for files in: %s", ownerStatementsFile))
+	
+	data, err := company.ReadDBFFile(companyName, ownerStatementsFile, "", 0, 1, "", "")
+	
+	// Log the result of the check
+	if err != nil {
+		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("ReadDBFFile error: %v", err))
+		debug.SimpleLog(fmt.Sprintf("CheckOwnerStatementFiles: Error checking directory: %v", err))
+	}
+	
+	// If we get a "file does not exist" error for dummy.dbf, check if the directory exists
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		logger.WriteInfo("CheckOwnerStatementFiles", "Directory or file does not exist")
+		
+		// Try to list files in the ownerstatements directory
+		// We'll use GetDBFFiles and filter for ownerstatements path
+		allFiles, err := company.GetDBFFiles(companyName)
+		if err != nil {
+			logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("GetDBFFiles failed: %v", err))
+			result["error"] = "No Owner Distribution Files Found"
+			return result
+		}
+		
+		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found %d total DBF files in company", len(allFiles)))
+		
+		// Check if any files are in ownerstatements folder
+		// Since GetDBFFiles returns filenames only, we need a different approach
+		// For now, return a message that we need to check the directory
+		_ = data // silence unused variable warning
+		_ = allFiles
+		result["error"] = "No Owner Distribution Files Found"
+		
+		logger.WriteInfo("CheckOwnerStatementFiles", "No owner statement files found")
+		return result
+	}
+	
+	// If we get here, the directory exists but we need to list actual files
+	// For now, return that files were found (this is a stub)
+	logger.WriteInfo("CheckOwnerStatementFiles", "Owner statements directory exists, returning placeholder files")
+	result["hasFiles"] = true
+	result["files"] = []string{"owner_statements.dbf"} // Placeholder
+	
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Returning result: hasFiles=%v, fileCount=%d", result["hasFiles"], len(result["files"].([]string))))
+	return result
+}
+
+// GetOwnerStatementsList returns a list of available owner statement files
+func (a *App) GetOwnerStatementsList(companyName string) ([]map[string]interface{}, error) {
+	// For now, return a simple stub since we're focusing on basic implementation
+	return []map[string]interface{}{
+		{
+			"filename": "owner_statements.dbf",
+			"size": 1024,
+			"modified": "2024-01-01 12:00:00",
+			"hasFPT": true,
+		},
+	}, nil
+}
+
+// GenerateOwnerStatementPDF generates a PDF for owner distribution statements
+func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (string, error) {
+	// TODO: Implement actual PDF generation logic
+	// For now, this is a stub that will be expanded later
+	
+	// Read the DBF file from ownerstatements subdirectory
+	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
+	if err != nil {
+		return "", fmt.Errorf("error reading DBF file: %v", err)
+	}
+	
+	// TODO: Process the DBF data and generate PDF
+	// This is where we'll add the actual PDF generation logic
+	
+	// For now, return a stub message
+	recordCount := 0
+	if rows, ok := dbfData["rows"].([]map[string]interface{}); ok {
+		recordCount = len(rows)
+	} else if rows, ok := dbfData["rows"].([]interface{}); ok {
+		recordCount = len(rows)
+	}
+	
+	return fmt.Sprintf("PDF generation for %s is not yet implemented. File contains %d records.", fileName, recordCount), nil
+}
+
 // GenerateChartOfAccountsPDF generates a PDF report of the Chart of Accounts
 func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, includeInactive bool) (string, error) {
 	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Called for company: %s, sortBy: %s, includeInactive: %v", companyName, sortBy, includeInactive))

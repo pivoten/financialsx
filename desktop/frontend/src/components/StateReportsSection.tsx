@@ -64,7 +64,7 @@ export function StateReportsSection({ currentUser }: { currentUser: User | null 
     }
   }
 
-  if (loading) return (<Card><CardContent className="flex items-center justify-center py-8"><div className="text-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div><p className="text-muted-foreground">Analyzing wells data to determine state reporting requirements...</p></div></CardContent></Card>)
+  if (loading) return (<Card><CardContent className="flex items-center justify-center pt-8"><div className="text-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div><p className="text-muted-foreground">Analyzing wells data to determine state reporting requirements...</p></div></CardContent></Card>)
 
   if (error) return (
     <Card className="border-red-200 bg-red-50">
@@ -76,7 +76,7 @@ export function StateReportsSection({ currentUser }: { currentUser: User | null 
   if (states.length === 0) return (
     <Card>
       <CardHeader><CardTitle>State Reporting</CardTitle><CardDescription>No wells data found or no states identified</CardDescription></CardHeader>
-      <CardContent><div className="text-center py-8 text-muted-foreground"><Building className="w-12 h-12 mx-auto mb-4 opacity-50" /><p>No wells found in WELLS.dbf file.</p><p className="text-sm mt-2">Import wells data to see state-specific reporting requirements.</p></div></CardContent>
+      <CardContent className="pt-6"><div className="text-center text-muted-foreground"><Building className="w-12 h-12 mx-auto mb-4 opacity-50" /><p>No wells found in WELLS.dbf file.</p><p className="text-sm mt-2">Import wells data to see state-specific reporting requirements.</p></div></CardContent>
     </Card>
   )
 

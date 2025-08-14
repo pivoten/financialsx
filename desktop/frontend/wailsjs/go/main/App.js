@@ -38,6 +38,10 @@ export function CheckGLPeriodFields(arg1) {
   return window['go']['main']['App']['CheckGLPeriodFields'](arg1);
 }
 
+export function CheckOwnerStatementFiles(arg1) {
+  return window['go']['main']['App']['CheckOwnerStatementFiles'](arg1);
+}
+
 export function ClearMatchesAndRerun(arg1, arg2, arg3) {
   return window['go']['main']['App']['ClearMatchesAndRerun'](arg1, arg2, arg3);
 }
@@ -72,6 +76,10 @@ export function FollowBatchNumber(arg1, arg2) {
 
 export function GenerateChartOfAccountsPDF(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateChartOfAccountsPDF'](arg1, arg2, arg3);
+}
+
+export function GenerateOwnerStatementPDF(arg1, arg2) {
+  return window['go']['main']['App']['GenerateOwnerStatementPDF'](arg1, arg2);
 }
 
 export function GetAPIKey(arg1) {
@@ -176,6 +184,10 @@ export function GetNetDistributionStatus(arg1, arg2) {
 
 export function GetOutstandingChecks(arg1, arg2) {
   return window['go']['main']['App']['GetOutstandingChecks'](arg1, arg2);
+}
+
+export function GetOwnerStatementsList(arg1) {
+  return window['go']['main']['App']['GetOwnerStatementsList'](arg1);
 }
 
 export function GetPlatform() {

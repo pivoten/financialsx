@@ -7362,13 +7362,15 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 			// Get the CBILLTOKEN from the first APPMTDET record - this is the purchase batch number
 			if cbilltoken, exists := records[0]["CBILLTOKEN"]; exists && cbilltoken != nil {
 				purchaseBatch = strings.TrimSpace(fmt.Sprintf("%v", cbilltoken))
-				fmt.Printf("FollowBatchNumber: Found purchase batch '%s' from APPMTDET.CBILLTOKEN\n", purchaseBatch)
+				fmt.Printf("FollowBatchNumber: Found purchase batch '%s' from APPMTDET.CBILLTOKEN (original batch was '%s')\n", purchaseBatch, batchNumber)
+			} else {
+				fmt.Printf("FollowBatchNumber: No CBILLTOKEN found in APPMTDET records\n")
 			}
 		}
 	}
 	
-	// Step 4: If we have a purchase batch, search for it in APPURCHH and APPURCHD
-	if purchaseBatch != "" && purchaseBatch != batchNumber {
+	// Step 4: If we have a purchase batch (CBILLTOKEN), search for it in GLMASTER, APPURCHH and APPURCHD
+	if purchaseBatch != "" {
 		// Create a temporary function to search with the purchase batch
 		searchPurchaseTable := func(tableName string, resultKey string) {
 			fmt.Printf("FollowBatchNumber: Searching %s for purchase batch '%s'\n", tableName, purchaseBatch)
@@ -7475,8 +7477,9 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 				fmt.Printf("FollowBatchNumber: Found %d purchase GL records in GLMASTER for batch '%s'\n", len(purchaseGLRows), purchaseBatch)
 			}
 		}
-	} else {
-		// If no purchase batch found, still search APPURCHH and APPURCHD with original batch
+	} else if purchaseBatch == "" {
+		// Only if no CBILLTOKEN was found at all, search with original batch as fallback
+		// This handles cases where there are no APPMTDET records
 		searchTable("APPURCHH.dbf", "appurchh")
 		searchTable("APPURCHD.dbf", "appurchd")
 	}

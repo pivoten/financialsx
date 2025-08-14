@@ -7123,12 +7123,6 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 			"count": 0,
 			"columns": []string{},
 		},
-		"appurchd": map[string]interface{}{
-			"table_name": "APPURCHD.DBF",
-			"records": []map[string]interface{}{},
-			"count": 0,
-			"columns": []string{},
-		},
 		"appmthdr": map[string]interface{}{
 			"table_name": "APPMTHDR.DBF",
 			"records": []map[string]interface{}{},
@@ -7137,6 +7131,18 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		},
 		"appmtdet": map[string]interface{}{
 			"table_name": "APPMTDET.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"appurchh": map[string]interface{}{
+			"table_name": "APPURCHH.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"appurchd": map[string]interface{}{
+			"table_name": "APPURCHD.DBF",
 			"records": []map[string]interface{}{},
 			"count": 0,
 			"columns": []string{},
@@ -7343,18 +7349,147 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		fmt.Printf("FollowBatchNumber: Found %d matching records out of %d total rows in %s\n", len(matchingRows), totalRows, tableName)
 	}
 	
-	// Search each table
+	// Step 1: Search for initial batch in CHECKS, GLMASTER (payment), and APPMTHDR
 	searchTable("CHECKS.dbf", "checks")
 	searchTable("GLMASTER.dbf", "glmaster")
-	searchTable("APPURCHD.dbf", "appurchd")
 	searchTable("APPMTHDR.dbf", "appmthdr")
+	
+	// Step 2: Search APPMTDET for records where CBILLTOKEN = original batch
+	// This is already done by searchTable function since it checks CBILLTOKEN for APPMTDET
 	searchTable("APPMTDET.dbf", "appmtdet")
+	
+	// Step 3: If we found APPMTDET records, extract their CBATCH and search for it
+	var purchaseBatch string
+	if appmtdetData, ok := result["appmtdet"].(map[string]interface{}); ok {
+		if records, ok := appmtdetData["records"].([]map[string]interface{}); ok && len(records) > 0 {
+			// Get the CBATCH from the first APPMTDET record (they should all have the same purchase batch)
+			if cbatch, exists := records[0]["CBATCH"]; exists && cbatch != nil {
+				purchaseBatch = strings.TrimSpace(fmt.Sprintf("%v", cbatch))
+				fmt.Printf("FollowBatchNumber: Found purchase batch '%s' from APPMTDET.CBATCH\n", purchaseBatch)
+			}
+		}
+	}
+	
+	// Step 4: If we have a purchase batch, search for it in APPURCHH and APPURCHD
+	if purchaseBatch != "" && purchaseBatch != batchNumber {
+		// Create a temporary function to search with the purchase batch
+		searchPurchaseTable := func(tableName string, resultKey string) {
+			fmt.Printf("FollowBatchNumber: Searching %s for purchase batch '%s'\n", tableName, purchaseBatch)
+			
+			data, err := company.ReadDBFFile(companyName, tableName, "", 0, 0, "", "")
+			if err != nil {
+				fmt.Printf("FollowBatchNumber: Error reading %s: %v\n", tableName, err)
+				// Initialize the result key if it doesn't exist
+				if _, exists := result[resultKey]; !exists {
+					result[resultKey] = map[string]interface{}{
+						"table_name": strings.ToUpper(tableName),
+						"records": []map[string]interface{}{},
+						"count": 0,
+						"columns": []string{},
+					}
+				}
+				result[resultKey].(map[string]interface{})["error"] = fmt.Sprintf("Failed to read %s: %v", tableName, err)
+				return
+			}
+			
+			// Initialize the result key if it doesn't exist
+			if _, exists := result[resultKey]; !exists {
+				result[resultKey] = map[string]interface{}{
+					"table_name": strings.ToUpper(tableName),
+					"records": []map[string]interface{}{},
+					"count": 0,
+					"columns": []string{},
+				}
+			}
+			
+			// Get columns
+			if cols, ok := data["columns"].([]string); ok {
+				result[resultKey].(map[string]interface{})["columns"] = cols
+			}
+			
+			// Get rows and filter by purchase batch number
+			var matchingRows []map[string]interface{}
+			
+			if rows, ok := data["rows"].([]map[string]interface{}); ok {
+				for _, row := range rows {
+					if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
+						batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+						if strings.EqualFold(batchStr, purchaseBatch) {
+							matchingRows = append(matchingRows, row)
+						}
+					}
+				}
+			} else if rows, ok := data["rows"].([]interface{}); ok {
+				for _, item := range rows {
+					if row, ok := item.(map[string]interface{}); ok {
+						if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
+							batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+							if strings.EqualFold(batchStr, purchaseBatch) {
+								matchingRows = append(matchingRows, row)
+							}
+						}
+					}
+				}
+			}
+			
+			result[resultKey].(map[string]interface{})["records"] = matchingRows
+			result[resultKey].(map[string]interface{})["count"] = len(matchingRows)
+			fmt.Printf("FollowBatchNumber: Found %d matching records in %s for purchase batch '%s'\n", len(matchingRows), tableName, purchaseBatch)
+		}
+		
+		// Search APPURCHH and APPURCHD with the purchase batch
+		searchPurchaseTable("APPURCHH.dbf", "appurchh")
+		searchPurchaseTable("APPURCHD.dbf", "appurchd")
+		
+		// Also search GLMASTER for the purchase batch GL entries (with CSOURCE = 'AP')
+		fmt.Printf("FollowBatchNumber: Searching GLMASTER for purchase batch '%s' with CSOURCE='AP'\n", purchaseBatch)
+		glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
+		if err == nil {
+			var purchaseGLRows []map[string]interface{}
+			if rows, ok := glData["rows"].([]map[string]interface{}); ok {
+				for _, row := range rows {
+					if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
+						batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
+						if strings.EqualFold(batchStr, purchaseBatch) {
+							// Check if CSOURCE = 'AP' to identify purchase GL entries
+							if sourceRaw, exists := row["CSOURCE"]; exists && sourceRaw != nil {
+								sourceStr := strings.TrimSpace(fmt.Sprintf("%v", sourceRaw))
+								if strings.EqualFold(sourceStr, "AP") {
+									purchaseGLRows = append(purchaseGLRows, row)
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			if len(purchaseGLRows) > 0 {
+				// Add purchase GL entries to the existing GLMASTER results
+				if glmasterData, ok := result["glmaster"].(map[string]interface{}); ok {
+					existingRecords := glmasterData["records"].([]map[string]interface{})
+					allRecords := append(existingRecords, purchaseGLRows...)
+					glmasterData["records"] = allRecords
+					glmasterData["count"] = len(allRecords)
+					fmt.Printf("FollowBatchNumber: Added %d purchase GL records to GLMASTER results\n", len(purchaseGLRows))
+				}
+			}
+		}
+	} else {
+		// If no purchase batch found, still search APPURCHH and APPURCHD with original batch
+		searchTable("APPURCHH.dbf", "appurchh")
+		searchTable("APPURCHD.dbf", "appurchd")
+	}
 	
 	// Calculate total records found
 	totalFound := 0
 	totalFound += result["checks"].(map[string]interface{})["count"].(int)
 	totalFound += result["glmaster"].(map[string]interface{})["count"].(int)
-	totalFound += result["appurchd"].(map[string]interface{})["count"].(int)
+	if appurchdData, ok := result["appurchd"].(map[string]interface{}); ok {
+		totalFound += appurchdData["count"].(int)
+	}
+	if appurchhData, ok := result["appurchh"].(map[string]interface{}); ok {
+		totalFound += appurchhData["count"].(int)
+	}
 	totalFound += result["appmthdr"].(map[string]interface{})["count"].(int)
 	totalFound += result["appmtdet"].(map[string]interface{})["count"].(int)
 	

@@ -16,9 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jung-kurt/gofpdf/v2"
 	"github.com/pivoten/financialsx/desktop/internal/auth"
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
+	"github.com/pivoten/financialsx/desktop/internal/currency"
 	"github.com/pivoten/financialsx/desktop/internal/database"
 	"github.com/pivoten/financialsx/desktop/internal/debug"
 	"github.com/pivoten/financialsx/desktop/internal/logger"
@@ -28,6 +30,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -605,15 +608,15 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 	
 	// Structure to hold year-based totals
 	type YearTotals struct {
-		Debits  float64
-		Credits float64
+		Debits  currency.Currency
+		Credits currency.Currency
 		Count   int
 		Periods map[string]int
 	}
 	
 	// Maps to store results
 	yearlyTotals := make(map[string]*YearTotals)
-	blankYearTotals := &YearTotals{Periods: make(map[string]int)}
+	blankYearTotals := &YearTotals{Debits: currency.Zero(), Credits: currency.Zero(), Periods: make(map[string]int)}
 	allAccountsTotals := make(map[string]*YearTotals) // For comparison
 	
 	// Process all rows
@@ -636,28 +639,23 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 			periodVal = strings.TrimSpace(fmt.Sprintf("%v", row[periodIdx]))
 		}
 		
-		// Get amounts
-		var debitVal, creditVal float64
+		// Get amounts using decimal arithmetic
+		debitVal := currency.Zero()
 		if debitIdx >= 0 && len(row) > debitIdx && row[debitIdx] != nil {
-			debitStr := fmt.Sprintf("%v", row[debitIdx])
-			if val, err := strconv.ParseFloat(debitStr, 64); err == nil {
-				debitVal = val
-			}
+			debitVal = currency.ParseFromDBF(row[debitIdx])
 		}
+		creditVal := currency.Zero()
 		if creditIdx >= 0 && len(row) > creditIdx && row[creditIdx] != nil {
-			creditStr := fmt.Sprintf("%v", row[creditIdx])
-			if val, err := strconv.ParseFloat(creditStr, 64); err == nil {
-				creditVal = val
-			}
+			creditVal = currency.ParseFromDBF(row[creditIdx])
 		}
 		
 		// Process for all accounts (for comparison)
 		if yearVal != "" && yearVal != "<nil>" {
 			if allAccountsTotals[yearVal] == nil {
-				allAccountsTotals[yearVal] = &YearTotals{Periods: make(map[string]int)}
+				allAccountsTotals[yearVal] = &YearTotals{Debits: currency.Zero(), Credits: currency.Zero(), Periods: make(map[string]int)}
 			}
-			allAccountsTotals[yearVal].Debits += debitVal
-			allAccountsTotals[yearVal].Credits += creditVal
+			allAccountsTotals[yearVal].Debits = allAccountsTotals[yearVal].Debits.Add(debitVal)
+			allAccountsTotals[yearVal].Credits = allAccountsTotals[yearVal].Credits.Add(creditVal)
 			allAccountsTotals[yearVal].Count++
 		}
 		
@@ -665,8 +663,8 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 		if accountNumber == "" || rowAccount == accountNumber {
 			if yearVal == "" || yearVal == "<nil>" {
 				// Blank year entries
-				blankYearTotals.Debits += debitVal
-				blankYearTotals.Credits += creditVal
+				blankYearTotals.Debits = blankYearTotals.Debits.Add(debitVal)
+				blankYearTotals.Credits = blankYearTotals.Credits.Add(creditVal)
 				blankYearTotals.Count++
 				if periodVal != "" && periodVal != "<nil>" {
 					blankYearTotals.Periods[periodVal]++
@@ -674,10 +672,10 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 			} else {
 				// Normal year entries
 				if yearlyTotals[yearVal] == nil {
-					yearlyTotals[yearVal] = &YearTotals{Periods: make(map[string]int)}
+					yearlyTotals[yearVal] = &YearTotals{Debits: currency.Zero(), Credits: currency.Zero(), Periods: make(map[string]int)}
 				}
-				yearlyTotals[yearVal].Debits += debitVal
-				yearlyTotals[yearVal].Credits += creditVal
+				yearlyTotals[yearVal].Debits = yearlyTotals[yearVal].Debits.Add(debitVal)
+				yearlyTotals[yearVal].Credits = yearlyTotals[yearVal].Credits.Add(creditVal)
 				yearlyTotals[yearVal].Count++
 				if periodVal != "" && periodVal != "<nil>" {
 					yearlyTotals[yearVal].Periods[periodVal]++
@@ -688,7 +686,8 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 	
 	// Convert to output format
 	yearlyResults := make([]map[string]interface{}, 0)
-	var totalDebits, totalCredits float64
+	totalDebits := currency.Zero()
+	totalCredits := currency.Zero()
 	var totalRecords int
 	
 	// Sort years
@@ -700,44 +699,45 @@ func (a *App) AnalyzeGLBalancesByYear(companyName string, accountNumber string) 
 	
 	for _, year := range years {
 		totals := yearlyTotals[year]
-		balance := totals.Debits - totals.Credits
+		balance := totals.Debits.Sub(totals.Credits)
 		
 		yearlyResults = append(yearlyResults, map[string]interface{}{
 			"year":         year,
-			"debits":       totals.Debits,
-			"credits":      totals.Credits,
-			"balance":      balance,
+			"debits":       totals.Debits.ToFloat64(),
+			"credits":      totals.Credits.ToFloat64(),
+			"balance":      balance.ToFloat64(),
 			"record_count": totals.Count,
 			"periods":      len(totals.Periods),
 		})
 		
-		totalDebits += totals.Debits
-		totalCredits += totals.Credits
+		totalDebits = totalDebits.Add(totals.Debits)
+		totalCredits = totalCredits.Add(totals.Credits)
 		totalRecords += totals.Count
 	}
 	
 	// Add blank year totals if any
 	var blankYearData map[string]interface{}
 	if blankYearTotals.Count > 0 {
+		blankBalance := blankYearTotals.Debits.Sub(blankYearTotals.Credits)
 		blankYearData = map[string]interface{}{
-			"debits":       blankYearTotals.Debits,
-			"credits":      blankYearTotals.Credits,
-			"balance":      blankYearTotals.Debits - blankYearTotals.Credits,
+			"debits":       blankYearTotals.Debits.ToFloat64(),
+			"credits":      blankYearTotals.Credits.ToFloat64(),
+			"balance":      blankBalance.ToFloat64(),
 			"record_count": blankYearTotals.Count,
 			"periods":      blankYearTotals.Periods,
 		}
 	}
 	
 	// Calculate overall balance
-	overallBalance := totalDebits - totalCredits
+	overallBalance := totalDebits.Sub(totalCredits)
 	
 	return map[string]interface{}{
 		"account_number":     accountNumber,
 		"yearly_balances":    yearlyResults,
 		"blank_year_totals":  blankYearData,
-		"total_debits":       totalDebits,
-		"total_credits":      totalCredits,
-		"overall_balance":    overallBalance,
+		"total_debits":       totalDebits.ToFloat64(),
+		"total_credits":      totalCredits.ToFloat64(),
+		"overall_balance":    overallBalance.ToFloat64(),
 		"total_records":      totalRecords,
 		"years_found":        len(yearlyTotals),
 		"all_accounts_totals": allAccountsTotals, // For comparison
@@ -780,12 +780,13 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 	result := make(map[string]interface{})
 	
 	// Validation check 1: Debits = Credits for entire GL (double-entry bookkeeping)
-	var totalDebits, totalCredits float64
-	var debitCreditByYear = make(map[string]map[string]float64)
+	totalDebits := currency.Zero()
+	totalCredits := currency.Zero()
+	var debitCreditByYear = make(map[string]map[string]currency.Currency)
 	var duplicateTransactions []map[string]interface{}
 	var zeroAmountTransactions int
 	var suspiciousAmounts []map[string]interface{}
-	var outOfBalanceAccounts = make(map[string]map[string]float64)
+	var outOfBalanceAccounts = make(map[string]map[string]currency.Currency)
 	
 	glRows, _ := glData["rows"].([][]interface{})
 	
@@ -799,19 +800,15 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 		
 		rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
 		
-		// Get amounts
-		debit := float64(0)
+		// Get amounts using decimal arithmetic
+		debit := currency.Zero()
 		if debitIdx != -1 && len(row) > debitIdx && row[debitIdx] != nil {
-			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", row[debitIdx]), 64); err == nil {
-				debit = val
-			}
+			debit = currency.ParseFromDBF(row[debitIdx])
 		}
 		
-		credit := float64(0)
+		credit := currency.Zero()
 		if creditIdx != -1 && len(row) > creditIdx && row[creditIdx] != nil {
-			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", row[creditIdx]), 64); err == nil {
-				credit = val
-			}
+			credit = currency.ParseFromDBF(row[creditIdx])
 		}
 		
 		// Get year
@@ -830,52 +827,53 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 		}
 		
 		// Accumulate totals
-		totalDebits += debit
-		totalCredits += credit
+		totalDebits = totalDebits.Add(debit)
+		totalCredits = totalCredits.Add(credit)
 		
 		// Track by year for balance validation
 		if _, exists := debitCreditByYear[year]; !exists {
-			debitCreditByYear[year] = map[string]float64{"debits": 0, "credits": 0}
+			debitCreditByYear[year] = map[string]currency.Currency{"debits": currency.Zero(), "credits": currency.Zero()}
 		}
-		debitCreditByYear[year]["debits"] += debit
-		debitCreditByYear[year]["credits"] += credit
+		debitCreditByYear[year]["debits"] = debitCreditByYear[year]["debits"].Add(debit)
+		debitCreditByYear[year]["credits"] = debitCreditByYear[year]["credits"].Add(credit)
 		
 		// Track by account for out-of-balance detection
 		if accountNumber == "" || rowAccount == accountNumber {
 			if _, exists := outOfBalanceAccounts[rowAccount]; !exists {
-				outOfBalanceAccounts[rowAccount] = map[string]float64{"debits": 0, "credits": 0}
+				outOfBalanceAccounts[rowAccount] = map[string]currency.Currency{"debits": currency.Zero(), "credits": currency.Zero()}
 			}
-			outOfBalanceAccounts[rowAccount]["debits"] += debit
-			outOfBalanceAccounts[rowAccount]["credits"] += credit
+			outOfBalanceAccounts[rowAccount]["debits"] = outOfBalanceAccounts[rowAccount]["debits"].Add(debit)
+			outOfBalanceAccounts[rowAccount]["credits"] = outOfBalanceAccounts[rowAccount]["credits"].Add(credit)
 		}
 		
 		// Check for zero amount transactions
-		if debit == 0 && credit == 0 {
+		if debit.IsZero() && credit.IsZero() {
 			zeroAmountTransactions++
 		}
 		
 		// Check for suspicious amounts (very large transactions)
-		if debit > 1000000 || credit > 1000000 {
+		oneMillion := currency.NewFromFloat(1000000)
+		if debit.GreaterThan(oneMillion) || credit.GreaterThan(oneMillion) {
 			suspiciousAmounts = append(suspiciousAmounts, map[string]interface{}{
 				"row_index": idx + 1,
 				"account":   rowAccount,
-				"debit":     debit,
-				"credit":    credit,
+				"debit":     debit.ToFloat64(),
+				"credit":    credit.ToFloat64(),
 				"year":      year,
 				"period":    period,
 			})
 		}
 		
 		// Check for duplicate transactions
-		transKey := fmt.Sprintf("%s|%.2f|%.2f|%s|%s", rowAccount, debit, credit, year, period)
+		transKey := fmt.Sprintf("%s|%s|%s|%s|%s", rowAccount, debit.ToString(), credit.ToString(), year, period)
 		if existingRows, exists := transactionMap[transKey]; exists {
 			// Found potential duplicate
 			if len(duplicateTransactions) < 10 { // Limit to first 10 duplicates
 				duplicateTransactions = append(duplicateTransactions, map[string]interface{}{
 					"row_indices":  append(existingRows, idx+1),
 					"account":      rowAccount,
-					"debit":        debit,
-					"credit":       credit,
+					"debit":        debit.ToFloat64(),
+					"credit":       credit.ToFloat64(),
 					"year":         year,
 					"period":       period,
 					"occurrence":   len(existingRows) + 1,
@@ -888,19 +886,19 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 	}
 	
 	// Calculate out-of-balance difference
-	overallDifference := math.Abs(totalDebits - totalCredits)
-	isBalanced := overallDifference < 0.01 // Allow for rounding errors
+	overallDifference := totalDebits.Sub(totalCredits).Abs()
+	isBalanced := overallDifference.LessThan(currency.NewFromFloat(0.01)) // Allow for rounding errors
 	
 	// Build year-by-year balance check
 	yearBalanceChecks := []map[string]interface{}{}
 	for year, amounts := range debitCreditByYear {
-		difference := math.Abs(amounts["debits"] - amounts["credits"])
+		difference := amounts["debits"].Sub(amounts["credits"]).Abs()
 		yearBalanceChecks = append(yearBalanceChecks, map[string]interface{}{
 			"year":       year,
-			"debits":     amounts["debits"],
-			"credits":    amounts["credits"],
-			"difference": difference,
-			"balanced":   difference < 0.01,
+			"debits":     amounts["debits"].ToFloat64(),
+			"credits":    amounts["credits"].ToFloat64(),
+			"difference": difference.ToFloat64(),
+			"balanced":   difference.LessThan(currency.NewFromFloat(0.01)),
 		})
 	}
 	
@@ -914,13 +912,13 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 	// Find accounts with significant imbalances
 	imbalancedAccounts := []map[string]interface{}{}
 	for account, amounts := range outOfBalanceAccounts {
-		difference := math.Abs(amounts["debits"] - amounts["credits"])
-		if difference > 0.01 && account != "" { // Significant imbalance
+		difference := amounts["debits"].Sub(amounts["credits"]).Abs()
+		if difference.GreaterThan(currency.NewFromFloat(0.01)) && account != "" { // Significant imbalance
 			imbalancedAccounts = append(imbalancedAccounts, map[string]interface{}{
 				"account":    account,
-				"debits":     amounts["debits"],
-				"credits":    amounts["credits"],
-				"difference": difference,
+				"debits":     amounts["debits"].ToFloat64(),
+				"credits":    amounts["credits"].ToFloat64(),
+				"difference": difference.ToFloat64(),
 			})
 		}
 	}
@@ -937,9 +935,9 @@ func (a *App) ValidateGLBalances(companyName string, accountNumber string) (map[
 		imbalancedAccounts = imbalancedAccounts[:20]
 	}
 	
-	result["total_debits"] = totalDebits
-	result["total_credits"] = totalCredits
-	result["overall_difference"] = overallDifference
+	result["total_debits"] = totalDebits.ToFloat64()
+	result["total_credits"] = totalCredits.ToFloat64()
+	result["overall_difference"] = overallDifference.ToFloat64()
 	result["is_balanced"] = isBalanced
 	result["year_balance_checks"] = yearBalanceChecks
 	result["duplicate_transactions"] = duplicateTransactions
@@ -1687,37 +1685,71 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 	fmt.Println("GetCompanyList: Searching for compmast.dbf...")
 	debug.LogInfo("GetCompanyList", "Searching for compmast.dbf...")
 	
-	// Start from current working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
-	}
+	var compMastPath string
+	var baseDir string
 	
-	// Search for compmast.dbf recursively (max depth 5 to avoid deep searches)
-	compMastPath := findCompmastDBF(workDir, 5)
-	
-	// If not found in working directory, try from parent directory
-	if compMastPath == "" {
-		parentDir := filepath.Dir(workDir)
-		compMastPath = findCompmastDBF(parentDir, 3)
-	}
-	
-	// If still not found, try from executable directory
-	if compMastPath == "" {
-		exePath, _ := os.Executable()
-		exeDir := filepath.Dir(exePath)
-		compMastPath = findCompmastDBF(exeDir, 3)
-	}
-	
-	// If still not found, check if we have a saved path from previous selection
-	if compMastPath == "" {
-		savedPath := a.getSavedDataPath()
-		if savedPath != "" {
-			testPath := filepath.Join(savedPath, "compmast.dbf")
-			if _, err := os.Stat(testPath); err == nil {
-				compMastPath = testPath
-				fmt.Printf("GetCompanyList: Using saved path: %s\n", compMastPath)
+	if a.isWindows {
+		// On Windows, always look for datafiles\compmast.dbf relative to EXE
+		exePath, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get executable path: %w", err)
+		}
+		baseDir = filepath.Dir(exePath)
+		compMastPath = filepath.Join(baseDir, "datafiles", "compmast.dbf")
+		
+		fmt.Printf("GetCompanyList: Looking for compmast.dbf at: %s\n", compMastPath)
+		
+		// Check if it exists
+		if _, err := os.Stat(compMastPath); os.IsNotExist(err) {
+			// Check if we have a saved path from previous selection
+			savedPath := a.getSavedDataPath()
+			if savedPath != "" {
+				testPath := filepath.Join(savedPath, "compmast.dbf")
+				if _, err := os.Stat(testPath); err == nil {
+					compMastPath = testPath
+					baseDir = filepath.Dir(savedPath)
+					fmt.Printf("GetCompanyList: Using saved path: %s\n", compMastPath)
+				} else {
+					compMastPath = "" // Reset to trigger folder selection
+				}
+			} else {
+				compMastPath = "" // Will trigger folder selection
 			}
+		}
+	} else {
+		// Mac/Linux - use the original search logic
+		workDir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+		
+		// Search for compmast.dbf recursively
+		compMastPath = findCompmastDBF(workDir, 5)
+		
+		if compMastPath == "" {
+			parentDir := filepath.Dir(workDir)
+			compMastPath = findCompmastDBF(parentDir, 3)
+		}
+		
+		if compMastPath == "" {
+			exePath, _ := os.Executable()
+			exeDir := filepath.Dir(exePath)
+			compMastPath = findCompmastDBF(exeDir, 3)
+		}
+		
+		if compMastPath == "" {
+			savedPath := a.getSavedDataPath()
+			if savedPath != "" {
+				testPath := filepath.Join(savedPath, "compmast.dbf")
+				if _, err := os.Stat(testPath); err == nil {
+					compMastPath = testPath
+					fmt.Printf("GetCompanyList: Using saved path: %s\n", compMastPath)
+				}
+			}
+		}
+		
+		if compMastPath != "" {
+			baseDir = filepath.Dir(filepath.Dir(compMastPath)) // Go up from datafiles/compmast.dbf
 		}
 	}
 	
@@ -1728,8 +1760,15 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 	}
 	
 	// Store the base path for future company data access
-	a.dataBasePath = filepath.Dir(compMastPath)
-	a.saveDataPath(a.dataBasePath)
+	if a.isWindows {
+		// On Windows, store the directory where the EXE is (or where user selected)
+		a.dataBasePath = baseDir
+		a.saveDataPath(filepath.Join(baseDir, "datafiles"))
+	} else {
+		// On Mac/Linux, store the datafiles directory
+		a.dataBasePath = filepath.Dir(compMastPath)
+		a.saveDataPath(a.dataBasePath)
+	}
 	
 	fmt.Printf("GetCompanyList: Found compmast.dbf at: %s\n", compMastPath)
 	debug.LogInfo("GetCompanyList", fmt.Sprintf("Found compmast.dbf at: %s", compMastPath))
@@ -1767,7 +1806,41 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 	for _, row := range rows {
 		dataPath := ""
 		if cdatapath, ok := row["CDATAPATH"].(string); ok {
-			dataPath = cdatapath
+			// DBF files have fixed-width fields padded with spaces
+			// Just find where the real path ends by looking for excessive spaces
+			
+			// Convert to bytes to handle any null bytes
+			bytes := []byte(cdatapath)
+			
+			// Find where the actual path ends (before excessive padding)
+			// Look for 5+ consecutive spaces as that indicates padding
+			spaceCount := 0
+			actualEnd := len(bytes)
+			for i := 0; i < len(bytes); i++ {
+				if bytes[i] == ' ' || bytes[i] == 0 {
+					spaceCount++
+					if spaceCount >= 5 {
+						// Found the padding, mark where the real path ends
+						actualEnd = i - spaceCount + 1
+						break
+					}
+				} else {
+					spaceCount = 0
+				}
+			}
+			
+			// Extract the actual path
+			if actualEnd > 0 {
+				dataPath = string(bytes[:actualEnd])
+			}
+			
+			// Simple cleanup - just trim trailing spaces
+			dataPath = strings.TrimRight(dataPath, " \t\r\n\x00")
+			
+			// Ensure it ends with a backslash (as it should from the DBF)
+			if dataPath != "" && !strings.HasSuffix(dataPath, "\\") {
+				dataPath = dataPath + "\\"
+			}
 		}
 		
 		originalDataPath := dataPath
@@ -1795,10 +1868,19 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 			fmt.Printf("GetCompanyList: Matched company '%s' to folder '%s'\n", companyName, actualFolderName)
 		} else {
 			// Platform-specific path handling:
-			// On macOS/Linux: Company folders are always relative to compmast.dbf location
-			// On Windows: Use the absolute/relative path from CDATAPATH
-			if !a.isWindows && dataPath != "" {
-				// On Mac/Linux, extract just the folder name from the path
+			if a.isWindows && dataPath != "" {
+				// On Windows: Check if it's an absolute path or relative
+				// Absolute paths start with drive letter (C:\, D:\, etc.)
+				if len(dataPath) >= 2 && dataPath[1] == ':' {
+					// Absolute path - use as-is (already cleaned above)
+					fmt.Printf("GetCompanyList: Using absolute Windows path: %s\n", dataPath)
+				} else {
+					// Relative path - will be resolved relative to compmast.dbf location
+					// Just keep the path as-is, it will be resolved later
+					fmt.Printf("GetCompanyList: Using relative Windows path: %s\n", dataPath)
+				}
+			} else if !a.isWindows && dataPath != "" {
+				// On Mac/Linux: Extract just the folder name from the path
 				// Handle both Windows-style paths (from Windows-created DBF) and Unix paths
 				if strings.Contains(dataPath, "\\") {
 					// Windows path - extract last component
@@ -1814,21 +1896,55 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 					dataPath = filepath.Base(dataPath)
 				}
 				// If it's just a folder name, keep it as is
+				fmt.Printf("GetCompanyList: Using Mac/Linux folder name: %s\n", dataPath)
 			}
 		}
 		
-		fmt.Printf("GetCompanyList: CIDCOMP=%v, CPRODUCER=%v, original CDATAPATH=%v, final dataPath=%v\n", 
-			row["CIDCOMP"], row["CPRODUCER"], originalDataPath, dataPath)
+		// Build the full resolved path for display
+		var fullPath string
+		if a.isWindows {
+			if filepath.IsAbs(dataPath) {
+				// Already absolute
+				fullPath = dataPath
+			} else if strings.Contains(dataPath, "\\") || strings.Contains(dataPath, "/") {
+				// Relative path
+				exePath, _ := os.Executable()
+				exeDir := filepath.Dir(exePath)
+				fullPath = filepath.Join(exeDir, dataPath)
+			} else {
+				// Just a folder name
+				exePath, _ := os.Executable()
+				exeDir := filepath.Dir(exePath)
+				fullPath = filepath.Join(exeDir, "datafiles", dataPath)
+			}
+		} else {
+			// Mac/Linux
+			if dataPath != "" {
+				datafilesPath := filepath.Join(a.dataBasePath, dataPath)
+				fullPath = datafilesPath
+			}
+		}
+		
+		fmt.Printf("GetCompanyList: CIDCOMP=%v, CPRODUCER=%v, CALIAS=%v, original CDATAPATH=%v, final dataPath=%v, fullPath=%v\n", 
+			row["CIDCOMP"], row["CPRODUCER"], row["CALIAS"], originalDataPath, dataPath, fullPath)
+		
+		// Get the alias, default to empty string if not present
+		alias := ""
+		if cAlias, ok := row["CALIAS"].(string); ok {
+			alias = strings.TrimSpace(cAlias)
+		}
 		
 		company := map[string]interface{}{
 			"company_id":   row["CIDCOMP"],
 			"company_name": row["CPRODUCER"],
+			"alias":        alias,
 			"address1":     row["CADDRESS1"],
 			"address2":     row["CADDRESS2"],
 			"city":         row["CCITY"],
 			"state":        row["CSTATE"],
 			"zip_code":     row["CZIPCODE"],
 			"data_path":    dataPath,
+			"full_path":    fullPath,  // The resolved full path
 		}
 		companies = append(companies, company)
 	}
@@ -4301,6 +4417,836 @@ func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, err
 	return auditReport, nil
 }
 
+// AuditDuplicateCIDCHEC finds checks with duplicate CIDCHEC values
+func (a *App) AuditDuplicateCIDCHEC(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("=== AuditDuplicateCIDCHEC START ===\n")
+	fmt.Printf("AuditDuplicateCIDCHEC called for company: %s\n", companyName)
+	
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Fix authentication with Supabase integration
+	fmt.Printf("AuditDuplicateCIDCHEC: Skipping authentication check (TEMPORARY)\n")
+	
+	// Read checks.dbf (no limit - get all check records for complete audit)
+	fmt.Printf("AuditDuplicateCIDCHEC: Attempting to read checks.dbf for company: %s\n", companyName)
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("AuditDuplicateCIDCHEC ERROR: Failed to read checks.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	fmt.Printf("AuditDuplicateCIDCHEC: Successfully read checks.dbf\n")
+	
+	// Get column indices for checks.dbf
+	checksColumns, ok := checksData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid checks.dbf structure")
+	}
+	
+	// Find CIDCHEC column index
+	cidchecIdx := -1
+	checkNumIdx := -1
+	amountIdx := -1
+	dateIdx := -1
+	payeeIdx := -1
+	accountIdx := -1
+	clearedIdx := -1
+	voidIdx := -1
+	
+	for i, col := range checksColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CIDCHEC":
+			cidchecIdx = i
+		case "CCHECKNO", "CHECKNUM":
+			checkNumIdx = i
+		case "NAMOUNT", "AMOUNT":
+			amountIdx = i
+		case "DCHECKDATE", "DATE":
+			dateIdx = i
+		case "CPAYEE", "PAYEE":
+			payeeIdx = i
+		case "CACCTNO", "ACCOUNT":
+			accountIdx = i
+		case "LCLEARED":
+			clearedIdx = i
+		case "LVOID":
+			voidIdx = i
+		}
+	}
+	
+	if cidchecIdx == -1 {
+		return map[string]interface{}{
+			"status": "error",
+			"error": "CIDCHEC column not found",
+			"message": "The CIDCHEC column is required for duplicate detection but was not found in checks.dbf",
+			"columns_found": checksColumns,
+		}, nil
+	}
+	
+	// Map to track CIDCHEC values and their associated check records
+	cidchecMap := make(map[string][]map[string]interface{})
+	totalChecks := 0
+	emptyOrNullCIDCHEC := 0
+	
+	checksRows, _ := checksData["rows"].([][]interface{})
+	
+	for rowIdx, row := range checksRows {
+		if len(row) <= cidchecIdx {
+			continue
+		}
+		
+		totalChecks++
+		
+		// Get CIDCHEC value
+		cidchec := strings.TrimSpace(fmt.Sprintf("%v", row[cidchecIdx]))
+		
+		// Skip empty or null CIDCHEC values
+		if cidchec == "" || cidchec == "0" || strings.ToLower(cidchec) == "null" {
+			emptyOrNullCIDCHEC++
+			continue
+		}
+		
+		// Build check record
+		checkRecord := map[string]interface{}{
+			"row_index": rowIdx + 1,
+			"cidchec": cidchec,
+		}
+		
+		// Add other fields if available
+		if checkNumIdx != -1 && len(row) > checkNumIdx {
+			checkRecord["check_number"] = strings.TrimSpace(fmt.Sprintf("%v", row[checkNumIdx]))
+		}
+		if amountIdx != -1 && len(row) > amountIdx {
+			checkRecord["amount"] = parseFloat(row[amountIdx])
+		}
+		if dateIdx != -1 && len(row) > dateIdx {
+			if dateVal := row[dateIdx]; dateVal != nil {
+				if t, ok := dateVal.(time.Time); ok {
+					checkRecord["date"] = t.Format("2006-01-02")
+				} else {
+					checkRecord["date"] = fmt.Sprintf("%v", dateVal)
+				}
+			}
+		}
+		if payeeIdx != -1 && len(row) > payeeIdx {
+			checkRecord["payee"] = strings.TrimSpace(fmt.Sprintf("%v", row[payeeIdx]))
+		}
+		if accountIdx != -1 && len(row) > accountIdx {
+			checkRecord["account"] = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		}
+		if clearedIdx != -1 && len(row) > clearedIdx {
+			clearedVal := row[clearedIdx]
+			cleared := false
+			if clearedVal != nil {
+				switch v := clearedVal.(type) {
+				case bool:
+					cleared = v
+				case string:
+					lowerVal := strings.ToLower(strings.TrimSpace(v))
+					cleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+				}
+			}
+			checkRecord["cleared"] = cleared
+		}
+		if voidIdx != -1 && len(row) > voidIdx {
+			voidVal := row[voidIdx]
+			voided := false
+			if voidVal != nil {
+				switch v := voidVal.(type) {
+				case bool:
+					voided = v
+				case string:
+					lowerVal := strings.ToLower(strings.TrimSpace(v))
+					voided = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+				}
+			}
+			checkRecord["voided"] = voided
+		}
+		
+		// Add to map
+		cidchecMap[cidchec] = append(cidchecMap[cidchec], checkRecord)
+	}
+	
+	// Find duplicates (CIDCHEC values that appear more than once)
+	duplicates := []map[string]interface{}{}
+	totalDuplicateGroups := 0
+	totalDuplicateChecks := 0
+	
+	for cidchec, records := range cidchecMap {
+		if len(records) > 1 {
+			totalDuplicateGroups++
+			totalDuplicateChecks += len(records)
+			
+			// Create a duplicate group entry
+			duplicateGroup := map[string]interface{}{
+				"cidchec": cidchec,
+				"occurrence_count": len(records),
+				"checks": records,
+				"total_amount": 0.0,
+			}
+			
+			// Calculate total amount for this group
+			totalAmount := 0.0
+			for _, record := range records {
+				if amount, ok := record["amount"].(float64); ok {
+					totalAmount += amount
+				}
+			}
+			duplicateGroup["total_amount"] = totalAmount
+			
+			duplicates = append(duplicates, duplicateGroup)
+		}
+	}
+	
+	// Sort duplicates by occurrence count (highest first)
+	sort.Slice(duplicates, func(i, j int) bool {
+		countI := duplicates[i]["occurrence_count"].(int)
+		countJ := duplicates[j]["occurrence_count"].(int)
+		return countI > countJ
+	})
+	
+	// Build audit report
+	auditReport := map[string]interface{}{
+		"status": "success",
+		"company_name": companyName,
+		"summary": map[string]interface{}{
+			"total_checks": totalChecks,
+			"empty_or_null_cidchec": emptyOrNullCIDCHEC,
+			"unique_cidchec_values": len(cidchecMap),
+			"duplicate_groups_found": totalDuplicateGroups,
+			"total_duplicate_checks": totalDuplicateChecks,
+		},
+		"duplicates": duplicates,
+		"audit_date": time.Now().Format("2006-01-02 15:04:05"),
+		"audited_by": "system", // TEMPORARY: hardcoded until auth is fixed
+	}
+	
+	// Add severity assessment
+	if totalDuplicateGroups > 0 {
+		auditReport["severity"] = "high"
+		auditReport["message"] = fmt.Sprintf("CRITICAL: Found %d duplicate CIDCHEC groups affecting %d checks. Each CIDCHEC should be unique!", 
+			totalDuplicateGroups, totalDuplicateChecks)
+	} else if emptyOrNullCIDCHEC > 0 {
+		auditReport["severity"] = "medium"
+		auditReport["message"] = fmt.Sprintf("WARNING: %d checks have empty or null CIDCHEC values", emptyOrNullCIDCHEC)
+	} else {
+		auditReport["severity"] = "low"
+		auditReport["message"] = "No duplicate CIDCHEC values found - data integrity is good"
+	}
+	
+	fmt.Printf("CIDCHEC Audit completed: %d total checks, %d duplicate groups found, %d duplicate checks, %d empty/null\n", 
+		totalChecks, totalDuplicateGroups, totalDuplicateChecks, emptyOrNullCIDCHEC)
+	
+	return auditReport, nil
+}
+
+// AuditVoidChecks verifies that voided checks have proper settings:
+// - NAMOUNT should equal NVOIDAMT
+// - LCLEARED should be TRUE
+// - DRECDATE should not be null
+func (a *App) AuditVoidChecks(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("=== AuditVoidChecks START ===\n")
+	fmt.Printf("AuditVoidChecks called for company: %s\n", companyName)
+	
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Fix authentication with Supabase integration
+	fmt.Printf("AuditVoidChecks: Skipping authentication check (TEMPORARY)\n")
+	
+	// Read checks.dbf (no limit - get all check records for complete audit)
+	fmt.Printf("AuditVoidChecks: Attempting to read checks.dbf for company: %s\n", companyName)
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("AuditVoidChecks ERROR: Failed to read checks.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	fmt.Printf("AuditVoidChecks: Successfully read checks.dbf\n")
+	
+	// Get column indices for checks.dbf
+	checksColumns, ok := checksData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid checks.dbf structure")
+	}
+	
+	// Find required column indices
+	voidIdx := -1
+	amountIdx := -1
+	voidAmtIdx := -1
+	clearedIdx := -1
+	recDateIdx := -1
+	checkNumIdx := -1
+	payeeIdx := -1
+	dateIdx := -1
+	accountIdx := -1
+	cidchecIdx := -1
+	
+	for i, col := range checksColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "LVOID":
+			voidIdx = i
+		case "NAMOUNT", "AMOUNT":
+			amountIdx = i
+		case "NVOIDAMT":
+			voidAmtIdx = i
+		case "LCLEARED":
+			clearedIdx = i
+		case "DRECDATE":
+			recDateIdx = i
+		case "CCHECKNO", "CHECKNUM":
+			checkNumIdx = i
+		case "CPAYEE", "PAYEE":
+			payeeIdx = i
+		case "DCHECKDATE", "DATE":
+			dateIdx = i
+		case "CACCTNO", "ACCOUNT":
+			accountIdx = i
+		case "CIDCHEC":
+			cidchecIdx = i
+		}
+	}
+	
+	// Check if required columns exist
+	if voidIdx == -1 {
+		return map[string]interface{}{
+			"status": "error",
+			"error": "LVOID column not found",
+			"message": "The LVOID column is required for void audit but was not found in checks.dbf",
+			"columns_found": checksColumns,
+		}, nil
+	}
+	
+	// Process checks
+	checksRows, _ := checksData["rows"].([][]interface{})
+	var issues []map[string]interface{}
+	totalVoidedChecks := 0
+	totalIssues := 0
+	
+	for rowIdx, row := range checksRows {
+		if len(row) <= voidIdx {
+			continue
+		}
+		
+		// Check if this check is voided
+		voidVal := row[voidIdx]
+		isVoid := false
+		if voidVal != nil {
+			switch v := voidVal.(type) {
+			case bool:
+				isVoid = v
+			case string:
+				lowerVal := strings.ToLower(strings.TrimSpace(v))
+				isVoid = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+			}
+		}
+		
+		if !isVoid {
+			continue // Skip non-voided checks
+		}
+		
+		totalVoidedChecks++
+		
+		// Now check if the voided check has proper settings
+		issueDetails := []string{}
+		
+		// Check 1: NAMOUNT should equal NVOIDAMT
+		if amountIdx != -1 && voidAmtIdx != -1 && len(row) > amountIdx && len(row) > voidAmtIdx {
+			amount := parseFloat(row[amountIdx])
+			voidAmount := parseFloat(row[voidAmtIdx])
+			if math.Abs(amount - voidAmount) > 0.01 { // Allow for small floating point differences
+				issueDetails = append(issueDetails, fmt.Sprintf("Amount mismatch: NAMOUNT=%.2f, NVOIDAMT=%.2f", amount, voidAmount))
+			}
+		} else if voidAmtIdx == -1 {
+			issueDetails = append(issueDetails, "NVOIDAMT column not found")
+		}
+		
+		// Check 2: LCLEARED should be TRUE
+		if clearedIdx != -1 && len(row) > clearedIdx {
+			clearedVal := row[clearedIdx]
+			isCleared := false
+			if clearedVal != nil {
+				switch v := clearedVal.(type) {
+				case bool:
+					isCleared = v
+				case string:
+					lowerVal := strings.ToLower(strings.TrimSpace(v))
+					isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+				}
+			}
+			if !isCleared {
+				issueDetails = append(issueDetails, "Not marked as cleared (LCLEARED=FALSE)")
+			}
+		} else if clearedIdx == -1 {
+			issueDetails = append(issueDetails, "LCLEARED column not found")
+		}
+		
+		// Check 3: DRECDATE should not be null
+		if recDateIdx != -1 && len(row) > recDateIdx {
+			recDateVal := row[recDateIdx]
+			if recDateVal == nil || fmt.Sprintf("%v", recDateVal) == "" || fmt.Sprintf("%v", recDateVal) == "0" {
+				issueDetails = append(issueDetails, "Record date is null or empty (DRECDATE)")
+			}
+		} else if recDateIdx == -1 {
+			issueDetails = append(issueDetails, "DRECDATE column not found")
+		}
+		
+		// If there are issues with this voided check, add it to the list
+		if len(issueDetails) > 0 {
+			totalIssues++
+			
+			// Build the issue record with all available data
+			issueRecord := map[string]interface{}{
+				"row_index": rowIdx + 1,
+				"issues": issueDetails,
+				"issue_count": len(issueDetails),
+				"row_data": make(map[string]interface{}), // Store complete row data for modal
+			}
+			
+			// Add check details if available
+			if checkNumIdx != -1 && len(row) > checkNumIdx {
+				issueRecord["check_number"] = strings.TrimSpace(fmt.Sprintf("%v", row[checkNumIdx]))
+			}
+			if amountIdx != -1 && len(row) > amountIdx {
+				issueRecord["amount"] = parseFloat(row[amountIdx])
+			}
+			if voidAmtIdx != -1 && len(row) > voidAmtIdx {
+				issueRecord["void_amount"] = parseFloat(row[voidAmtIdx])
+			}
+			if dateIdx != -1 && len(row) > dateIdx {
+				if dateVal := row[dateIdx]; dateVal != nil {
+					if t, ok := dateVal.(time.Time); ok {
+						issueRecord["check_date"] = t.Format("2006-01-02")
+					} else {
+						issueRecord["check_date"] = fmt.Sprintf("%v", dateVal)
+					}
+				}
+			}
+			if payeeIdx != -1 && len(row) > payeeIdx {
+				issueRecord["payee"] = strings.TrimSpace(fmt.Sprintf("%v", row[payeeIdx]))
+			}
+			if accountIdx != -1 && len(row) > accountIdx {
+				issueRecord["account"] = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+			}
+			if cidchecIdx != -1 && len(row) > cidchecIdx {
+				issueRecord["cidchec"] = strings.TrimSpace(fmt.Sprintf("%v", row[cidchecIdx]))
+			}
+			if clearedIdx != -1 && len(row) > clearedIdx {
+				clearedVal := row[clearedIdx]
+				isCleared := false
+				if clearedVal != nil {
+					switch v := clearedVal.(type) {
+					case bool:
+						isCleared = v
+					case string:
+						lowerVal := strings.ToLower(strings.TrimSpace(v))
+						isCleared = (lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1")
+					}
+				}
+				issueRecord["is_cleared"] = isCleared
+			}
+			if recDateIdx != -1 && len(row) > recDateIdx {
+				if recDateVal := row[recDateIdx]; recDateVal != nil {
+					if t, ok := recDateVal.(time.Time); ok {
+						issueRecord["record_date"] = t.Format("2006-01-02")
+					} else {
+						dateStr := fmt.Sprintf("%v", recDateVal)
+						if dateStr != "" && dateStr != "0" {
+							issueRecord["record_date"] = dateStr
+						}
+					}
+				}
+			}
+			
+			// Store complete row data for modal display
+			rowData := issueRecord["row_data"].(map[string]interface{})
+			for i, col := range checksColumns {
+				if i < len(row) {
+					rowData[col] = row[i]
+				}
+			}
+			
+			issues = append(issues, issueRecord)
+		}
+	}
+	
+	// Build audit report
+	auditReport := map[string]interface{}{
+		"status": "success",
+		"company_name": companyName,
+		"summary": map[string]interface{}{
+			"total_voided_checks": totalVoidedChecks,
+			"total_issues_found": totalIssues,
+			"issue_percentage": 0,
+		},
+		"issues": issues,
+		"audit_date": time.Now().Format("2006-01-02 15:04:05"),
+		"audited_by": "system", // TEMPORARY: hardcoded until auth is fixed
+	}
+	
+	// Calculate issue percentage
+	if totalVoidedChecks > 0 {
+		auditReport["summary"].(map[string]interface{})["issue_percentage"] = 
+			float64(totalIssues) / float64(totalVoidedChecks) * 100.0
+	}
+	
+	// Add severity assessment
+	if totalIssues > 0 {
+		auditReport["severity"] = "high"
+		auditReport["message"] = fmt.Sprintf("CRITICAL: Found %d voided checks with improper settings out of %d total voided checks", 
+			totalIssues, totalVoidedChecks)
+	} else if totalVoidedChecks == 0 {
+		auditReport["severity"] = "info"
+		auditReport["message"] = "No voided checks found in the database"
+	} else {
+		auditReport["severity"] = "low"
+		auditReport["message"] = fmt.Sprintf("All %d voided checks have proper settings - data integrity is good", totalVoidedChecks)
+	}
+	
+	fmt.Printf("Void Audit completed: %d voided checks analyzed, %d issues found\n", 
+		totalVoidedChecks, totalIssues)
+	
+	return auditReport, nil
+}
+
+// AuditCheckGLMatching finds checks without GL entries and GL entries without checks
+func (a *App) AuditCheckGLMatching(companyName string, accountNumber string, startDate string, endDate string) (map[string]interface{}, error) {
+	fmt.Printf("=== AuditCheckGLMatching START ===\n")
+	fmt.Printf("AuditCheckGLMatching called for company: %s, account: %s, dates: %s to %s\n", 
+		companyName, accountNumber, startDate, endDate)
+	
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Fix authentication with Supabase integration
+	fmt.Printf("AuditCheckGLMatching: Skipping authentication check (TEMPORARY)\n")
+	
+	// Parse dates if provided
+	var startDt, endDt time.Time
+	var err error
+	if startDate != "" {
+		startDt, err = time.Parse("2006-01-02", startDate)
+		if err != nil {
+			startDt = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+	} else {
+		startDt = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	
+	if endDate != "" {
+		endDt, err = time.Parse("2006-01-02", endDate)
+		if err != nil {
+			endDt = time.Date(2030, 12, 31, 0, 0, 0, 0, time.UTC)
+		}
+	} else {
+		endDt = time.Date(2030, 12, 31, 0, 0, 0, 0, time.UTC)
+	}
+	
+	// Read checks.dbf
+	fmt.Printf("AuditCheckGLMatching: Reading checks.dbf\n")
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("AuditCheckGLMatching ERROR: Failed to read checks.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	
+	// Read glmaster.dbf
+	fmt.Printf("AuditCheckGLMatching: Reading glmaster.dbf\n")
+	glData, err := company.ReadDBFFile(companyName, "glmaster.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("AuditCheckGLMatching ERROR: Failed to read glmaster.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read glmaster.dbf: %w", err)
+	}
+	
+	// Get column indices for checks.dbf
+	checksColumns, _ := checksData["columns"].([]string)
+	checkRows, _ := checksData["rows"].([][]interface{})
+	
+	// Find check column indices
+	var checkIdxMap = make(map[string]int)
+	for i, col := range checksColumns {
+		checkIdxMap[strings.ToUpper(col)] = i
+	}
+	
+	// Get column indices for glmaster.dbf
+	glColumns, _ := glData["columns"].([]string)
+	glRows, _ := glData["rows"].([][]interface{})
+	
+	// Find GL column indices
+	var glIdxMap = make(map[string]int)
+	for i, col := range glColumns {
+		glIdxMap[strings.ToUpper(col)] = i
+	}
+	
+	// Build check records filtered by account and date
+	type CheckRecord struct {
+		RowIndex   int
+		EntryType  string
+		Date       time.Time
+		CID        string
+		Payee      string
+		Amount     float64
+		Account    string
+		CheckNum   string
+		Found      bool
+		RowData    map[string]interface{}
+	}
+	
+	var checkRecords []CheckRecord
+	
+	// Process checks
+	for rowIdx, row := range checkRows {
+		// Get account number
+		var account string
+		if idx, ok := checkIdxMap["CACCTNO"]; ok && idx < len(row) {
+			account = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		
+		// Filter by account if specified
+		if accountNumber != "" && account != accountNumber {
+			continue
+		}
+		
+		// Get and parse date
+		var checkDate time.Time
+		if idx, ok := checkIdxMap["DCHECKDATE"]; ok && idx < len(row) {
+			if dateVal := row[idx]; dateVal != nil {
+				if t, ok := dateVal.(time.Time); ok {
+					checkDate = t
+				}
+			}
+		}
+		
+		// Filter by date range
+		if !checkDate.IsZero() && (checkDate.Before(startDt) || checkDate.After(endDt)) {
+			continue
+		}
+		
+		// Get other fields
+		var entryType, cid, payee, checkNum string
+		var amount float64
+		
+		if idx, ok := checkIdxMap["CENTRYTYPE"]; ok && idx < len(row) {
+			entryType = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		if idx, ok := checkIdxMap["CID"]; ok && idx < len(row) {
+			cid = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		if idx, ok := checkIdxMap["CPAYEE"]; ok && idx < len(row) {
+			payee = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		if idx, ok := checkIdxMap["NAMOUNT"]; ok && idx < len(row) {
+			amount = parseFloat(row[idx])
+		}
+		if idx, ok := checkIdxMap["CCHECKNO"]; ok && idx < len(row) {
+			checkNum = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		
+		// Store row data for modal display
+		rowData := make(map[string]interface{})
+		for i, col := range checksColumns {
+			if i < len(row) {
+				rowData[col] = row[i]
+			}
+		}
+		
+		checkRecords = append(checkRecords, CheckRecord{
+			RowIndex:  rowIdx + 1,
+			EntryType: entryType,
+			Date:      checkDate,
+			CID:       cid,
+			Payee:     payee,
+			Amount:    amount,
+			Account:   account,
+			CheckNum:  checkNum,
+			Found:     false,
+			RowData:   rowData,
+		})
+	}
+	
+	// Build GL records filtered by account and date
+	type GLRecord struct {
+		RowIndex int
+		Date     time.Time
+		CID      string
+		Credits  float64
+		Debits   float64
+		Account  string
+		Desc     string
+		Found    bool
+		RowData  map[string]interface{}
+	}
+	
+	var glRecords []GLRecord
+	
+	// Process GL entries
+	for rowIdx, row := range glRows {
+		// Get account number
+		var account string
+		if idx, ok := glIdxMap["CACCTNO"]; ok && idx < len(row) {
+			account = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		
+		// Filter by account if specified
+		if accountNumber != "" && account != accountNumber {
+			continue
+		}
+		
+		// Get and parse date
+		var glDate time.Time
+		if idx, ok := glIdxMap["DDATE"]; ok && idx < len(row) {
+			if dateVal := row[idx]; dateVal != nil {
+				if t, ok := dateVal.(time.Time); ok {
+					glDate = t
+				}
+			}
+		}
+		
+		// Filter by date range
+		if !glDate.IsZero() && (glDate.Before(startDt) || glDate.After(endDt)) {
+			continue
+		}
+		
+		// Get other fields
+		var cid, desc string
+		var credits, debits float64
+		
+		if idx, ok := glIdxMap["CID"]; ok && idx < len(row) {
+			cid = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		if idx, ok := glIdxMap["NCREDITS"]; ok && idx < len(row) {
+			credits = parseFloat(row[idx])
+		}
+		if idx, ok := glIdxMap["NDEBITS"]; ok && idx < len(row) {
+			debits = parseFloat(row[idx])
+		}
+		if idx, ok := glIdxMap["CDESC"]; ok && idx < len(row) {
+			desc = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
+		}
+		
+		// Store row data for modal display
+		rowData := make(map[string]interface{})
+		for i, col := range glColumns {
+			if i < len(row) {
+				rowData[col] = row[i]
+			}
+		}
+		
+		glRecords = append(glRecords, GLRecord{
+			RowIndex: rowIdx + 1,
+			Date:     glDate,
+			CID:      cid,
+			Credits:  credits,
+			Debits:   debits,
+			Account:  account,
+			Desc:     desc,
+			Found:    false,
+			RowData:  rowData,
+		})
+	}
+	
+	// Now match checks to GL entries
+	for i := range checkRecords {
+		check := &checkRecords[i]
+		
+		// Look for matching GL entry
+		for j := range glRecords {
+			gl := &glRecords[j]
+			
+			// Skip if already matched
+			if gl.Found {
+				continue
+			}
+			
+			// Match by CID and amount
+			if check.CID == gl.CID && check.CID != "" {
+				if check.EntryType == "C" && math.Abs(check.Amount - gl.Credits) < 0.01 {
+					check.Found = true
+					gl.Found = true
+					break
+				} else if check.EntryType == "D" && math.Abs(check.Amount - gl.Debits) < 0.01 {
+					check.Found = true
+					gl.Found = true
+					break
+				}
+			}
+		}
+	}
+	
+	// Collect unmatched checks and GL entries
+	var unmatchedChecks []map[string]interface{}
+	var unmatchedGL []map[string]interface{}
+	
+	for _, check := range checkRecords {
+		if !check.Found {
+			unmatchedChecks = append(unmatchedChecks, map[string]interface{}{
+				"row_index":   check.RowIndex,
+				"entry_type":  check.EntryType,
+				"date":        check.Date.Format("2006-01-02"),
+				"cid":         check.CID,
+				"payee":       check.Payee,
+				"amount":      check.Amount,
+				"account":     check.Account,
+				"check_num":   check.CheckNum,
+				"row_data":    check.RowData,
+			})
+		}
+	}
+	
+	for _, gl := range glRecords {
+		if !gl.Found {
+			unmatchedGL = append(unmatchedGL, map[string]interface{}{
+				"row_index":   gl.RowIndex,
+				"date":        gl.Date.Format("2006-01-02"),
+				"cid":         gl.CID,
+				"credits":     gl.Credits,
+				"debits":      gl.Debits,
+				"account":     gl.Account,
+				"description": gl.Desc,
+				"row_data":    gl.RowData,
+			})
+		}
+	}
+	
+	// Build audit report
+	auditReport := map[string]interface{}{
+		"status":        "success",
+		"company_name":  companyName,
+		"account":       accountNumber,
+		"date_range": map[string]string{
+			"start": startDt.Format("2006-01-02"),
+			"end":   endDt.Format("2006-01-02"),
+		},
+		"summary": map[string]interface{}{
+			"total_checks":        len(checkRecords),
+			"total_gl_entries":    len(glRecords),
+			"unmatched_checks":    len(unmatchedChecks),
+			"unmatched_gl":        len(unmatchedGL),
+			"matched_checks":      len(checkRecords) - len(unmatchedChecks),
+			"matched_gl":          len(glRecords) - len(unmatchedGL),
+		},
+		"unmatched_checks": unmatchedChecks,
+		"unmatched_gl":     unmatchedGL,
+		"audit_date":       time.Now().Format("2006-01-02 15:04:05"),
+		"audited_by":       "system", // TEMPORARY: hardcoded until auth is fixed
+	}
+	
+	// Add severity assessment
+	totalUnmatched := len(unmatchedChecks) + len(unmatchedGL)
+	if totalUnmatched > 10 {
+		auditReport["severity"] = "high"
+		auditReport["message"] = fmt.Sprintf("CRITICAL: Found %d unmatched checks and %d unmatched GL entries", 
+			len(unmatchedChecks), len(unmatchedGL))
+	} else if totalUnmatched > 0 {
+		auditReport["severity"] = "medium"
+		auditReport["message"] = fmt.Sprintf("WARNING: Found %d unmatched checks and %d unmatched GL entries", 
+			len(unmatchedChecks), len(unmatchedGL))
+	} else {
+		auditReport["severity"] = "low"
+		auditReport["message"] = "All checks and GL entries are properly matched"
+	}
+	
+	fmt.Printf("Check-GL Matching Audit completed: %d unmatched checks, %d unmatched GL entries\n", 
+		len(unmatchedChecks), len(unmatchedGL))
+	
+	return auditReport, nil
+}
+
 // Helper function to safely parse float values from DBF
 func parseFloat(value interface{}) float64 {
 	switch v := value.(type) {
@@ -4320,6 +5266,399 @@ func parseFloat(value interface{}) float64 {
 		}
 	}
 	return 0.0
+}
+
+// Helper function to get map keys for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// AuditPayeeCIDVerification checks that check payees have matching CIDs in investor or vendor tables
+func (a *App) AuditPayeeCIDVerification(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("=== AuditPayeeCIDVerification START ===\n")
+	fmt.Printf("AuditPayeeCIDVerification called for company: %s\n", companyName)
+	
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Re-enable when Supabase integration is complete
+	// if a.currentUser == nil {
+	// 	return nil, fmt.Errorf("user not authenticated")
+	// }
+	
+	auditReport := make(map[string]interface{})
+	auditReport["company"] = companyName
+	auditReport["audit_type"] = "payee_cid_verification"
+	auditReport["timestamp"] = time.Now().Format(time.RFC3339)
+	
+	// Read CHECKS.dbf (use lowercase for compatibility)
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
+	if err != nil {
+		fmt.Printf("Error reading checks.dbf: %v\n", err)
+		return nil, fmt.Errorf("failed to read checks.dbf: %v", err)
+	}
+	
+	// Try to get rows with proper type checking
+	var checksRows []map[string]interface{}
+	if rowsInterface, exists := checksData["rows"]; exists {
+		// Try different type assertions
+		switch v := rowsInterface.(type) {
+		case []map[string]interface{}:
+			checksRows = v
+		case []interface{}:
+			// Convert []interface{} to []map[string]interface{}
+			for _, item := range v {
+				if row, ok := item.(map[string]interface{}); ok {
+					checksRows = append(checksRows, row)
+				}
+			}
+		case [][]interface{}:
+			// Handle the case where rows come as [][]interface{}
+			// This happens when the DBF reader returns row arrays instead of maps
+			fmt.Printf("Handling [][]interface{} with %d rows\n", len(v))
+			if len(v) > 0 {
+				// Get column names from the first row or from metadata
+				if columns, ok := checksData["columns"].([]string); ok && len(columns) > 0 {
+					fmt.Printf("Found columns: %v\n", columns)
+					for _, rowData := range v {
+						// rowData is already []interface{}, no need for type assertion
+						row := make(map[string]interface{})
+						for i, val := range rowData {
+							if i < len(columns) {
+								row[columns[i]] = val
+							}
+						}
+						checksRows = append(checksRows, row)
+					}
+				} else {
+					fmt.Printf("No columns found in checksData, available keys: %v\n", getMapKeys(checksData))
+				}
+			}
+		default:
+			fmt.Printf("Unexpected type for rows: %T\n", v)
+		}
+	}
+	
+	if len(checksRows) == 0 {
+		fmt.Printf("No checks found in checks.dbf (rows type: %T)\n", checksData["rows"])
+		auditReport["error"] = "No checks found in checks.dbf"
+		auditReport["message"] = "Could not read check records from database"
+		auditReport["severity"] = "error"
+		auditReport["checks_processed"] = 0
+		auditReport["total_investors"] = 0
+		auditReport["total_vendors"] = 0
+		auditReport["mismatches_found"] = 0
+		auditReport["mismatches"] = []map[string]interface{}{}
+		return auditReport, nil
+	}
+	
+	fmt.Printf("Found %d checks in checks.dbf\n", len(checksRows))
+	
+	// Read INVESTOR.dbf - try both cases for cross-platform compatibility
+	var investorRows []map[string]interface{}
+	investorData, err := company.ReadDBFFile(companyName, "INVESTOR.DBF", "", 0, 0, "", "")
+	if err != nil {
+		// Try lowercase if uppercase fails
+		investorData, err = company.ReadDBFFile(companyName, "investor.dbf", "", 0, 0, "", "")
+	}
+	if err == nil {
+		if rowsInterface, exists := investorData["rows"]; exists {
+			switch v := rowsInterface.(type) {
+			case []map[string]interface{}:
+				investorRows = v
+			case []interface{}:
+				for _, item := range v {
+					if row, ok := item.(map[string]interface{}); ok {
+						investorRows = append(investorRows, row)
+					}
+				}
+			case [][]interface{}:
+				// Handle array format
+				if columns, ok := investorData["columns"].([]string); ok && len(columns) > 0 {
+					for _, rowData := range v {
+						row := make(map[string]interface{})
+						for i, val := range rowData {
+							if i < len(columns) {
+								row[columns[i]] = val
+							}
+						}
+						investorRows = append(investorRows, row)
+					}
+				}
+			}
+		}
+		fmt.Printf("Loaded %d investors from INVESTOR.DBF\n", len(investorRows))
+	} else {
+		fmt.Printf("Could not read INVESTOR.DBF: %v\n", err)
+	}
+	
+	// Read VENDOR.dbf - try both cases for cross-platform compatibility
+	var vendorRows []map[string]interface{}
+	vendorData, err := company.ReadDBFFile(companyName, "VENDOR.DBF", "", 0, 0, "", "")
+	if err != nil {
+		// Try lowercase if uppercase fails
+		vendorData, err = company.ReadDBFFile(companyName, "vendor.dbf", "", 0, 0, "", "")
+	}
+	if err == nil {
+		if rowsInterface, exists := vendorData["rows"]; exists {
+			switch v := rowsInterface.(type) {
+			case []map[string]interface{}:
+				vendorRows = v
+			case []interface{}:
+				for _, item := range v {
+					if row, ok := item.(map[string]interface{}); ok {
+						vendorRows = append(vendorRows, row)
+					}
+				}
+			case [][]interface{}:
+				// Handle array format
+				if columns, ok := vendorData["columns"].([]string); ok && len(columns) > 0 {
+					for _, rowData := range v {
+						row := make(map[string]interface{})
+						for i, val := range rowData {
+							if i < len(columns) {
+								row[columns[i]] = val
+							}
+						}
+						vendorRows = append(vendorRows, row)
+					}
+				}
+			}
+		}
+		fmt.Printf("Loaded %d vendors from VENDOR.DBF\n", len(vendorRows))
+	} else {
+		fmt.Printf("Could not read VENDOR.DBF: %v\n", err)
+	}
+	
+	// Build name-to-CID maps for vendors and investors
+	// Since there can be multiple investors with same name, we use a slice of CIDs
+	vendorNameToCID := make(map[string][]string)  // CNAME -> []CID
+	investorNameToCID := make(map[string][]string) // CNAME -> []CID
+	
+	// Map vendor names to CIDs
+	for _, vendor := range vendorRows {
+		var cid, name string
+		
+		// Try different CID field names - CVENDORID is the correct field
+		if val, ok := vendor["CVENDORID"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := vendor["CID"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := vendor["CIDVENDOR"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := vendor["CVENDOR"].(string); ok {
+			cid = strings.TrimSpace(val)
+		}
+		
+		// Try different name field names - CVENDNAME is the correct field
+		if val, ok := vendor["CVENDNAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := vendor["CNAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := vendor["NAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := vendor["VENDOR"].(string); ok {
+			name = strings.TrimSpace(val)
+		}
+		
+		if cid != "" && name != "" {
+			// Use uppercase for case-insensitive matching
+			nameUpper := strings.ToUpper(name)
+			vendorNameToCID[nameUpper] = append(vendorNameToCID[nameUpper], cid)
+		}
+	}
+	
+	// Map investor names to CIDs (can have multiple investors with same name)
+	for _, investor := range investorRows {
+		var cid, name string
+		
+		// Try different CID field names - COWNERID is the correct field
+		if val, ok := investor["COWNERID"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := investor["CID"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := investor["CIDINVEST"].(string); ok {
+			cid = strings.TrimSpace(val)
+		} else if val, ok := investor["CINVESTOR"].(string); ok {
+			cid = strings.TrimSpace(val)
+		}
+		
+		// Try different name field names - COWNNAME is the correct field
+		if val, ok := investor["COWNNAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := investor["CNAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := investor["NAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := investor["CINVNAME"].(string); ok {
+			name = strings.TrimSpace(val)
+		} else if val, ok := investor["INVESTOR"].(string); ok {
+			name = strings.TrimSpace(val)
+		}
+		
+		if cid != "" && name != "" {
+			// Use uppercase for case-insensitive matching
+			nameUpper := strings.ToUpper(name)
+			investorNameToCID[nameUpper] = append(investorNameToCID[nameUpper], cid)
+		}
+	}
+	
+	fmt.Printf("Built name maps: %d unique vendor names, %d unique investor names\n", 
+		len(vendorNameToCID), len(investorNameToCID))
+	
+	// Check each check for payee/CID mismatches
+	var mismatches []map[string]interface{}
+	checksProcessed := 0
+	
+	for i, check := range checksRows {
+		checksProcessed++
+		
+		// Get check CID and payee
+		var checkCID, checkPayee, checkNumber string
+		var checkAmount float64
+		var checkDate string
+		
+		// Try different CID field names
+		if val, ok := check["CID"].(string); ok {
+			checkCID = strings.TrimSpace(val)
+		} else if val, ok := check["CIDCHECK"].(string); ok {
+			checkCID = strings.TrimSpace(val)
+		} else if val, ok := check["CIDCHEC"].(string); ok {
+			checkCID = strings.TrimSpace(val)
+		}
+		
+		// Get payee
+		if val, ok := check["PAYEE"].(string); ok {
+			checkPayee = strings.TrimSpace(val)
+		} else if val, ok := check["CPAYEE"].(string); ok {
+			checkPayee = strings.TrimSpace(val)
+		}
+		
+		// Get check number
+		if val, ok := check["CHECKNO"].(string); ok {
+			checkNumber = strings.TrimSpace(val)
+		} else if val, ok := check["CCHECKNO"].(string); ok {
+			checkNumber = strings.TrimSpace(val)
+		}
+		
+		// Get amount
+		if val, ok := check["AMOUNT"]; ok {
+			checkAmount = parseFloat(val)
+		} else if val, ok := check["NAMOUNT"]; ok {
+			checkAmount = parseFloat(val)
+		}
+		
+		// Get date
+		if val, ok := check["CHECKDATE"].(string); ok {
+			checkDate = val
+		} else if val, ok := check["DCHECKDATE"].(string); ok {
+			checkDate = val
+		}
+		
+		// Skip if no CID or payee
+		if checkCID == "" || checkPayee == "" {
+			continue
+		}
+		
+		// Convert payee to uppercase for case-insensitive matching
+		payeeUpper := strings.ToUpper(checkPayee)
+		
+		// First, check if payee exists in vendor table
+		vendorCIDs, foundInVendor := vendorNameToCID[payeeUpper]
+		
+		// If not found in vendor, check investor table
+		investorCIDs, foundInInvestor := investorNameToCID[payeeUpper]
+		
+		issues := []string{}
+		var matchFound bool
+		var matchedTable string
+		var possibleCIDs []string
+		
+		if foundInVendor {
+			// Found in vendor table - check if CID matches
+			matchFound = false
+			for _, vendorCID := range vendorCIDs {
+				if vendorCID == checkCID {
+					matchFound = true
+					matchedTable = "vendor"
+					break
+				}
+			}
+			if !matchFound {
+				if len(vendorCIDs) == 1 {
+					issues = append(issues, fmt.Sprintf("CID mismatch in VENDOR table - Check CID: '%s', Expected: '%s'", checkCID, vendorCIDs[0]))
+				} else {
+					issues = append(issues, fmt.Sprintf("CID mismatch in VENDOR table - Check CID: '%s', Expected one of: %v", checkCID, vendorCIDs))
+				}
+			}
+			possibleCIDs = vendorCIDs
+		} else if foundInInvestor {
+			// Not in vendor, but found in investor table - check if CID matches one of them
+			matchFound = false
+			for _, investorCID := range investorCIDs {
+				if investorCID == checkCID {
+					matchFound = true
+					matchedTable = "investor"
+					break
+				}
+			}
+			if !matchFound {
+				if len(investorCIDs) == 1 {
+					issues = append(issues, fmt.Sprintf("CID mismatch in INVESTOR table - Check CID: '%s', Expected: '%s'", checkCID, investorCIDs[0]))
+				} else {
+					issues = append(issues, fmt.Sprintf("CID mismatch in INVESTOR table - Check CID: '%s', Expected one of: %v", checkCID, investorCIDs))
+				}
+			}
+			possibleCIDs = investorCIDs
+		} else {
+			// Payee not found in either table
+			issues = append(issues, fmt.Sprintf("Payee '%s' not found in VENDOR or INVESTOR tables", checkPayee))
+		}
+		
+		// If there are issues, add to mismatches
+		if len(issues) > 0 {
+			mismatch := map[string]interface{}{
+				"row_index":      i,
+				"check_number":   checkNumber,
+				"check_date":     checkDate,
+				"payee":          checkPayee,
+				"cid":            checkCID,
+				"amount":         checkAmount,
+				"found_in_vendor":   foundInVendor,
+				"found_in_investor": foundInInvestor,
+				"matched_table":     matchedTable,
+				"possible_cids":     possibleCIDs,
+				"issues":         issues,
+				"full_row":       check,
+			}
+			mismatches = append(mismatches, mismatch)
+		}
+	}
+	
+	// Build audit report
+	auditReport["checks_processed"] = checksProcessed
+	auditReport["total_investors"] = len(investorRows)
+	auditReport["total_vendors"] = len(vendorRows)
+	auditReport["mismatches_found"] = len(mismatches)
+	auditReport["mismatches"] = mismatches
+	
+	// Set severity based on number of mismatches
+	if len(mismatches) == 0 {
+		auditReport["severity"] = "success"
+		auditReport["message"] = "All check payees match their CID records"
+	} else if len(mismatches) < 10 {
+		auditReport["severity"] = "warning"
+		auditReport["message"] = fmt.Sprintf("Found %d payee/CID mismatches", len(mismatches))
+	} else {
+		auditReport["severity"] = "error"
+		auditReport["message"] = fmt.Sprintf("Found %d payee/CID mismatches - review required", len(mismatches))
+	}
+	
+	fmt.Printf("Payee-CID Verification Audit completed: %d mismatches found\n", len(mismatches))
+	
+	return auditReport, nil
 }
 
 // AuditBankReconciliation performs a bank reconciliation audit comparing:
@@ -5751,6 +7090,1050 @@ func (a *App) GetVFPFormList() []map[string]string {
 	}
 	
 	return a.vfpClient.GetFormList()
+}
+
+// FollowBatchNumber fetches records from multiple tables for a given batch number
+func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[string]interface{}, error) {
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Re-enable when Supabase integration is complete
+	// if a.currentUser == nil {
+	// 	return nil, fmt.Errorf("user not authenticated")
+	// }
+	
+	// Trim and validate batch number
+	batchNumber = strings.TrimSpace(batchNumber)
+	if batchNumber == "" {
+		return nil, fmt.Errorf("batch number cannot be empty")
+	}
+	
+	fmt.Printf("FollowBatchNumber: Searching for batch '%s' in company '%s'\n", batchNumber, companyName)
+	
+	result := map[string]interface{}{
+		"batch_number": batchNumber,
+		"company_name": companyName,
+		"checks": map[string]interface{}{
+			"table_name": "CHECKS.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"glmaster": map[string]interface{}{
+			"table_name": "GLMASTER.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"appurchd": map[string]interface{}{
+			"table_name": "APPURCHD.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"appmthdr": map[string]interface{}{
+			"table_name": "APPMTHDR.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+		"appmtdet": map[string]interface{}{
+			"table_name": "APPMTDET.DBF",
+			"records": []map[string]interface{}{},
+			"count": 0,
+			"columns": []string{},
+		},
+	}
+	
+	// Helper function to get map keys for debugging
+	getMapKeys := func(m map[string]interface{}) []string {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		return keys
+	}
+	
+	// Helper function to search for batch in a table
+	searchTable := func(tableName string, resultKey string) {
+		fmt.Printf("FollowBatchNumber: Searching %s for batch '%s'\n", tableName, batchNumber)
+		
+		// Determine which field to search based on table name
+		searchField := "CBATCH"
+		if strings.ToUpper(tableName) == "APPMTDET.DBF" {
+			searchField = "CBILLTOKEN"
+		}
+		
+		// Read the entire table (no limit to ensure we find all matching records)
+		data, err := company.ReadDBFFile(companyName, tableName, "", 0, 0, "", "")
+		if err != nil {
+			fmt.Printf("FollowBatchNumber: Error reading %s: %v\n", tableName, err)
+			result[resultKey].(map[string]interface{})["error"] = fmt.Sprintf("Failed to read %s: %v", tableName, err)
+			return
+		}
+		
+		// Get columns
+		if cols, ok := data["columns"].([]string); ok {
+			result[resultKey].(map[string]interface{})["columns"] = cols
+			fmt.Printf("FollowBatchNumber: Columns in %s: %v\n", tableName, cols)
+			// Check if search field is in the columns
+			hasSearchField := false
+			for _, col := range cols {
+				if col == searchField {
+					hasSearchField = true
+					break
+				}
+			}
+			if !hasSearchField {
+				fmt.Printf("FollowBatchNumber: WARNING - %s column not found in %s columns!\n", searchField, tableName)
+			}
+		}
+		
+		// Get rows and filter by batch number
+		var matchingRows []map[string]interface{}
+		sampleBatches := []string{} // Collect some sample batch numbers for debugging
+		
+		// Debug: Check what type data["rows"] actually is
+		if rowsRaw, exists := data["rows"]; exists {
+			fmt.Printf("FollowBatchNumber: data[\"rows\"] type in %s: %T\n", tableName, rowsRaw)
+		} else {
+			fmt.Printf("FollowBatchNumber: No 'rows' key in data for %s. Keys: %v\n", tableName, getMapKeys(data))
+		}
+		
+		if rows, ok := data["rows"].([]map[string]interface{}); ok {
+			fmt.Printf("FollowBatchNumber: Processing %d rows from %s as []map[string]interface{}\n", len(rows), tableName)
+			for i, row := range rows {
+				// Debug: show first few rows' search field
+				if i < 3 {
+					if batchRaw, exists := row[searchField]; exists {
+						fmt.Printf("FollowBatchNumber: Row %d %s in %s: '%v' (type: %T)\n", i, searchField, tableName, batchRaw, batchRaw)
+					} else {
+						fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, getMapKeys(row))
+					}
+				}
+				
+				// Check if search field matches - handle multiple data types
+				var batchStr string
+				if batchRaw, exists := row[searchField]; exists && batchRaw != nil {
+					// Convert to string regardless of actual type
+					batchStr = fmt.Sprintf("%v", batchRaw)
+					batchStr = strings.TrimSpace(batchStr)
+					
+					// Collect first 10 non-empty batch numbers for debugging
+					if batchStr != "" && len(sampleBatches) < 10 {
+						sampleBatches = append(sampleBatches, fmt.Sprintf("'%s'", batchStr))
+					}
+					
+					// Check for match - don't use else if, check both conditions
+					if strings.EqualFold(batchStr, batchNumber) {
+						fmt.Printf("FollowBatchNumber: EXACT MATCH found at row %d - batch field: '%s', searching for: '%s'\n", i, batchStr, batchNumber)
+						matchingRows = append(matchingRows, row)
+					} else if strings.Contains(strings.ToUpper(batchStr), strings.ToUpper(batchNumber)) || 
+					          strings.Contains(strings.ToUpper(batchNumber), strings.ToUpper(batchStr)) {
+						fmt.Printf("FollowBatchNumber: PARTIAL match found at row %d - batch field: '%s', searching for: '%s'\n", i, batchStr, batchNumber)
+						matchingRows = append(matchingRows, row)
+					}
+				}
+			}
+		} else if rows, ok := data["rows"].([]interface{}); ok {
+			fmt.Printf("FollowBatchNumber: Processing %d rows from %s as []interface{}\n", len(rows), tableName)
+			// Handle array format
+			for i, item := range rows {
+				if row, ok := item.(map[string]interface{}); ok {
+					// Debug first few rows
+					if i < 3 {
+						if batchRaw, exists := row[searchField]; exists {
+							fmt.Printf("FollowBatchNumber: Row %d %s in %s: '%v' (type: %T)\n", i, searchField, tableName, batchRaw, batchRaw)
+						} else {
+							fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, getMapKeys(row))
+						}
+					}
+					
+					// Check for search field match
+					var batchStr string
+					if batchRaw, exists := row[searchField]; exists && batchRaw != nil {
+						batchStr = fmt.Sprintf("%v", batchRaw)
+						batchStr = strings.TrimSpace(batchStr)
+						
+						if batchStr != "" && len(sampleBatches) < 10 {
+							sampleBatches = append(sampleBatches, fmt.Sprintf("'%s'", batchStr))
+						}
+						
+						if strings.EqualFold(batchStr, batchNumber) {
+							fmt.Printf("FollowBatchNumber: EXACT MATCH found at row %d - batch field: '%s', searching for: '%s'\n", i, batchStr, batchNumber)
+							matchingRows = append(matchingRows, row)
+						}
+					}
+				}
+			}
+		} else if rows, ok := data["rows"].([][]interface{}); ok {
+			// Handle 2D array format (each row is an array of values)
+			fmt.Printf("FollowBatchNumber: Processing %d rows from %s as [][]interface{}\n", len(rows), tableName)
+			
+			// Get column names to map indices
+			columns, _ := data["columns"].([]string)
+			searchFieldIndex := -1
+			for idx, col := range columns {
+				if col == searchField {
+					searchFieldIndex = idx
+					break
+				}
+			}
+			
+			if searchFieldIndex == -1 {
+				fmt.Printf("FollowBatchNumber: %s column not found in %s\n", searchField, tableName)
+			} else {
+				fmt.Printf("FollowBatchNumber: %s is at index %d in %s\n", searchField, searchFieldIndex, tableName)
+				
+				// Process rows
+				for i, row := range rows {
+					if searchFieldIndex < len(row) {
+						batchRaw := row[searchFieldIndex]
+						batchStr := fmt.Sprintf("%v", batchRaw)
+						batchStr = strings.TrimSpace(batchStr)
+						
+						// Debug first few rows
+						if i < 3 {
+							fmt.Printf("FollowBatchNumber: Row %d %s in %s: '%v' (type: %T)\n", i, searchField, tableName, batchRaw, batchRaw)
+						}
+						
+						// Collect samples
+						if batchStr != "" && len(sampleBatches) < 10 {
+							sampleBatches = append(sampleBatches, fmt.Sprintf("'%s'", batchStr))
+						}
+						
+						// Check for match
+						if strings.EqualFold(batchStr, batchNumber) {
+							fmt.Printf("FollowBatchNumber: EXACT MATCH found at row %d - batch field: '%s', searching for: '%s'\n", i, batchStr, batchNumber)
+							// Convert row array to map for consistent output
+							rowMap := make(map[string]interface{})
+							for colIdx, colName := range columns {
+								if colIdx < len(row) {
+									rowMap[colName] = row[colIdx]
+								}
+							}
+							matchingRows = append(matchingRows, rowMap)
+						}
+					}
+				}
+			}
+		} else {
+			fmt.Printf("FollowBatchNumber: Could not cast rows to expected type for %s\n", tableName)
+		}
+		
+		// Debug: show sample batch numbers found
+		if len(sampleBatches) > 0 {
+			fmt.Printf("FollowBatchNumber: Sample CBATCH values in %s: %s\n", tableName, strings.Join(sampleBatches, ", "))
+		} else {
+			fmt.Printf("FollowBatchNumber: No non-empty CBATCH values found in %s\n", tableName)
+		}
+		
+		// Get total row count for debugging
+		totalRows := 0
+		if rowsRaw, exists := data["rows"]; exists {
+			if rows, ok := rowsRaw.([]map[string]interface{}); ok {
+				totalRows = len(rows)
+			} else if rows, ok := rowsRaw.([]interface{}); ok {
+				totalRows = len(rows)
+			} else if rows, ok := rowsRaw.([][]interface{}); ok {
+				totalRows = len(rows)
+			}
+		}
+		
+		result[resultKey].(map[string]interface{})["records"] = matchingRows
+		result[resultKey].(map[string]interface{})["count"] = len(matchingRows)
+		fmt.Printf("FollowBatchNumber: Found %d matching records out of %d total rows in %s\n", len(matchingRows), totalRows, tableName)
+	}
+	
+	// Search each table
+	searchTable("CHECKS.dbf", "checks")
+	searchTable("GLMASTER.dbf", "glmaster")
+	searchTable("APPURCHD.dbf", "appurchd")
+	searchTable("APPMTHDR.dbf", "appmthdr")
+	searchTable("APPMTDET.dbf", "appmtdet")
+	
+	// Calculate total records found
+	totalFound := 0
+	totalFound += result["checks"].(map[string]interface{})["count"].(int)
+	totalFound += result["glmaster"].(map[string]interface{})["count"].(int)
+	totalFound += result["appurchd"].(map[string]interface{})["count"].(int)
+	totalFound += result["appmthdr"].(map[string]interface{})["count"].(int)
+	totalFound += result["appmtdet"].(map[string]interface{})["count"].(int)
+	
+	result["total_records_found"] = totalFound
+	
+	fmt.Printf("FollowBatchNumber: Total records found: %d\n", totalFound)
+	
+	return result, nil
+}
+
+// UpdateBatchFields updates specific fields across multiple tables for a batch
+// fieldMappings is a map of table names to field names (e.g., {"CHECKS.DBF": "DCHECKDATE", "GLMASTER.DBF": "DDATE"})
+func (a *App) UpdateBatchFields(companyName string, batchNumber string, fieldMappings map[string]string, newValue string, tablesToUpdate map[string]bool) (map[string]interface{}, error) {
+	// TEMPORARY: Skip authentication check for testing
+	// TODO: Re-enable when Supabase integration is complete
+	// if a.currentUser == nil {
+	// 	return nil, fmt.Errorf("user not authenticated")
+	// }
+	
+	fmt.Printf("UpdateBatchFields: Updating fields for batch '%s' in company '%s' with new value '%s'\n", 
+		batchNumber, companyName, newValue)
+	
+	result := map[string]interface{}{
+		"batch_number": batchNumber,
+		"field_mappings": fieldMappings,
+		"new_value": newValue,
+		"updates": map[string]interface{}{},
+		"errors": []string{},
+		"total_updated": 0,
+	}
+	
+	// Helper function to update records in a specific table
+	updateTable := func(tableName string) {
+		if !tablesToUpdate[tableName] {
+			fmt.Printf("UpdateBatchFields: Skipping table %s (not selected)\n", tableName)
+			return
+		}
+		
+		// Get the field name for this table from mappings
+		fieldName, hasMapping := fieldMappings[tableName]
+		if !hasMapping || fieldName == "" {
+			fmt.Printf("UpdateBatchFields: No field mapping for table %s, skipping\n", tableName)
+			return
+		}
+		
+		fmt.Printf("UpdateBatchFields: Processing table %s, field %s\n", tableName, fieldName)
+		
+		// First, find all records with this batch number
+		data, err := company.ReadDBFFile(companyName, tableName, "", 0, 0, "", "")
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to read %s: %v", tableName, err)
+			result["errors"] = append(result["errors"].([]string), errMsg)
+			return
+		}
+		
+		updatedCount := 0
+		var rowsToUpdate []int
+		
+		// Find rows that match the batch number
+		if rows, ok := data["rows"].([][]interface{}); ok {
+			columns, _ := data["columns"].([]string)
+			
+			// Find CBATCH column index
+			cbatchIndex := -1
+			fieldIndex := -1
+			for idx, col := range columns {
+				if col == "CBATCH" {
+					cbatchIndex = idx
+				}
+				if col == fieldName {
+					fieldIndex = idx
+				}
+			}
+			
+			if cbatchIndex == -1 {
+				errMsg := fmt.Sprintf("CBATCH column not found in %s", tableName)
+				result["errors"] = append(result["errors"].([]string), errMsg)
+				return
+			}
+			
+			if fieldIndex == -1 {
+				errMsg := fmt.Sprintf("Field %s not found in %s", fieldName, tableName)
+				result["errors"] = append(result["errors"].([]string), errMsg)
+				return
+			}
+			
+			// Find all rows with matching batch number
+			for i, row := range rows {
+				if cbatchIndex < len(row) {
+					batchStr := fmt.Sprintf("%v", row[cbatchIndex])
+					batchStr = strings.TrimSpace(batchStr)
+					
+					if strings.EqualFold(batchStr, batchNumber) {
+						rowsToUpdate = append(rowsToUpdate, i)
+					}
+				}
+			}
+			
+			// Update the field value for matching rows
+			for _, rowIndex := range rowsToUpdate {
+				// UpdateDBFRecord expects a string value, so convert appropriately
+				var valueToUpdate string
+				if strings.HasPrefix(fieldName, "N") {
+					// Numeric field - validate it's a valid number
+					if _, err := strconv.ParseFloat(newValue, 64); err == nil {
+						valueToUpdate = newValue
+					} else {
+						// If not a valid number, skip this update
+						errMsg := fmt.Sprintf("Invalid numeric value '%s' for field %s", newValue, fieldName)
+						result["errors"] = append(result["errors"].([]string), errMsg)
+						continue
+					}
+				} else {
+					// String or Date field - use as-is
+					valueToUpdate = newValue
+				}
+				
+				// Use UpdateDBFRecord to update the field
+				err := company.UpdateDBFRecord(companyName, tableName, rowIndex, fieldIndex, valueToUpdate)
+				if err != nil {
+					errMsg := fmt.Sprintf("Failed to update row %d in %s: %v", rowIndex, tableName, err)
+					result["errors"] = append(result["errors"].([]string), errMsg)
+				} else {
+					updatedCount++
+				}
+			}
+		}
+		
+		result["updates"].(map[string]interface{})[tableName] = map[string]interface{}{
+			"field_updated": fieldName,
+			"records_updated": updatedCount,
+			"rows_affected": rowsToUpdate,
+		}
+		
+		result["total_updated"] = result["total_updated"].(int) + updatedCount
+		fmt.Printf("UpdateBatchFields: Updated %d records in %s (field: %s)\n", updatedCount, tableName, fieldName)
+	}
+	
+	// Update each selected table
+	for tableName := range tablesToUpdate {
+		if tablesToUpdate[tableName] {
+			updateTable(tableName)
+		}
+	}
+	
+	fmt.Printf("UpdateBatchFields: Total records updated: %d\n", result["total_updated"].(int))
+	
+	return result, nil
+}
+
+
+// GetChartOfAccounts retrieves all accounts from COA.dbf with sorting and filter options
+func (a *App) GetChartOfAccounts(companyName string, sortBy string, includeInactive bool) (map[string]interface{}, error) {
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Called for company: %s, sortBy: %s, includeInactive: %v", companyName, sortBy, includeInactive))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: company=%s, sortBy=%s, includeInactive=%v", companyName, sortBy, includeInactive))
+	
+	// Check if user is authenticated (disabled for now)
+	// if a.currentUser == nil {
+	// 	logger.WriteError("GetChartOfAccounts", "User not authenticated")
+	// 	return nil, fmt.Errorf("user not authenticated")
+	// }
+	
+	// Read COA.dbf file
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Reading COA.dbf for company: %s", companyName))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: About to read COA.dbf from path: %s", companyName))
+	
+	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 0, "", "")
+	if err != nil {
+		logger.WriteError("GetChartOfAccounts", fmt.Sprintf("Error reading COA.dbf: %v", err))
+		debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts ERROR: Failed to read COA.dbf: %v", err))
+		return nil, fmt.Errorf("failed to read Chart of Accounts: %v", err)
+	}
+	
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: COA.dbf read successfully, data keys: %v", getMapKeys(coaData)))
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("COA.dbf read, checking data structure"))
+	
+	// Get rows as [][]interface{} since ReadDBFFile returns array format
+	rows, ok := coaData["rows"].([][]interface{})
+	if !ok {
+		logger.WriteError("GetChartOfAccounts", fmt.Sprintf("Invalid data structure, rows type assertion failed"))
+		debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts ERROR: 'rows' key type assertion failed"))
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+			"error": "Invalid data structure from COA.dbf",
+		}, nil
+	}
+	
+	// Get column names to map array indices to field names
+	columns, ok := coaData["columns"].([]string)
+	if !ok {
+		logger.WriteError("GetChartOfAccounts", "Failed to get column names from COA.dbf")
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+			"error": "Invalid column structure from COA.dbf",
+		}, nil
+	}
+	
+	if len(rows) == 0 {
+		logger.WriteInfo("GetChartOfAccounts", "COA.dbf has no rows")
+		debug.SimpleLog("GetChartOfAccounts: COA.dbf has 0 rows")
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+		}, nil
+	}
+	
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Found %d rows in COA.dbf", len(rows)))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: Processing %d rows from COA.dbf", len(rows)))
+	
+	// Process and structure the accounts
+	accounts := make([]map[string]interface{}, 0, len(rows))
+	accountTypeMap := map[float64]string{
+		1: "Asset",
+		2: "Liability",
+		3: "Equity",
+		4: "Revenue",
+		5: "Expense",
+		6: "Other",
+	}
+	
+	for i, rowData := range rows {
+		// Convert array row to map using column indices
+		record := make(map[string]interface{})
+		for j, value := range rowData {
+			if j < len(columns) {
+				record[columns[j]] = value
+			}
+		}
+		
+		// Extract account information
+		accountNumber := ""
+		if val, ok := record["CACCTNO"]; ok && val != nil {
+			accountNumber = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		accountDesc := ""
+		if val, ok := record["CACCTDESC"]; ok && val != nil {
+			accountDesc = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		// Get account type
+		accountType := "Other"
+		accountTypeNum := float64(6)
+		if val, ok := record["NACCTTYPE"]; ok && val != nil {
+			// Log the raw value and type for debugging first account
+			if i == 0 {
+				logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("NACCTTYPE raw value: %v, type: %T", val, val))
+			}
+			switch v := val.(type) {
+			case float64:
+				accountTypeNum = v
+			case int:
+				accountTypeNum = float64(v)
+			case int32:
+				accountTypeNum = float64(v)
+			case int64:
+				accountTypeNum = float64(v)
+			case string:
+				if num, err := strconv.ParseFloat(v, 64); err == nil {
+					accountTypeNum = num
+				}
+			}
+			if typeStr, exists := accountTypeMap[accountTypeNum]; exists {
+				accountType = typeStr
+			} else {
+				// Log if we can't find the type in the map
+				if i == 0 {
+					logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Account type %f not found in map", accountTypeNum))
+				}
+			}
+		}
+		
+		// Check if it's a bank account
+		isBankAccount := false
+		if val, ok := record["LBANKACCT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isBankAccount = v
+			case string:
+				isBankAccount = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		// Get parent account
+		parentAccount := ""
+		if val, ok := record["CPARENT"]; ok && val != nil {
+			parentAccount = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		// Check if it's a unit or department account
+		isUnit := false
+		if val, ok := record["LACCTUNIT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isUnit = v
+			case string:
+				isUnit = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		isDept := false
+		if val, ok := record["LACCTDEPT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isDept = v
+			case string:
+				isDept = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		// Check if account is active (LINACTIVE field)
+		isActive := true // Default to active if field doesn't exist
+		if val, ok := record["LINACTIVE"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isActive = !v // LINACTIVE is TRUE when inactive, so we invert it
+			case string:
+				// LINACTIVE is TRUE when inactive, so we invert the logic
+				isActive = !(strings.ToLower(v) == "true" || v == "T" || v == ".T.")
+			}
+		}
+		
+		// Skip inactive accounts if filter is enabled
+		if !includeInactive && !isActive {
+			continue // Skip this account
+		}
+		
+		account := map[string]interface{}{
+			"row_index":      i,
+			"account_number": accountNumber,
+			"account_name":   accountDesc,
+			"account_type":   accountType,
+			"account_type_num": accountTypeNum,
+			"is_bank_account": isBankAccount,
+			"parent_account": parentAccount,
+			"is_unit":        isUnit,
+			"is_department":  isDept,
+			"is_active":      isActive,
+		}
+		
+		accounts = append(accounts, account)
+	}
+	
+	// Sort accounts based on sortBy parameter
+	if sortBy == "type" {
+		// Sort by account type number, then by account number
+		sort.Slice(accounts, func(i, j int) bool {
+			typeI := accounts[i]["account_type_num"].(float64)
+			typeJ := accounts[j]["account_type_num"].(float64)
+			if typeI != typeJ {
+				return typeI < typeJ
+			}
+			return accounts[i]["account_number"].(string) < accounts[j]["account_number"].(string)
+		})
+	} else {
+		// Default: sort by account number
+		sort.Slice(accounts, func(i, j int) bool {
+			return accounts[i]["account_number"].(string) < accounts[j]["account_number"].(string)
+		})
+	}
+	
+	result := map[string]interface{}{
+		"accounts": accounts,
+		"total": len(accounts),
+		"company": companyName,
+		"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+		"sort_by": sortBy,
+	}
+	
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Found %d accounts for company %s", len(accounts), companyName))
+	return result, nil
+}
+
+// GenerateChartOfAccountsPDF generates a PDF report of the Chart of Accounts
+func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, includeInactive bool) (string, error) {
+	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Called for company: %s, sortBy: %s, includeInactive: %v", companyName, sortBy, includeInactive))
+	debug.SimpleLog(fmt.Sprintf("GenerateChartOfAccountsPDF: company=%s, sortBy=%s, includeInactive=%v", companyName, sortBy, includeInactive))
+	
+	// Check if user is authenticated (disabled for now)
+	// if a.currentUser == nil {
+	// 	logger.WriteError("GenerateChartOfAccountsPDF", "User not authenticated")
+	// 	return "", fmt.Errorf("user not authenticated")
+	// }
+	
+	// Get the chart of accounts data
+	coaData, err := a.GetChartOfAccounts(companyName, sortBy, includeInactive)
+	if err != nil {
+		return "", fmt.Errorf("failed to get chart of accounts: %v", err)
+	}
+	
+	// Extract accounts from the data
+	accounts, ok := coaData["accounts"].([]map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid accounts data structure")
+	}
+	
+	// Get company info from version.dbf
+	displayCompanyName := companyName // Default to folder name
+	companyAddress := ""
+	companyCityStateZip := ""
+	
+	// Try to read version.dbf for company details
+	versionData, err := company.ReadDBFFile(companyName, "VERSION.DBF", "", 0, 1, "", "")
+	if err != nil {
+		logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Could not read VERSION.DBF: %v", err))
+	} else if versionData != nil {
+		logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("VERSION.DBF read successfully"))
+		if rows, ok := versionData["rows"].([][]interface{}); ok && len(rows) > 0 {
+			// Get column names
+			columns, _ := versionData["columns"].([]string)
+			logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("VERSION.DBF columns: %v", columns))
+			
+			// Convert first row to map
+			if len(rows[0]) > 0 {
+				record := make(map[string]interface{})
+				for j, value := range rows[0] {
+					if j < len(columns) {
+						record[columns[j]] = value
+					}
+				}
+				
+				// Extract company information - use CPRODUCER for company name
+				if val, ok := record["CPRODUCER"]; ok && val != nil {
+					name := strings.TrimSpace(fmt.Sprintf("%v", val))
+					if name != "" {
+						displayCompanyName = name
+						logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Found company name from CPRODUCER: %s", name))
+					}
+				}
+				
+				// Try CADDRESS1 and CADDRESS2 for address
+				if val, ok := record["CADDRESS1"]; ok && val != nil {
+					addr := strings.TrimSpace(fmt.Sprintf("%v", val))
+					if addr != "" {
+						companyAddress = addr
+					}
+				}
+				if companyAddress == "" {
+					if val, ok := record["CADDRESS2"]; ok && val != nil {
+						addr := strings.TrimSpace(fmt.Sprintf("%v", val))
+						if addr != "" {
+							companyAddress = addr
+						}
+					}
+				}
+				
+				// Build city, state, zip line using correct field names
+				city := ""
+				if val, ok := record["CCITY"]; ok && val != nil {
+					city = strings.TrimSpace(fmt.Sprintf("%v", val))
+				}
+				
+				state := ""
+				if val, ok := record["CSTATE"]; ok && val != nil {
+					state = strings.TrimSpace(fmt.Sprintf("%v", val))
+				}
+				
+				zip := ""
+				if val, ok := record["CZIPCODE"]; ok && val != nil {
+					zip = strings.TrimSpace(fmt.Sprintf("%v", val))
+				}
+				
+				// Format city, state zip
+				if city != "" || state != "" || zip != "" {
+					parts := []string{}
+					if city != "" {
+						parts = append(parts, city)
+					}
+					if state != "" {
+						if city != "" {
+							parts = append(parts, state)
+						} else {
+							parts = append(parts, state)
+						}
+					}
+					if zip != "" {
+						if len(parts) > 0 && state != "" {
+							parts[len(parts)-1] = state + " " + zip
+						} else {
+							parts = append(parts, zip)
+						}
+					}
+					companyCityStateZip = strings.Join(parts, ", ")
+					// Fix the state zip formatting
+					if city != "" && state != "" && zip != "" {
+						companyCityStateZip = city + ", " + state + " " + zip
+					}
+				}
+			}
+		}
+	}
+	
+	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Company: %s, Address: %s, City/State/Zip: %s", displayCompanyName, companyAddress, companyCityStateZip))
+	
+	// Create a new PDF document with landscape orientation for better table fit
+	pdf := gofpdf.New("L", "mm", "Letter", "")
+	pdf.SetAutoPageBreak(true, 20)
+	
+	// Add footer function BEFORE adding pages so it applies to all pages
+	sortText := "Account Number"
+	if sortBy == "type" {
+		sortText = "Account Type"
+	}
+	
+	filterText := "Active Only"
+	if includeInactive {
+		filterText = "All Accounts"
+	}
+	
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(-15)
+		pdf.SetFont("Helvetica", "", 7) // Smaller font
+		pdf.SetTextColor(128, 128, 128)
+		pdf.SetDrawColor(200, 200, 200)
+		pdf.Line(10, pdf.GetY(), 269, pdf.GetY())
+		pdf.Ln(2)
+		
+		// Left side - Pivoten trademark and version info
+		pdf.SetX(10)
+		// Write "Pivoten" first
+		pdf.SetFont("Helvetica", "", 7)
+		pivotText := "Pivoten"
+		pivotWidth := pdf.GetStringWidth(pivotText)
+		pdf.Cell(pivotWidth, 5, pivotText)
+		
+		// Add superscript TM - smaller and tighter
+		currentX := pdf.GetX()
+		currentY := pdf.GetY()
+		pdf.SetXY(currentX-0.5, currentY-1.2) // Move up and slightly left for tighter spacing
+		pdf.SetFont("Helvetica", "", 4) // Even smaller font for superscript
+		pdf.Cell(2, 2, "TM")
+		
+		// Continue with the rest of the text
+		pdf.SetXY(currentX+2, currentY) // Reset position
+		pdf.SetFont("Helvetica", "", 7) // Back to normal font
+		pdf.Cell(50, 5, " - Financials 2026 - BETA 2025-08-13")
+		
+		// Center - Report details
+		pdf.SetX(65)
+		pdf.Cell(50, 5, fmt.Sprintf("Generated: %s", time.Now().Format("January 2, 2006 3:04 PM")))
+		pdf.SetX(115)
+		pdf.Cell(30, 5, fmt.Sprintf("Total: %d", len(accounts)))
+		pdf.SetX(145)
+		pdf.Cell(40, 5, fmt.Sprintf("Sort: %s", sortText))
+		pdf.SetX(185)
+		pdf.Cell(40, 5, fmt.Sprintf("Filter: %s", filterText))
+		
+		// Right side - page number (right-aligned at right margin)
+		pageText := fmt.Sprintf("Page %d", pdf.PageNo())
+		pageWidth := pdf.GetStringWidth(pageText)
+		pdf.SetX(269 - pageWidth) // Position at right margin minus text width
+		pdf.Cell(pageWidth, 5, pageText)
+	})
+	
+	pdf.AddPage()
+	
+	// Company header with full address
+	pdf.SetTextColor(0, 0, 0)
+	pdf.SetFont("Helvetica", "B", 16)
+	pdf.SetXY(10, 10)
+	pdf.Cell(0, 7, displayCompanyName)
+	pdf.Ln(7)
+	
+	// Add address if available
+	if companyAddress != "" {
+		pdf.SetFont("Helvetica", "", 11)
+		pdf.SetTextColor(60, 60, 60)
+		pdf.Cell(0, 5, companyAddress)
+		pdf.Ln(5)
+	}
+	
+	// Add city, state, zip if available
+	if companyCityStateZip != "" {
+		pdf.SetFont("Helvetica", "", 11)
+		pdf.SetTextColor(60, 60, 60)
+		pdf.Cell(0, 5, companyCityStateZip)
+		pdf.Ln(8)
+	}
+	
+	// Report title
+	pdf.SetFont("Helvetica", "B", 14)
+	pdf.SetTextColor(0, 0, 0)
+	pdf.Cell(0, 7, "Chart of Accounts")
+	pdf.Ln(10)
+	
+	// Separator line
+	pdf.SetDrawColor(200, 200, 200)
+	pdf.SetLineWidth(0.5)
+	pdf.Line(10, pdf.GetY(), 269, pdf.GetY())
+	pdf.Ln(8)
+	
+	// Reset text color for table
+	pdf.SetTextColor(0, 0, 0)
+	
+	// Table header
+	pdf.SetFont("Helvetica", "B", 9)
+	pdf.SetFillColor(245, 245, 245) // Very light gray for headers
+	pdf.SetTextColor(40, 40, 40) // Dark gray text
+	pdf.SetDrawColor(200, 200, 200) // Light gray border
+	pdf.SetLineWidth(0.2)
+	
+	// Define column widths for landscape orientation
+	// Total width: 259 to fit within page margins (Letter landscape = 279.4mm - 20mm margins)
+	colWidths := []float64{38, 122, 33, 22, 22, 22}
+	headers := []string{"Account #", "Description", "Type", "Bank", "Unit", "Dept"}
+	
+	// Draw headers
+	for i, header := range headers {
+		align := "L"
+		if i >= 3 { // Center align for boolean columns
+			align = "C"
+		} else if i == 2 { // Center align Type column
+			align = "C"
+		}
+		pdf.CellFormat(colWidths[i], 7, header, "1", 0, align, true, 0, "")
+	}
+	pdf.Ln(-1)
+	
+	// Reset for table content
+	pdf.SetTextColor(0, 0, 0)
+	pdf.SetFillColor(255, 255, 255)
+	pdf.SetFont("Helvetica", "", 8)
+	pdf.SetDrawColor(230, 230, 230) // Very light border for data rows
+	
+	// Track row count for alternating colors
+	rowCount := 0
+	for _, account := range accounts {
+		// Alternate row colors for better readability
+		if rowCount%2 == 1 {
+			pdf.SetFillColor(250, 250, 250) // Very light gray for alternate rows
+		} else {
+			pdf.SetFillColor(255, 255, 255) // White
+		}
+		rowCount++
+		
+		// Check if this account has a parent (for indentation)
+		parent := ""
+		hasParent := false
+		if val, ok := account["parent_account"]; ok && val != nil {
+			parent = strings.TrimSpace(fmt.Sprintf("%v", val))
+			if parent != "" && parent != "0" && parent != "00000" {
+				hasParent = true
+			}
+		}
+		
+		// Account Number - with indentation for child accounts
+		accNum := ""
+		if val, ok := account["account_number"]; ok && val != nil {
+			accNum = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		if hasParent {
+			accNum = "    " + accNum // Add indentation for child accounts
+		}
+		pdf.CellFormat(colWidths[0], 6, accNum, "LR", 0, "L", true, 0, "")
+		
+		// Account Name - with indentation for child accounts
+		accName := ""
+		if val, ok := account["account_name"]; ok && val != nil {
+			accName = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		// Add indentation for child accounts
+		if hasParent {
+			accName = "    " + accName
+			// Truncate long names accounting for indentation
+			if len(accName) > 54 {
+				accName = accName[:54] + "..."
+			}
+		} else {
+			// Truncate long names
+			if len(accName) > 50 {
+				accName = accName[:50] + "..."
+			}
+		}
+		pdf.CellFormat(colWidths[1], 6, accName, "LR", 0, "L", true, 0, "")
+		
+		// Account Type - no color coding for professional look
+		accType := ""
+		if val, ok := account["account_type"]; ok && val != nil {
+			accType = fmt.Sprintf("%v", val)
+		}
+		pdf.CellFormat(colWidths[2], 6, accType, "LR", 0, "C", true, 0, "")
+		
+		// Is Bank Account - use checkmark
+		bankAcct := ""
+		if val, ok := account["is_bank_account"]; ok && val != nil {
+			if val.(bool) {
+				bankAcct = "Yes"
+			}
+		}
+		pdf.CellFormat(colWidths[3], 6, bankAcct, "LR", 0, "C", true, 0, "")
+		
+		// Is Unit
+		isUnit := ""
+		if val, ok := account["is_unit"]; ok && val != nil {
+			if val.(bool) {
+				isUnit = "Yes"
+			}
+		}
+		pdf.CellFormat(colWidths[4], 6, isUnit, "LR", 0, "C", true, 0, "")
+		
+		// Is Department
+		isDept := ""
+		if val, ok := account["is_department"]; ok && val != nil {
+			if val.(bool) {
+				isDept = "Yes"
+			}
+		}
+		pdf.CellFormat(colWidths[5], 6, isDept, "LR", 0, "C", true, 0, "")
+		
+		pdf.Ln(-1)
+	}
+	
+	// Draw bottom border for the table
+	pdf.SetDrawColor(52, 73, 94)
+	pdf.Line(10, pdf.GetY(), 269, pdf.GetY())
+	
+	// Generate default filename - use company name from VERSION.DBF if available
+	cleanCompanyName := displayCompanyName
+	if cleanCompanyName == "" {
+		// Fall back to the folder name if VERSION.DBF didn't have company name
+		cleanCompanyName = companyName
+	}
+	
+	// Remove path separators and other problematic characters for filenames
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "\\", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "/", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, ":", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "*", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "?", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "\"", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "<", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, ">", "_")
+	cleanCompanyName = strings.ReplaceAll(cleanCompanyName, "|", "_")
+	
+	// Format: YYYY-MM-DD - Company Name - Chart of Accounts.pdf
+	datePrefix := time.Now().Format("2006-01-02")
+	defaultFilename := fmt.Sprintf("%s - %s - Chart of Accounts.pdf", datePrefix, cleanCompanyName)
+	
+	// Show save dialog to let user choose where to save the file
+	selectedFile, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		Title:           "Save Chart of Accounts Report",
+		DefaultFilename: defaultFilename,
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "PDF Files (*.pdf)",
+				Pattern:     "*.pdf",
+			},
+			{
+				DisplayName: "All Files (*.*)",
+				Pattern:     "*.*",
+			},
+		},
+	})
+	
+	// If user cancelled the dialog
+	if err != nil {
+		return "", fmt.Errorf("save dialog error: %v", err)
+	}
+	
+	if selectedFile == "" {
+		return "", fmt.Errorf("save cancelled by user")
+	}
+	
+	// Save the PDF to the selected location
+	err = pdf.OutputFileAndClose(selectedFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to write PDF file: %v", err)
+	}
+	
+	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("PDF report saved to %s", selectedFile))
+	return selectedFile, nil
 }
 
 func main() {

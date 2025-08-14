@@ -14,8 +14,24 @@ export function AuditCheckBatches(arg1) {
   return window['go']['main']['App']['AuditCheckBatches'](arg1);
 }
 
+export function AuditCheckGLMatching(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['AuditCheckGLMatching'](arg1, arg2, arg3, arg4);
+}
+
+export function AuditDuplicateCIDCHEC(arg1) {
+  return window['go']['main']['App']['AuditDuplicateCIDCHEC'](arg1);
+}
+
+export function AuditPayeeCIDVerification(arg1) {
+  return window['go']['main']['App']['AuditPayeeCIDVerification'](arg1);
+}
+
 export function AuditSingleBankAccount(arg1, arg2) {
   return window['go']['main']['App']['AuditSingleBankAccount'](arg1, arg2);
+}
+
+export function AuditVoidChecks(arg1) {
+  return window['go']['main']['App']['AuditVoidChecks'](arg1);
 }
 
 export function CheckGLPeriodFields(arg1) {
@@ -48,6 +64,14 @@ export function DeleteReconciliationDraft(arg1, arg2) {
 
 export function ExportNetDistribution(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportNetDistribution'](arg1, arg2, arg3);
+}
+
+export function FollowBatchNumber(arg1, arg2) {
+  return window['go']['main']['App']['FollowBatchNumber'](arg1, arg2);
+}
+
+export function GenerateChartOfAccountsPDF(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GenerateChartOfAccountsPDF'](arg1, arg2, arg3);
 }
 
 export function GetAPIKey(arg1) {
@@ -88,6 +112,10 @@ export function GetBankTransactions(arg1, arg2, arg3) {
 
 export function GetCachedBalances(arg1) {
   return window['go']['main']['App']['GetCachedBalances'](arg1);
+}
+
+export function GetChartOfAccounts(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetChartOfAccounts'](arg1, arg2, arg3);
 }
 
 export function GetClosingStatus(arg1) {
@@ -320,6 +348,10 @@ export function TestVFPConnection() {
 
 export function UnmatchTransaction(arg1) {
   return window['go']['main']['App']['UnmatchTransaction'](arg1);
+}
+
+export function UpdateBatchFields(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateBatchFields'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdateCompanyInfo(arg1) {

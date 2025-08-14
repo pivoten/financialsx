@@ -10,6 +10,7 @@ require (
 require (
 	github.com/Valentin-Kaiser/go-dbase v1.12.10
 	github.com/go-ole/go-ole v1.3.0
+	github.com/jung-kurt/gofpdf/v2 v2.17.3
 	github.com/shopspring/decimal v1.4.0
 	modernc.org/sqlite v1.38.2
 )

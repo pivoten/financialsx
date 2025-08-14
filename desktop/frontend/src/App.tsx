@@ -90,6 +90,8 @@ import WellManagement from './components/WellManagement'
 import LegacyIntegration from './components/LegacyIntegration'
 import SherWareLegacy from './components/SherWareLegacy'
 import AuditTools from './components/AuditTools'
+import FollowBatchNumber from './components/FollowBatchNumber'
+import FinancialReports from './components/FinancialReports'
 import logger from './services/logger'
 import pivotenLogo from './assets/pivoten-logo.png'
 import { DashboardCard } from './components/DashboardCard'
@@ -144,7 +146,9 @@ interface User {
 interface Company {
   name: string
   display_name: string
+  alias?: string
   path: string
+  full_path?: string
   address?: string
   city?: string
   state?: string
@@ -156,6 +160,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [companies, setCompanies] = useState<Company[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('')
+  const [selectedCompanyDisplay, setSelectedCompanyDisplay] = useState<string>('')
   const [companySelected, setCompanySelected] = useState(false)
   const [needsFolderSelection, setNeedsFolderSelection] = useState(false)
   const [isRegistering, setIsRegistering] = useState(false)
@@ -229,8 +234,10 @@ function App() {
           // Use data_path (folder name) as the identifier, not company_id which contains numeric values
           name: comp.data_path || comp.company_name || comp.name,
           display_name: comp.company_name || comp.display_name || comp.name,
+          alias: comp.alias || '',  // Add the alias field
           // Use data_path as it contains the actual folder name
           path: comp.data_path || comp.company_name || comp.name || '',
+          full_path: comp.full_path || '',  // Add the full resolved path
           address: comp.address1 || comp.address || '',
           city: comp.city || '',
           state: comp.state || '',
@@ -307,14 +314,18 @@ function App() {
       
       // Initialize the company database for this user
       // This creates/opens the SQLite database for the selected company
-      // Use company.name directly since company.path is now also the name after our fix
-      await InitializeCompanyDatabase(company.name)
+      // Use company.path for the actual data directory path
+      await InitializeCompanyDatabase(company.path || company.name)
       
-      setSelectedCompany(company.name)
+      // Use company.path for the selected company (this is the actual data directory)
+      setSelectedCompany(company.path || company.name)
+      // Store the display name separately (use alias or display_name if available)
+      setSelectedCompanyDisplay(company.alias || company.display_name || company.name)
       setCompanySelected(true)
       
       // Store for session persistence
       localStorage.setItem('company_name', company.name)
+      localStorage.setItem('company_display', company.alias || company.display_name || company.name)
       // Don't store company_path anymore to avoid confusion
       localStorage.removeItem('company_path')
       
@@ -375,6 +386,7 @@ function App() {
     setCompanySelected(false)
     setCurrentUser(null)
     setSelectedCompany('')
+    setSelectedCompanyDisplay('')
     setUsername('')
     setPassword('')
     setEmail('')
@@ -481,11 +493,21 @@ function App() {
                     className="w-full p-4 bg-white border-2 border-gray-200 rounded-lg hover:shadow-md hover:border-orange-500 transition-all text-left group"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold text-lg">{company.display_name}</h3>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-3">
+                          <h3 className="font-semibold text-lg">{company.display_name}</h3>
+                          {company.alias && (
+                            <span className="text-sm text-gray-600 font-medium">({company.alias})</span>
+                          )}
+                        </div>
                         {company.city && company.state && (
                           <p className="text-sm text-gray-500">
                             {company.city}, {company.state}
+                          </p>
+                        )}
+                        {company.full_path && (
+                          <p className="text-xs text-gray-400 mt-1 font-mono">
+                            {company.full_path}
                           </p>
                         )}
                       </div>
@@ -515,7 +537,12 @@ function App() {
   // Show main application dashboard
   return (
     <QueryClientProvider client={queryClient}>
-      <AdvancedDashboard currentUser={currentUser} onLogout={handleLogout} selectedCompany={selectedCompany} />
+      <AdvancedDashboard 
+        currentUser={currentUser} 
+        onLogout={handleLogout} 
+        selectedCompany={selectedCompany}
+        selectedCompanyDisplay={selectedCompanyDisplay} 
+      />
     </QueryClientProvider>
   )
 }
@@ -525,9 +552,10 @@ interface AdvancedDashboardProps {
   currentUser: User | null
   onLogout: () => void
   selectedCompany: string
+  selectedCompanyDisplay: string
 }
 
-function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedDashboardProps) {
+function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCompanyDisplay }: AdvancedDashboardProps) {
   const [activeView, setActiveView] = useState('dashboard')
   const [activeSubView, setActiveSubView] = useState('')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -882,7 +910,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">Welcome, {currentUser?.username}</span>
               <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">
-                {selectedCompany}
+                {selectedCompanyDisplay || selectedCompany}
               </span>
             </div>
           </div>
@@ -1263,6 +1291,9 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany }: AdvancedD
                     accentColor="gray"
                   />
                 </div>
+              )}
+              {activeSubView === 'financial' && (
+                <FinancialReports companyName={selectedCompany} currentUser={currentUser} />
               )}
             </div>
           )}

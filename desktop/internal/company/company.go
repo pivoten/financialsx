@@ -24,7 +24,7 @@ var (
 )
 
 // normalizeCompanyPath converts a company path based on the current platform
-// On Windows: Use the path as-is (absolute or relative)
+// On Windows: Clean the path but keep it intact (remove trailing spaces/junk)
 // On Mac/Linux: Extract just the company folder name since folders are relative to compmast.dbf
 func normalizeCompanyPath(companyPath string) string {
 	// If empty, return as-is
@@ -32,9 +32,39 @@ func normalizeCompanyPath(companyPath string) string {
 		return companyPath
 	}
 	
-	// On Windows, use the path as provided
+	// On Windows, just clean excessive padding but keep the path structure including trailing slash
 	if isWindows {
-		return companyPath
+		// Find where the actual path ends (before excessive padding)
+		// Look for 5+ consecutive spaces as that indicates padding
+		bytes := []byte(companyPath)
+		spaceCount := 0
+		actualEnd := len(bytes)
+		for i := 0; i < len(bytes); i++ {
+			if bytes[i] == ' ' || bytes[i] == 0 {
+				spaceCount++
+				if spaceCount >= 5 {
+					// Found the padding, mark where the real path ends
+					actualEnd = i - spaceCount + 1
+					break
+				}
+			} else {
+				spaceCount = 0
+			}
+		}
+		
+		// Extract the actual path
+		cleaned := string(bytes[:actualEnd])
+		
+		// Simple cleanup - just trim trailing spaces/nulls but keep the backslash
+		cleaned = strings.TrimRight(cleaned, " \t\r\n\x00")
+		
+		// The path should already have a trailing backslash from the DBF
+		// But if not, add it
+		if cleaned != "" && !strings.HasSuffix(cleaned, "\\") {
+			cleaned = cleaned + "\\"
+		}
+		
+		return cleaned
 	}
 	
 	// On Mac/Linux, extract just the company folder name
@@ -74,6 +104,17 @@ func writeErrorLog(message string) {
 	
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	file.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
+}
+
+// GetSavedDataPath retrieves the saved data path from a config file
+// This is the path where compmast.dbf was found
+func GetSavedDataPath() string {
+	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // getDatafilesPath returns the path to the datafiles directory
@@ -533,38 +574,46 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 	
 	// Check if companyName looks like a full path (absolute)
 	if filepath.IsAbs(companyName) {
-		// It's an absolute path, use it directly (Windows scenario)
+		// It's an absolute path, use it directly (Windows scenario with drive letter)
 		filePath = filepath.Join(companyName, fileName)
 		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using absolute path, result: %s", filePath))
 		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using absolute path: %s", filePath))
-	} else if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
-		// It's a relative path - resolve it
-		if isWindows {
-			// On Windows, make it relative to executable directory
-			exePath, _ := os.Executable()
-			exeDir := filepath.Dir(exePath)
+	} else if isWindows {
+		// On Windows, all relative paths are relative to the EXE location
+		exePath, _ := os.Executable()
+		exeDir := filepath.Dir(exePath)
+		
+		// Check if it contains path separators (relative path) or just a folder name
+		if strings.Contains(companyName, "\\") || strings.Contains(companyName, "/") {
+			// It's a relative path like "datafiles\company1"
 			filePath = filepath.Join(exeDir, companyName, fileName)
 		} else {
-			// On Mac/Linux, it should be relative to datafiles
+			// It's just a folder name, assume it's under datafiles
+			filePath = filepath.Join(exeDir, "datafiles", companyName, fileName)
+		}
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Windows relative path, result: %s", filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Windows relative path: %s", filePath))
+	} else {
+		// On Mac/Linux, use the original logic
+		if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
+			// It's a relative path
 			datafilesPath, err := getDatafilesPath()
 			if err != nil {
 				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
 				return nil, err
 			}
 			filePath = filepath.Join(datafilesPath, filepath.Base(companyName), fileName)
+		} else {
+			// Just a folder name
+			datafilesPath, err := getDatafilesPath()
+			if err != nil {
+				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
+				return nil, err
+			}
+			filePath = filepath.Join(datafilesPath, companyName, fileName)
 		}
-		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using relative path, result: %s", filePath))
-		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using relative path: %s", filePath))
-	} else {
-		// Just a folder name - use the datafiles structure
-		datafilesPath, err := getDatafilesPath()
-		if err != nil {
-			writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
-			return nil, err
-		}
-		filePath = filepath.Join(datafilesPath, companyName, fileName)
-		writeErrorLog(fmt.Sprintf("ReadDBFFile: Using folder name, datafilesPath='%s', result='%s'", datafilesPath, filePath))
-		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Using folder name: %s", filePath))
+		writeErrorLog(fmt.Sprintf("ReadDBFFile: Mac/Linux path, result='%s'", filePath))
+		debug.LogInfo("ReadDBFFile", fmt.Sprintf("Mac/Linux path: %s", filePath))
 	}
 	fmt.Printf("Full file path: %s\n", filePath)
 	

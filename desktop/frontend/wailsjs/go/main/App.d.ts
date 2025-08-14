@@ -9,7 +9,15 @@ export function AuditBankReconciliation(arg1:string):Promise<Record<string, any>
 
 export function AuditCheckBatches(arg1:string):Promise<Record<string, any>>;
 
+export function AuditCheckGLMatching(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
+
+export function AuditDuplicateCIDCHEC(arg1:string):Promise<Record<string, any>>;
+
+export function AuditPayeeCIDVerification(arg1:string):Promise<Record<string, any>>;
+
 export function AuditSingleBankAccount(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function AuditVoidChecks(arg1:string):Promise<Record<string, any>>;
 
 export function CheckGLPeriodFields(arg1:string):Promise<Record<string, any>>;
 
@@ -26,6 +34,10 @@ export function DeleteBankStatement(arg1:string,arg2:string):Promise<void>;
 export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function ExportNetDistribution(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function FollowBatchNumber(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GenerateChartOfAccountsPDF(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function GetAPIKey(arg1:string):Promise<string>;
 
@@ -46,6 +58,8 @@ export function GetBankAccountsForAudit(arg1:string):Promise<Array<Record<string
 export function GetBankTransactions(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function GetChartOfAccounts(arg1:string,arg2:string,arg3:boolean):Promise<Record<string, any>>;
 
 export function GetClosingStatus(arg1:string):Promise<string>;
 
@@ -162,6 +176,8 @@ export function TestOLEConnection():Promise<Record<string, any>>;
 export function TestVFPConnection():Promise<Record<string, any>>;
 
 export function UnmatchTransaction(arg1:number):Promise<Record<string, any>>;
+
+export function UpdateBatchFields(arg1:string,arg2:string,arg3:Record<string, string>,arg4:string,arg5:Record<string, boolean>):Promise<Record<string, any>>;
 
 export function UpdateCompanyInfo(arg1:string):Promise<Record<string, any>>;
 

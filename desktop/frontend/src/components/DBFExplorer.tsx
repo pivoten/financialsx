@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
-import { Select } from './ui/select'
+import { NativeSelect } from './ui/native-select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { FileText, Search, Edit, Save, X, Plus, ChevronUp, ChevronDown, ChevronsUpDown, Settings, Database, GripVertical, Download, Upload, Filter, FilterX, Lock } from 'lucide-react'
 import { GetDBFFiles, GetDBFTableDataPaged, SearchDBFTable, UpdateDBFRecord } from '../../wailsjs/go/main/App'
@@ -393,7 +393,7 @@ export function DBFExplorer({ currentUser }: DBFExplorerProps) {
           {loading ? (
             <div className="text-sm text-muted-foreground">Loading files...</div>
           ) : (
-            <Select
+            <NativeSelect
               value={selectedFile}
               onChange={(e: ChangeEvent<HTMLSelectElement>) => { e.preventDefault(); e.stopPropagation(); handleFileSelect(e.target.value) }}
               disabled={loading}
@@ -403,7 +403,7 @@ export function DBFExplorer({ currentUser }: DBFExplorerProps) {
               {dbfFiles.map((file) => (
                 <option key={file} value={file}>{file}</option>
               ))}
-            </Select>
+            </NativeSelect>
           )}
         </div>
         {currentCompany && (<div className="text-sm text-muted-foreground">Company: {currentCompany}</div>)}
@@ -765,13 +765,13 @@ function ColumnFilter({ filter, index, columns, onUpdate, onRemove }: ColumnFilt
 
   return (
     <div className="flex items-center gap-2 p-3 bg-white rounded border">
-      <Select value={filter.column || ''} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, column: e.target.value })} className="flex-1 h-10">
+      <NativeSelect value={filter.column || ''} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, column: e.target.value })} className="flex-1 h-10">
         <option value="">Select column...</option>
         {columns.map((col, idx) => (<option key={idx} value={col}>{col}</option>))}
-      </Select>
-      <Select value={filter.operator || 'contains'} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, operator: e.target.value })} className="w-32 h-10">
+      </NativeSelect>
+      <NativeSelect value={filter.operator || 'contains'} onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate({ ...filter, operator: e.target.value })} className="w-32 h-10">
         {operators.map(op => (<option key={op.value} value={op.value}>{op.label}</option>))}
-      </Select>
+      </NativeSelect>
       <Input value={filter.value || ''} onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate({ ...filter, value: e.target.value })} placeholder="Filter value..." className="flex-1 h-8" />
       <div className="flex items-center gap-1">
         <label className="flex items-center gap-1 text-xs">

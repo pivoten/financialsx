@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pivoten/financialsx/desktop/internal/company"
+	"github.com/pivoten/financialsx/desktop/internal/currency"
 )
 
 type CachedBalance struct {
@@ -346,8 +347,9 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		return fmt.Errorf("required GL columns not found")
 	}
 	
-	// Process GL entries with account type-specific logic
-	var totalDebits, totalCredits float64
+	// Process GL entries with account type-specific logic using decimal arithmetic
+	totalDebits := currency.Zero()
+	totalCredits := currency.Zero()
 	var recordCount int
 	glRows, _ := glData["rows"].([][]interface{})
 	
@@ -360,50 +362,54 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 		if rowAccount == accountNumber {
 			recordCount++
 			
-			// Sum debits
+			// Sum debits using decimal arithmetic
 			if debitIdx != -1 && len(row) > debitIdx && row[debitIdx] != nil {
-				if debit := parseFloat(row[debitIdx]); debit != 0 {
-					totalDebits += debit
+				debit := currency.ParseFromDBF(row[debitIdx])
+				if !debit.IsZero() {
+					totalDebits = totalDebits.Add(debit)
 				}
 			}
 			
-			// Sum credits
+			// Sum credits using decimal arithmetic
 			if creditIdx != -1 && len(row) > creditIdx && row[creditIdx] != nil {
-				if credit := parseFloat(row[creditIdx]); credit != 0 {
-					totalCredits += credit
+				credit := currency.ParseFromDBF(row[creditIdx])
+				if !credit.IsZero() {
+					totalCredits = totalCredits.Add(credit)
 				}
 			}
 		}
 	}
 	
-	// Apply correct formula based on account type
+	// Apply correct formula based on account type using decimal arithmetic
 	// Account Types (standard):
 	// 1 = Assets (Debit normal balance)
 	// 2 = Liabilities (Credit normal balance)
 	// 3 = Equity (Credit normal balance)
 	// 4 = Revenue/Income (Credit normal balance)
 	// 5 = Expenses (Debit normal balance)
-	var totalBalance float64
+	var totalBalance currency.Currency
 	switch accountType {
 	case 1, 5: // Assets and Expenses (Debit normal balance)
-		totalBalance = totalDebits - totalCredits
-		fmt.Printf("RefreshGLBalance: Asset/Expense account - Debits: %.2f, Credits: %.2f, Balance: %.2f\n", 
-			totalDebits, totalCredits, totalBalance)
+		totalBalance = totalDebits.Sub(totalCredits)
+		fmt.Printf("RefreshGLBalance: Asset/Expense account - Debits: %s, Credits: %s, Balance: %s\n", 
+			totalDebits.ToString(), totalCredits.ToString(), totalBalance.ToString())
 	case 2, 3, 4: // Liabilities, Equity, Revenue (Credit normal balance)
-		totalBalance = totalCredits - totalDebits
-		fmt.Printf("RefreshGLBalance: Liability/Equity/Revenue account - Credits: %.2f, Debits: %.2f, Balance: %.2f\n", 
-			totalCredits, totalDebits, totalBalance)
+		totalBalance = totalCredits.Sub(totalDebits)
+		fmt.Printf("RefreshGLBalance: Liability/Equity/Revenue account - Credits: %s, Debits: %s, Balance: %s\n", 
+			totalCredits.ToString(), totalDebits.ToString(), totalBalance.ToString())
 	default:
 		// Default to asset behavior if unknown type
-		totalBalance = totalDebits - totalCredits
-		fmt.Printf("RefreshGLBalance: Unknown account type %d, using asset formula - Balance: %.2f\n", 
-			accountType, totalBalance)
+		totalBalance = totalDebits.Sub(totalCredits)
+		fmt.Printf("RefreshGLBalance: Unknown account type %d, using asset formula - Balance: %s\n", 
+			accountType, totalBalance.ToString())
 	}
 	
-	fmt.Printf("RefreshGLBalance: Processed %d records, total balance: %.2f\n", recordCount, totalBalance)
+	fmt.Printf("RefreshGLBalance: Processed %d records, total balance: %s\n", recordCount, totalBalance.ToString())
 	
 	// Update the cached balance - use UPSERT to handle race conditions
 	// Note: bank_balance is GENERATED and will auto-calculate as gl_balance + outstanding_checks_total
+	// Convert Currency to float64 for database storage (SQLite stores as REAL)
+	// Store as string to preserve decimal precision
 	_, err = db.Exec(`
 		INSERT INTO account_balances 
 		(company_name, account_number, account_name, account_type, 
@@ -415,7 +421,7 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 			gl_balance = excluded.gl_balance, 
 			gl_record_count = excluded.gl_record_count, 
 			gl_last_updated = CURRENT_TIMESTAMP
-	`, companyName, accountNumber, "", accountType, totalBalance, recordCount)
+	`, companyName, accountNumber, "", accountType, totalBalance.ToString(), recordCount)
 	
 	if err != nil {
 		fmt.Printf("RefreshGLBalance: UPSERT error: %v, trying fallback UPDATE\n", err)
@@ -424,10 +430,12 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 			UPDATE account_balances 
 			SET account_type = ?, gl_balance = ?, gl_record_count = ?, gl_last_updated = CURRENT_TIMESTAMP
 			WHERE company_name = ? AND account_number = ?
-		`, accountType, totalBalance, recordCount, companyName, accountNumber)
+		`, accountType, totalBalance.ToString(), recordCount, companyName, accountNumber)
 		
 		// Record the change in history
 		if err == nil {
+			// Calculate new bank balance using Currency type to avoid precision loss
+			newBankBalance := totalBalance.Add(currency.NewFromFloat(currentBalance.OutstandingTotal))
 			_, err = db.Exec(`
 				INSERT INTO balance_history 
 				(account_balance_id, company_name, account_number, change_type,
@@ -435,8 +443,8 @@ func RefreshGLBalance(db *DB, companyName, accountNumber, username string) error
 				 change_reason, changed_by)
 				VALUES (?, ?, ?, 'gl_refresh', ?, ?, ?, ?, 'GL balance refresh', ?)
 			`, currentBalance.ID, companyName, accountNumber, 
-				currentBalance.GLBalance, totalBalance,
-				currentBalance.BankBalance, totalBalance+currentBalance.OutstandingTotal,
+				currentBalance.GLBalance, totalBalance.ToString(),
+				currentBalance.BankBalance, newBankBalance.ToString(),
 				username)
 		}
 	}
@@ -484,8 +492,9 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		return fmt.Errorf("required columns not found in checks.dbf (need CCHECKNO, NAMOUNT, CENTRYTYPE)")
 	}
 	
-	// Process rows to calculate reconciliation amount
-	var unclearedDeposits, unclearedChecks float64
+	// Process rows to calculate reconciliation amount using decimal arithmetic
+	unclearedDeposits := currency.Zero()
+	unclearedChecks := currency.Zero()
 	var depositCount, checkCount int
 	checksRows, _ := checksData["rows"].([][]interface{})
 	
@@ -565,30 +574,30 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 		
 		// Only include if not cleared and not voided
 		if !isCleared && !isVoided {
-			amount := parseFloat(row[amountIdx])
+			amount := currency.ParseFromDBF(row[amountIdx])
 			entryType := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", row[entryTypeIdx])))
 			
 			if entryType == "D" {
 				// Deposit - adds to bank balance
-				unclearedDeposits += amount
+				unclearedDeposits = unclearedDeposits.Add(amount)
 				depositCount++
 				
 				// Debug logging for first few uncleared deposits
 				if depositCount <= 3 {
 					checkNum := fmt.Sprintf("%v", row[checkNumIdx])
-					fmt.Printf("RefreshOutstandingChecks: Uncleared Deposit #%d: %s, Amount: $%.2f, Account: %s\n", 
-						depositCount, checkNum, amount, checkAccount)
+					fmt.Printf("RefreshOutstandingChecks: Uncleared Deposit #%d: %s, Amount: %s, Account: %s\n", 
+						depositCount, checkNum, amount.String(), checkAccount)
 				}
 			} else if entryType == "C" {
 				// Check - subtracts from bank balance
-				unclearedChecks += amount
+				unclearedChecks = unclearedChecks.Add(amount)
 				checkCount++
 				
 				// Debug logging for first few uncleared checks
 				if checkCount <= 3 {
 					checkNum := fmt.Sprintf("%v", row[checkNumIdx])
-					fmt.Printf("RefreshOutstandingChecks: Uncleared Check #%d: %s, Amount: $%.2f, Account: %s\n", 
-						checkCount, checkNum, amount, checkAccount)
+					fmt.Printf("RefreshOutstandingChecks: Uncleared Check #%d: %s, Amount: %s, Account: %s\n", 
+						checkCount, checkNum, amount.String(), checkAccount)
 				}
 			}
 		}
@@ -596,13 +605,13 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 	
 	// Calculate the net reconciliation adjustment: Deposits - Checks
 	// This represents the adjustment needed to get from GL Balance to Bank Balance
-	totalReconciliationAdjustment := unclearedDeposits - unclearedChecks
+	totalReconciliationAdjustment := unclearedDeposits.Sub(unclearedChecks)
 	totalItemCount := depositCount + checkCount
 	
 	fmt.Printf("RefreshOutstandingChecks: Account %s reconciliation summary:\n", accountNumber)
-	fmt.Printf("  - Uncleared Deposits: %d items, $%.2f total\n", depositCount, unclearedDeposits)
-	fmt.Printf("  - Uncleared Checks: %d items, $%.2f total\n", checkCount, unclearedChecks)
-	fmt.Printf("  - Net Reconciliation Adjustment: $%.2f (GL Balance + this = Bank Balance)\n", totalReconciliationAdjustment)
+	fmt.Printf("  - Uncleared Deposits: %d items, %s total\n", depositCount, unclearedDeposits.String())
+	fmt.Printf("  - Uncleared Checks: %d items, %s total\n", checkCount, unclearedChecks.String())
+	fmt.Printf("  - Net Reconciliation Adjustment: %s (GL Balance + this = Bank Balance)\n", totalReconciliationAdjustment.String())
 	
 	// Get current cached balance
 	currentBalance, err := GetCachedBalance(db, companyName, accountNumber)
@@ -611,11 +620,11 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 	}
 	
 	// Create detailed metadata for frontend display
-	metadata := fmt.Sprintf(`{"uncleared_deposits": %f, "uncleared_checks": %f, "deposit_count": %d, "check_count": %d}`,
-		unclearedDeposits, unclearedChecks, depositCount, checkCount)
+	metadata := fmt.Sprintf(`{"uncleared_deposits": %s, "uncleared_checks": %s, "deposit_count": %d, "check_count": %d}`,
+		unclearedDeposits.ToString(), unclearedChecks.ToString(), depositCount, checkCount)
 	
 	// Use UPSERT to handle race conditions
-	// Note: bank_balance is GENERATED and will auto-calculate as gl_balance + outstanding_checks_total
+	// Store as string to preserve decimal precision
 	_, err = db.Exec(`
 		INSERT INTO account_balances 
 		(company_name, account_number, account_name, account_type, 
@@ -627,7 +636,7 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 			outstanding_checks_count = excluded.outstanding_checks_count, 
 			outstanding_checks_last_updated = CURRENT_TIMESTAMP,
 			metadata = excluded.metadata
-	`, companyName, accountNumber, "", 1, totalReconciliationAdjustment, totalItemCount, metadata)
+	`, companyName, accountNumber, "", 1, totalReconciliationAdjustment.ToString(), totalItemCount, metadata)
 	
 	if err != nil {
 		// Fallback to simple UPDATE if UPSERT fails
@@ -636,10 +645,12 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 			SET outstanding_checks_total = ?, outstanding_checks_count = ?, 
 			    outstanding_checks_last_updated = CURRENT_TIMESTAMP, metadata = ?
 			WHERE company_name = ? AND account_number = ?
-		`, totalReconciliationAdjustment, totalItemCount, metadata, companyName, accountNumber)
+		`, totalReconciliationAdjustment.ToString(), totalItemCount, metadata, companyName, accountNumber)
 		
 		// Record the change in history
 		if err == nil {
+			// Calculate new bank balance using Currency type to avoid precision loss
+			newBankBalance := currency.NewFromFloat(currentBalance.GLBalance).Add(totalReconciliationAdjustment)
 			_, err = db.Exec(`
 				INSERT INTO balance_history 
 				(account_balance_id, company_name, account_number, change_type,
@@ -648,8 +659,8 @@ func RefreshOutstandingChecks(db *DB, companyName, accountNumber, username strin
 				 change_reason, changed_by)
 				VALUES (?, ?, ?, 'checks_refresh', ?, ?, ?, ?, 'Bank reconciliation refresh (deposits-checks)', ?)
 			`, currentBalance.ID, companyName, accountNumber,
-				currentBalance.OutstandingTotal, totalReconciliationAdjustment,
-				currentBalance.BankBalance, currentBalance.GLBalance+totalReconciliationAdjustment,
+				currentBalance.OutstandingTotal, totalReconciliationAdjustment.ToString(),
+				currentBalance.BankBalance, newBankBalance.ToString(),
 				username)
 		}
 	}

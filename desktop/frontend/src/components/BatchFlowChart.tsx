@@ -21,6 +21,7 @@ interface BatchFlowChartProps {
   searchResults: {
     checks?: TableData
     glmaster?: TableData
+    glmaster_purchase?: TableData
     appmthdr?: TableData
     appmtdet?: TableData
     appurchh?: TableData
@@ -161,6 +162,7 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
   // Determine connections based on data
   const hasChecks = searchResults.checks && searchResults.checks.count > 0
   const hasGL = searchResults.glmaster && searchResults.glmaster.count > 0
+  const hasPurchaseGL = searchResults.glmaster_purchase && searchResults.glmaster_purchase.count > 0
   const hasAPMTDET = searchResults.appmtdet && searchResults.appmtdet.count > 0
   const hasAPMTHDR = searchResults.appmthdr && searchResults.appmthdr.count > 0
   const hasAPPURCHH = searchResults.appurchh && searchResults.appurchh.count > 0
@@ -234,12 +236,17 @@ const BatchFlowChart: React.FC<BatchFlowChartProps> = ({ batchNumber, searchResu
               <FileText className="h-4 w-4" />,
               "GLMASTER.DBF",
               "GL - Purchase Entry",
-              searchResults.glmaster,
+              searchResults.glmaster_purchase || (searchResults.appmtdet && searchResults.appmtdet.count > 0 ? {
+                tableName: "GLMASTER.DBF",
+                records: [],
+                count: 0,
+                columns: []
+              } : undefined),
               "CSOURCE = 'AP'"
             )}
           </div>
 
-          {renderArrow("Original purchase documents", hasGL && (hasAPPURCHH || hasAPPURCHD))}
+          {renderArrow("Original purchase documents", (hasPurchaseGL || hasAPMTDET) && (hasAPPURCHH || hasAPPURCHD))}
 
           {/* Level 5: Purchase Documents - Side by Side */}
           <div className="flex justify-center space-x-8">

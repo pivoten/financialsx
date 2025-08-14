@@ -7442,6 +7442,7 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		searchPurchaseTable("APPURCHD.dbf", "appurchd")
 		
 		// Also search GLMASTER for the purchase batch GL entries (with CSOURCE = 'AP')
+		// These should be stored separately as "glmaster_purchase" for the flow chart
 		fmt.Printf("FollowBatchNumber: Searching GLMASTER for purchase batch '%s' with CSOURCE='AP'\n", purchaseBatch)
 		glData, err := company.ReadDBFFile(companyName, "GLMASTER.dbf", "", 0, 0, "", "")
 		if err == nil {
@@ -7451,12 +7452,15 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 					if batchRaw, exists := row["CBATCH"]; exists && batchRaw != nil {
 						batchStr := strings.TrimSpace(fmt.Sprintf("%v", batchRaw))
 						if strings.EqualFold(batchStr, purchaseBatch) {
-							// Check if CSOURCE = 'AP' to identify purchase GL entries
+							// For purchase GL entries, we check CSOURCE = 'AP'
 							if sourceRaw, exists := row["CSOURCE"]; exists && sourceRaw != nil {
 								sourceStr := strings.TrimSpace(fmt.Sprintf("%v", sourceRaw))
 								if strings.EqualFold(sourceStr, "AP") {
 									purchaseGLRows = append(purchaseGLRows, row)
 								}
+							} else {
+								// If no CSOURCE field, include all with purchase batch
+								purchaseGLRows = append(purchaseGLRows, row)
 							}
 						}
 					}
@@ -7464,14 +7468,14 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 			}
 			
 			if len(purchaseGLRows) > 0 {
-				// Add purchase GL entries to the existing GLMASTER results
-				if glmasterData, ok := result["glmaster"].(map[string]interface{}); ok {
-					existingRecords := glmasterData["records"].([]map[string]interface{})
-					allRecords := append(existingRecords, purchaseGLRows...)
-					glmasterData["records"] = allRecords
-					glmasterData["count"] = len(allRecords)
-					fmt.Printf("FollowBatchNumber: Added %d purchase GL records to GLMASTER results\n", len(purchaseGLRows))
+				// Store purchase GL entries separately for the flow chart
+				result["glmaster_purchase"] = map[string]interface{}{
+					"table_name": "GLMASTER.DBF",
+					"records": purchaseGLRows,
+					"count": len(purchaseGLRows),
+					"columns": glData["columns"],
 				}
+				fmt.Printf("FollowBatchNumber: Found %d purchase GL records in GLMASTER for batch '%s'\n", len(purchaseGLRows), purchaseBatch)
 			}
 		}
 	} else {

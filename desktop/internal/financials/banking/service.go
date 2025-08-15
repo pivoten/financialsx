@@ -7,12 +7,14 @@ import (
 	"time"
 	
 	"github.com/pivoten/financialsx/desktop/internal/company"
+	"github.com/pivoten/financialsx/desktop/internal/database"
 	"github.com/pivoten/financialsx/desktop/internal/debug"
 )
 
 // Service handles all banking-related operations
 type Service struct {
-	db *sql.DB
+	db    *sql.DB
+	dbHelper *database.DB  // Add database helper for balance cache operations
 }
 
 // NewService creates a new banking service
@@ -20,6 +22,11 @@ func NewService(db *sql.DB) *Service {
 	return &Service{
 		db: db,
 	}
+}
+
+// SetDatabaseHelper sets the database helper for balance cache operations
+func (s *Service) SetDatabaseHelper(dbHelper *database.DB) {
+	s.dbHelper = dbHelper
 }
 
 // BankAccount represents a bank account
@@ -36,15 +43,16 @@ type BankAccount struct {
 
 // OutstandingCheck represents an outstanding check
 type OutstandingCheck struct {
-	CheckNumber     string    `json:"check_number"`
-	CheckDate       time.Time `json:"check_date"`
+	CheckNumber     string    `json:"checkNumber"`
+	CheckDate       string    `json:"date"`
 	Payee           string    `json:"payee"`
 	Amount          float64   `json:"amount"`
-	AccountNumber   string    `json:"account_number"`
-	DaysOutstanding int       `json:"days_outstanding"`
-	IsStale         bool      `json:"is_stale"`
-	RowIndex        int       `json:"row_index"`
+	AccountNumber   string    `json:"account"`
+	EntryType       string    `json:"entryType"`  // D = Deposit, C = Check
 	CIDCHEC         string    `json:"cidchec"`
+	ID              string    `json:"id"`
+	RowIndex        int       `json:"_rowIndex"`
+	RawData         []interface{} `json:"_rawData,omitempty"`
 }
 
 // BalanceInfo represents cached balance information
@@ -225,23 +233,241 @@ func parseFloat(val interface{}) float64 {
 
 // GetOutstandingChecks retrieves outstanding checks for an account
 func (s *Service) GetOutstandingChecks(companyName, accountNumber string) ([]OutstandingCheck, error) {
-	// Implementation will be moved from main.go
-	// This will read from CHECKS.dbf where LCLEARED = false and LVOID = false
-	return nil, fmt.Errorf("not implemented")
+	debug.SimpleLog(fmt.Sprintf("Banking.GetOutstandingChecks: company=%s, account=%s", companyName, accountNumber))
+	
+	// Read checks.dbf - get all records
+	checksData, err := company.ReadDBFFile(companyName, "checks.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checks.dbf: %w", err)
+	}
+	
+	// Get column indices for checks.dbf
+	checksColumns, ok := checksData["columns"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid checks.dbf structure")
+	}
+	
+	// Find relevant check columns
+	var checkNumIdx, dateIdx, payeeIdx, amountIdx, accountIdx, clearedIdx, voidIdx, entryTypeIdx, cidchecIdx int = -1, -1, -1, -1, -1, -1, -1, -1, -1
+	for i, col := range checksColumns {
+		colUpper := strings.ToUpper(col)
+		switch colUpper {
+		case "CCHECKNO":
+			checkNumIdx = i
+		case "DCHECKDATE":
+			dateIdx = i
+		case "CPAYEE":
+			payeeIdx = i
+		case "NAMOUNT":
+			amountIdx = i
+		case "CACCTNO":
+			accountIdx = i
+		case "LCLEARED":
+			clearedIdx = i
+		case "LVOID":
+			voidIdx = i
+		case "CENTRYTYPE":
+			entryTypeIdx = i
+		case "CIDCHEC":
+			cidchecIdx = i
+		}
+	}
+	
+	if checkNumIdx == -1 || amountIdx == -1 {
+		return nil, fmt.Errorf("required columns not found in checks.dbf")
+	}
+	
+	// Process check rows to find outstanding checks
+	var outstandingChecks []OutstandingCheck
+	checksRows, _ := checksData["rows"].([][]interface{})
+	
+	for rowIdx, row := range checksRows {
+		if len(row) <= checkNumIdx || len(row) <= amountIdx {
+			continue
+		}
+		
+		// Get account for this check
+		checkAccount := ""
+		if accountIdx != -1 && len(row) > accountIdx && row[accountIdx] != nil {
+			checkAccount = strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
+		}
+		
+		// If account filter is provided, only include checks for that account
+		if accountNumber != "" && checkAccount != accountNumber {
+			continue
+		}
+		
+		// Check if cleared
+		isCleared := false
+		if clearedIdx != -1 && len(row) > clearedIdx {
+			isCleared = parseBool(row[clearedIdx])
+		}
+		
+		// Check if voided
+		isVoided := false
+		if voidIdx != -1 && len(row) > voidIdx {
+			isVoided = parseBool(row[voidIdx])
+		}
+		
+		// Only include if not cleared and not voided
+		if !isCleared && !isVoided {
+			// Get entry type
+			entryType := ""
+			if entryTypeIdx != -1 && len(row) > entryTypeIdx {
+				entryType = strings.TrimSpace(fmt.Sprintf("%v", row[entryTypeIdx]))
+			}
+			
+			// Get CIDCHEC for unique identification
+			cidchec := ""
+			if cidchecIdx != -1 && len(row) > cidchecIdx && row[cidchecIdx] != nil {
+				cidchec = fmt.Sprintf("%v", row[cidchecIdx])
+			}
+			
+			// Get date
+			dateStr := ""
+			if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
+				// Handle time.Time or string
+				if t, ok := row[dateIdx].(time.Time); ok {
+					dateStr = t.Format("2006-01-02")
+				} else {
+					dateStr = fmt.Sprintf("%v", row[dateIdx])
+				}
+			}
+			
+			// Get payee
+			payee := ""
+			if payeeIdx != -1 && len(row) > payeeIdx && row[payeeIdx] != nil {
+				payee = fmt.Sprintf("%v", row[payeeIdx])
+			}
+			
+			check := OutstandingCheck{
+				CheckNumber:   fmt.Sprintf("%v", row[checkNumIdx]),
+				CheckDate:     dateStr,
+				Payee:         payee,
+				Amount:        parseFloat(row[amountIdx]),
+				AccountNumber: checkAccount,
+				EntryType:     entryType,
+				CIDCHEC:       cidchec,
+				ID:            cidchec,
+				RowIndex:      rowIdx,
+				RawData:       row,
+			}
+			
+			outstandingChecks = append(outstandingChecks, check)
+		}
+	}
+	
+	debug.SimpleLog(fmt.Sprintf("Banking.GetOutstandingChecks: Found %d outstanding checks", len(outstandingChecks)))
+	return outstandingChecks, nil
+}
+
+// parseBool parses various boolean representations
+func parseBool(val interface{}) bool {
+	if val == nil {
+		return false
+	}
+	
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		lowerVal := strings.ToLower(strings.TrimSpace(v))
+		// Empty string should be FALSE
+		if lowerVal == "" {
+			return false
+		}
+		return lowerVal == "t" || lowerVal == ".t." || lowerVal == "true" || lowerVal == "1"
+	default:
+		return false
+	}
 }
 
 // GetCachedBalances retrieves all cached balances for a company
 func (s *Service) GetCachedBalances(companyName string) ([]BalanceInfo, error) {
-	// Implementation will be moved from main.go
-	// This will read from account_balances table
-	return nil, fmt.Errorf("not implemented")
+	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalances: company=%s", companyName))
+	
+	if s.dbHelper == nil {
+		return nil, fmt.Errorf("database helper not initialized")
+	}
+	
+	balances, err := database.GetAllCachedBalances(s.dbHelper, companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+	
+	// Convert database.CachedBalance to BalanceInfo
+	result := make([]BalanceInfo, len(balances))
+	for i, b := range balances {
+		result[i] = BalanceInfo{
+			AccountNumber:           b.AccountNumber,
+			AccountName:             b.AccountName,
+			GLBalance:              b.GLBalance,
+			OutstandingChecksTotal: b.OutstandingTotal,
+			OutstandingChecksCount: b.OutstandingCount,
+			BankBalance:            b.BankBalance,
+			GLLastUpdated:          b.GLLastUpdated,
+			ChecksLastUpdated:      b.OutstandingLastUpdated,
+			IsStale:                b.GLFreshness == "stale" || b.ChecksFreshness == "stale",
+		}
+	}
+	
+	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalances: Retrieved %d balances", len(result)))
+	return result, nil
 }
 
 // RefreshAccountBalance refreshes the cached balance for a single account
 func (s *Service) RefreshAccountBalance(companyName, accountNumber string, username string) (*BalanceInfo, error) {
-	// Implementation will be moved from main.go
-	// This will call RefreshGLBalance and RefreshOutstandingChecks
-	return nil, fmt.Errorf("not implemented")
+	debug.SimpleLog(fmt.Sprintf("Banking.RefreshAccountBalance: company=%s, account=%s, user=%s", 
+		companyName, accountNumber, username))
+	
+	if s.dbHelper == nil {
+		return nil, fmt.Errorf("database helper not initialized")
+	}
+	
+	// Refresh GL balance
+	fmt.Printf("RefreshAccountBalance: Starting GL balance refresh for account %s\n", accountNumber)
+	err := database.RefreshGLBalance(s.dbHelper, companyName, accountNumber, username)
+	if err != nil {
+		fmt.Printf("RefreshAccountBalance: GL balance refresh failed: %v\n", err)
+		// Don't return error, continue with outstanding checks refresh
+		debug.SimpleLog(fmt.Sprintf("Warning: GL balance refresh failed: %v", err))
+	} else {
+		fmt.Printf("RefreshAccountBalance: GL balance refresh successful\n")
+	}
+	
+	// Refresh outstanding checks/deposits
+	fmt.Printf("RefreshAccountBalance: Starting outstanding checks refresh for account %s\n", accountNumber)
+	err = database.RefreshOutstandingChecks(s.dbHelper, companyName, accountNumber, username)
+	if err != nil {
+		fmt.Printf("RefreshAccountBalance: Outstanding checks refresh failed: %v\n", err)
+		// Don't return error, try to get current balance
+		debug.SimpleLog(fmt.Sprintf("Warning: Outstanding checks refresh failed: %v", err))
+	} else {
+		fmt.Printf("RefreshAccountBalance: Outstanding checks refresh successful\n")
+	}
+	
+	// Get the updated cached balance
+	balance, err := database.GetCachedBalance(s.dbHelper, companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated balance: %w", err)
+	}
+	
+	result := &BalanceInfo{
+		AccountNumber:           balance.AccountNumber,
+		AccountName:             balance.AccountName,
+		GLBalance:              balance.GLBalance,
+		OutstandingChecksTotal: balance.OutstandingTotal,
+		OutstandingChecksCount: balance.OutstandingCount,
+		BankBalance:            balance.BankBalance,
+		GLLastUpdated:          balance.GLLastUpdated,
+		ChecksLastUpdated:      balance.OutstandingLastUpdated,
+		IsStale:                balance.GLFreshness == "stale" || balance.ChecksFreshness == "stale",
+	}
+	
+	fmt.Printf("RefreshAccountBalance: Complete - GL: %.2f, Outstanding: %.2f, Bank: %.2f\n",
+		result.GLBalance, result.OutstandingChecksTotal, result.BankBalance)
+	
+	return result, nil
 }
 
 // RefreshAllBalances refreshes all cached balances for a company

@@ -48,13 +48,17 @@ func NewServices(dbConn *database.DB) *Services {
 	// Initialize VFP client
 	vfpClient := vfp.NewVFPClient(sqlDB)
 	
+	// Create banking service and set database helper
+	bankingService := banking.NewService(sqlDB)
+	bankingService.SetDatabaseHelper(dbConn)
+	
 	return &Services{
 		// Core services
 		Auth: common.New(dbConn, ""), // Company name will be set later
 		I18n: common.NewI18n("en"),
 		
 		// Financial services
-		Banking:  banking.NewService(sqlDB),
+		Banking:  bankingService,
 		Matching: matching.NewService(sqlDB),
 		GL:       gl.NewService(sqlDB),
 		Audit:    audit.NewService(),

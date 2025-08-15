@@ -2184,6 +2184,43 @@ func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, err
 // GetOutstandingChecks retrieves all checks that have not been cleared (LCLEARED = false)
 // Optionally filter by account number if provided
 func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (map[string]interface{}, error) {
+	// Use the new service architecture if available
+	if a.Services != nil && a.Services.Banking != nil {
+		checks, err := a.Services.Banking.GetOutstandingChecks(companyName, accountNumber)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Convert to the expected format for the frontend
+		// Note: We need to return an array of maps, not OutstandingCheck structs
+		checkMaps := make([]map[string]interface{}, len(checks))
+		for i, check := range checks {
+			checkMaps[i] = map[string]interface{}{
+				"checkNumber": check.CheckNumber,
+				"date":        check.CheckDate,
+				"payee":       check.Payee,
+				"amount":      check.Amount,
+				"account":     check.AccountNumber,
+				"entryType":   check.EntryType,
+				"cidchec":     check.CIDCHEC,
+				"id":          check.ID,
+				"_rowIndex":   check.RowIndex,
+				"_rawData":    check.RawData,
+			}
+		}
+		
+		// Get columns for the frontend
+		columns := []string{"CCHECKNO", "DCHECKDATE", "CPAYEE", "NAMOUNT", "CACCTNO", "LCLEARED", "LVOID", "CENTRYTYPE", "CIDCHEC"}
+		
+		return map[string]interface{}{
+			"status":  "success",
+			"checks":  checkMaps,
+			"total":   len(checkMaps),
+			"columns": columns,
+		}, nil
+	}
+	
+	// Legacy implementation fallback
 	fmt.Printf("GetOutstandingChecks called for company: %s, account: %s\n", companyName, accountNumber)
 	debug.SimpleLog(fmt.Sprintf("GetOutstandingChecks: company=%s, account=%s, currentUser=%v", companyName, accountNumber, a.currentUser != nil))
 	
@@ -4002,6 +4039,17 @@ func (a *App) determineMatchType(score float64, csvTxn BankTransaction, check ma
 
 
 
+// getFreshnessStatus determines the freshness status based on time
+func getFreshnessStatus(lastUpdated time.Time) string {
+	age := time.Since(lastUpdated).Hours()
+	if age < 1 {
+		return "fresh"
+	} else if age < 24 {
+		return "aging"
+	}
+	return "stale"
+}
+
 // GetCachedBalances retrieves cached balances for all bank accounts
 func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, error) {
 	fmt.Printf("GetCachedBalances called for company: %s\n", companyName)
@@ -4014,6 +4062,47 @@ func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, e
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
+	// Use service if available
+	if a.Services != nil && a.Services.Banking != nil {
+		balances, err := a.Services.Banking.GetCachedBalances(companyName)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Convert to map for frontend compatibility
+		result := make([]map[string]interface{}, len(balances))
+		for i, b := range balances {
+			// Calculate age hours
+			glAgeHours := time.Since(b.GLLastUpdated).Hours()
+			checksAgeHours := time.Since(b.ChecksLastUpdated).Hours()
+			
+			result[i] = map[string]interface{}{
+				"account_number":         b.AccountNumber,
+				"account_name":          b.AccountName,
+				"gl_balance":            b.GLBalance,
+				"outstanding_total":     b.OutstandingChecksTotal,
+				"outstanding_count":     b.OutstandingChecksCount,
+				"bank_balance":          b.BankBalance,
+				"gl_last_updated":       b.GLLastUpdated,
+				"checks_last_updated":   b.ChecksLastUpdated,
+				"gl_age_hours":          glAgeHours,
+				"checks_age_hours":      checksAgeHours,
+				"gl_freshness":          getFreshnessStatus(b.GLLastUpdated),
+				"checks_freshness":      getFreshnessStatus(b.ChecksLastUpdated),
+				"is_stale":             b.IsStale,
+				// These fields might not be available from service yet
+				"uncleared_deposits":    0,
+				"uncleared_checks":      b.OutstandingChecksTotal,
+				"deposit_count":         0,
+				"check_count":           b.OutstandingChecksCount,
+			}
+		}
+		
+		fmt.Printf("GetCachedBalances: Retrieved %d balances via service\n", len(result))
+		return result, nil
+	}
+	
+	// Fallback to direct implementation
 	// Check if database is initialized
 	if a.db == nil {
 		errMsg := "GetCachedBalances: Database not initialized"
@@ -4081,6 +4170,30 @@ func (a *App) RefreshAccountBalance(companyName, accountNumber string) (map[stri
 	
 	fmt.Printf("RefreshAccountBalance: Proceeding with user %s\n", username)
 	
+	// Use service if available
+	if a.Services != nil && a.Services.Banking != nil {
+		balance, err := a.Services.Banking.RefreshAccountBalance(companyName, accountNumber, username)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{
+			"status":                "success",
+			"account_number":        balance.AccountNumber,
+			"account_name":          balance.AccountName,
+			"gl_balance":            balance.GLBalance,
+			"outstanding_total":     balance.OutstandingChecksTotal,
+			"outstanding_count":     balance.OutstandingChecksCount,
+			"bank_balance":          balance.BankBalance,
+			"gl_last_updated":       balance.GLLastUpdated,
+			"checks_last_updated":   balance.ChecksLastUpdated,
+			"gl_freshness":          getFreshnessStatus(balance.GLLastUpdated),
+			"checks_freshness":      getFreshnessStatus(balance.ChecksLastUpdated),
+			"is_stale":             balance.IsStale,
+		}, nil
+	}
+	
+	// Fallback to direct implementation
 	// Check database connection
 	if a.db == nil {
 		fmt.Printf("RefreshAccountBalance: ERROR - Database connection is nil\n")

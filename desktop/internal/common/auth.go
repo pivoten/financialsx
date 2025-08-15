@@ -579,6 +579,58 @@ func (a *Auth) ResetPassword(token, newPassword string) error {
 	return nil
 }
 
+// CreateUser creates a new user with the specified role (admin function)
+func (a *Auth) CreateUser(username, password, email string, roleID int) (*User, error) {
+	// Validate password strength
+	if err := validatePasswordStrength(password); err != nil {
+		return nil, err
+	}
+	
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+	
+	// Insert user with specified role
+	query := `
+		INSERT INTO users (username, password_hash, email, role_id, is_root, is_active)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	
+	result, err := a.db.GetConn().Exec(query, username, string(hashedPassword), email, roleID, false, true)
+	if err != nil {
+		if err.Error() == "UNIQUE constraint failed: users.username" {
+			return nil, ErrUserExists
+		}
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user ID: %w", err)
+	}
+	
+	// Get role name
+	var roleName string
+	err = a.db.GetConn().QueryRow("SELECT name FROM roles WHERE id = ?", roleID).Scan(&roleName)
+	if err != nil {
+		roleName = "Unknown"
+	}
+	
+	return &User{
+		ID:          int(id),
+		Username:    username,
+		Email:       email,
+		CompanyName: a.companyName,
+		RoleID:      roleID,
+		RoleName:    roleName,
+		IsActive:    true,
+		IsRoot:      false,
+		CreatedAt:   time.Now(),
+	}, nil
+}
+
 // AdminResetPassword allows an admin to reset any user's password
 func (a *Auth) AdminResetPassword(userID int, newPassword string) error {
 	// Validate new password strength

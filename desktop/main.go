@@ -1155,6 +1155,16 @@ func (a *App) UpdateUserStatus(userID int, isActive bool) error {
 // CreateUser creates a new user in local SQLite (admin/root only)
 // DEPRECATED: Will be removed once Supabase integration is complete
 func (a *App) CreateUser(username, password, email string, roleID int) (*common.User, error) {
+	// Use service if available
+	if a.Services != nil && a.Services.Auth != nil {
+		// Check permissions
+		if a.currentUser == nil || !a.currentUser.HasPermission("users.create") {
+			return nil, fmt.Errorf("insufficient permissions")
+		}
+		return a.Services.Auth.CreateUser(username, password, email, roleID)
+	}
+	
+	// Fallback to direct auth
 	if a.auth == nil {
 		return nil, fmt.Errorf("not authenticated")
 	}
@@ -1164,9 +1174,7 @@ func (a *App) CreateUser(username, password, email string, roleID int) (*common.
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Note: This uses the Register method which only creates basic users
-	// Role assignment would need to be done separately
-	return a.auth.Register(username, password, email)
+	return a.auth.CreateUser(username, password, email, roleID)
 }
 
 // Configuration Management Functions

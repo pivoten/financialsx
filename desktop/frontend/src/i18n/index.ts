@@ -1,63 +1,80 @@
-import i18n from 'i18next'
-import { initReactI18next } from 'react-i18next'
-import LanguageDetector from 'i18next-browser-languagedetector'
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
 
-// Import translations
-import en from '../locales/en.json'
-import es from '../locales/es.json'
+// Import translation files
+import enTranslations from '../locales/en.json';
+import esTranslations from '../locales/es.json';
 
-// Configuration options for i18n
-const i18nConfig = {
-  resources: {
-    en: { translation: en },
-    es: { translation: es }
-  },
-  fallbackLng: 'en',
-  debug: false,
-  
-  interpolation: {
-    escapeValue: false // React already escapes values
-  },
-  
-  detection: {
-    order: ['localStorage', 'navigator', 'htmlTag'],
-    caches: ['localStorage'],
-    lookupLocalStorage: 'i18nextLng'
-  }
-}
+// Define available languages
+export const languages = {
+  en: { name: 'English', flag: '🇺🇸' },
+  es: { name: 'Español', flag: '🇪🇸' }
+};
 
 // Initialize i18n
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
-  .init(i18nConfig)
-  .then(() => {
-    console.log('i18n initialized successfully')
-  })
-  .catch((error) => {
-    console.error('Failed to initialize i18n:', error)
-  })
+  .init({
+    resources: {
+      en: { translation: enTranslations },
+      es: { translation: esTranslations }
+    },
+    fallbackLng: 'en',
+    debug: false,
+    
+    interpolation: {
+      escapeValue: false // React already escapes values
+    },
+    
+    detection: {
+      order: ['localStorage', 'navigator', 'htmlTag'],
+      caches: ['localStorage']
+    }
+  });
 
-export default i18n
-
-// Helper function to get app config from translations
-export const getAppConfig = () => {
-  const t = i18n.t
-  return {
-    appName: t('app.name'),
-    tagline: t('app.tagline'),
-    copyright: t('app.copyright')
-  }
-}
-
-// Helper to change language
+// Helper functions
 export const changeLanguage = (lng: string) => {
-  i18n.changeLanguage(lng)
-  localStorage.setItem('i18nextLng', lng)
-}
+  i18n.changeLanguage(lng);
+  localStorage.setItem('i18nextLng', lng);
+};
 
-// Get available languages
-export const getAvailableLanguages = () => [
-  { code: 'en', name: 'English' },
-  { code: 'es', name: 'Español' }
-]
+export const getCurrentLanguage = () => {
+  return i18n.language || 'en';
+};
+
+export const getAvailableLanguages = () => {
+  return Object.keys(languages);
+};
+
+// Format currency based on locale
+export const formatCurrency = (amount: number): string => {
+  const locale = i18n.language === 'es' ? 'es-ES' : 'en-US';
+  const currency = i18n.language === 'es' ? 'EUR' : 'USD';
+  
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency
+  }).format(amount);
+};
+
+// Format date based on locale  
+export const formatDate = (date: Date | string): string => {
+  const locale = i18n.language === 'es' ? 'es-ES' : 'en-US';
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(dateObj);
+};
+
+// Format number based on locale
+export const formatNumber = (num: number): string => {
+  const locale = i18n.language === 'es' ? 'es-ES' : 'en-US';
+  return new Intl.NumberFormat(locale).format(num);
+};
+
+export default i18n;

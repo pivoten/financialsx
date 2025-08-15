@@ -190,6 +190,16 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id)
 	);
 
+	CREATE TABLE IF NOT EXISTS password_reset_tokens (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		token_hash TEXT UNIQUE NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used BOOLEAN DEFAULT FALSE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id)
+	);
+
 	-- Mirror of CHECKREC.DBF with JSON extensions for reconciliation data
 	CREATE TABLE IF NOT EXISTS reconciliations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -227,6 +237,8 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+	CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+	CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id);
 	CREATE INDEX IF NOT EXISTS idx_users_role_id ON users(role_id);
 	CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON role_permissions(role_id);
 	CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_id ON role_permissions(permission_id);

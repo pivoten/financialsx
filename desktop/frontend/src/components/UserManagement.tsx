@@ -1,4 +1,17 @@
 
+/**
+ * USER MANAGEMENT COMPONENT - LOCAL SQLITE ONLY
+ * 
+ * IMPORTANT: This component manages users in the local SQLite database only.
+ * It is NOT connected to Supabase authentication.
+ * 
+ * This component will be DEPRECATED once Supabase integration is complete.
+ * It exists only for local testing and development purposes.
+ * 
+ * TODO: Remove this component once Supabase auth is fully integrated.
+ *       All user management should be done through Supabase dashboard.
+ */
+
 import { useState, useEffect } from 'react'
 import { GetAllUsers, GetAllRoles, UpdateUserRole, UpdateUserStatus, CreateUser } from '../../wailsjs/go/main/App'
 import { Button } from './ui/button'

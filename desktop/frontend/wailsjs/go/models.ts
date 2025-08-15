@@ -1,4 +1,4 @@
-export namespace auth {
+export namespace common {
 	
 	export class Role {
 	    id: number;

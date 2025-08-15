@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -18,7 +17,7 @@ import (
 
 	"github.com/jung-kurt/gofpdf/v2"
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
-	"github.com/pivoten/financialsx/desktop/internal/auth"
+	"github.com/pivoten/financialsx/desktop/internal/common"
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
 	"github.com/pivoten/financialsx/desktop/internal/currency"
@@ -41,12 +40,13 @@ var assets embed.FS
 type App struct {
 	ctx      context.Context
 	db       *database.DB
-	auth     *auth.Auth
-	currentUser *auth.User
+	auth     *common.Auth
+	currentUser *common.User
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
 	vfpClient *vfp.VFPClient  // VFP integration client
 	dataBasePath string // Base path where compmast.dbf is located
+	i18n         *common.I18n // i18n support
 	
 	// Platform detection (cached at startup)
 	platform     string // Operating system: "windows", "darwin", "linux"
@@ -88,6 +88,14 @@ func (a *App) startup(ctx context.Context) {
 	debug.SimpleLog(fmt.Sprintf("Working dir: %s", cwd))
 	debug.SimpleLog(fmt.Sprintf("OS env: %s", os.Getenv("OS")))
 	debug.SimpleLog(fmt.Sprintf("PROCESSOR_ARCHITECTURE: %s", os.Getenv("PROCESSOR_ARCHITECTURE")))
+	
+	// Initialize i18n
+	a.i18n = common.NewI18n("en")
+	// Try to load locales from frontend directory
+	localesPath := filepath.Join("frontend", "src", "locales")
+	if err := a.i18n.LoadLocalesFromDir(localesPath); err != nil {
+		debug.SimpleLog(fmt.Sprintf("Failed to load locales: %v", err))
+	}
 	
 	debug.SimpleLog("=== App.startup completed ===")
 }
@@ -276,7 +284,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		}
 		
 		a.db = db
-		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
 		
 		// Initialize VFP integration client
@@ -332,7 +340,7 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		}
 		
 		a.db = db
-		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
 		
 		// Initialize VFP integration client
@@ -395,7 +403,7 @@ func (a *App) Logout(token string) error {
 }
 
 // ValidateSession checks if a session is valid for a specific company
-func (a *App) ValidateSession(token string, companyName string) (*auth.User, error) {
+func (a *App) ValidateSession(token string, companyName string) (*common.User, error) {
 	// Initialize database connection for the specific company
 	if a.db == nil || a.currentUser == nil || a.currentUser.CompanyName != companyName {
 		if a.db != nil {
@@ -414,7 +422,7 @@ func (a *App) ValidateSession(token string, companyName string) (*auth.User, err
 		}
 		
 		a.db = db
-		a.auth = auth.New(db, companyName) // Pass companyName to Auth constructor
+		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
 		
 		// Initialize VFP integration client
@@ -1023,8 +1031,22 @@ func (a *App) GetDashboardData(companyIdentifier string) (map[string]interface{}
 
 // User Management Functions
 
-// GetAllUsers returns all users (admin/root only)
-func (a *App) GetAllUsers() ([]auth.User, error) {
+// ==============================================================================
+// LOCAL SQLITE USER MANAGEMENT
+// ==============================================================================
+// NOTE: These functions manage users in the local SQLite database only.
+// They are NOT related to Supabase authentication.
+// 
+// These functions will be DEPRECATED once Supabase integration is complete.
+// For now, they support the UserManagement UI component for local testing.
+//
+// TODO: Remove these functions and the UserManagement component once 
+//       Supabase auth is fully integrated.
+// ==============================================================================
+
+// GetAllUsers returns all users from local SQLite (admin/root only)
+// DEPRECATED: Will be removed once Supabase integration is complete
+func (a *App) GetAllUsers() ([]common.User, error) {
 	if a.auth == nil {
 		return nil, fmt.Errorf("not authenticated")
 	}
@@ -1037,8 +1059,9 @@ func (a *App) GetAllUsers() ([]auth.User, error) {
 	return a.auth.GetAllUsers()
 }
 
-// GetAllRoles returns all available roles
-func (a *App) GetAllRoles() ([]auth.Role, error) {
+// GetAllRoles returns all available roles from local SQLite
+// DEPRECATED: Will be removed once Supabase integration is complete
+func (a *App) GetAllRoles() ([]common.Role, error) {
 	if a.auth == nil {
 		return nil, fmt.Errorf("not authenticated")
 	}
@@ -1051,7 +1074,8 @@ func (a *App) GetAllRoles() ([]auth.Role, error) {
 	return a.auth.GetAllRoles()
 }
 
-// UpdateUserRole updates a user's role (admin/root only)
+// UpdateUserRole updates a user's role in local SQLite (admin/root only)
+// DEPRECATED: Will be removed once Supabase integration is complete
 func (a *App) UpdateUserRole(userID, newRoleID int) error {
 	if a.auth == nil {
 		return fmt.Errorf("not authenticated")
@@ -1065,7 +1089,8 @@ func (a *App) UpdateUserRole(userID, newRoleID int) error {
 	return a.auth.UpdateUserRole(userID, newRoleID)
 }
 
-// UpdateUserStatus activates or deactivates a user (admin/root only)
+// UpdateUserStatus activates or deactivates a user in local SQLite (admin/root only)
+// DEPRECATED: Will be removed once Supabase integration is complete
 func (a *App) UpdateUserStatus(userID int, isActive bool) error {
 	if a.auth == nil {
 		return fmt.Errorf("not authenticated")
@@ -1079,8 +1104,9 @@ func (a *App) UpdateUserStatus(userID int, isActive bool) error {
 	return a.auth.UpdateUserStatus(userID, isActive)
 }
 
-// CreateUser creates a new user (admin/root only)
-func (a *App) CreateUser(username, password, email string, roleID int) (*auth.User, error) {
+// CreateUser creates a new user in local SQLite (admin/root only)
+// DEPRECATED: Will be removed once Supabase integration is complete
+func (a *App) CreateUser(username, password, email string, roleID int) (*common.User, error) {
 	if a.auth == nil {
 		return nil, fmt.Errorf("not authenticated")
 	}
@@ -1090,8 +1116,8 @@ func (a *App) CreateUser(username, password, email string, roleID int) (*auth.Us
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Note: This would need a new method in auth.go for admin-created users
-	// For now, we'll use the existing Register method with some modifications
+	// Note: This uses the Register method which only creates basic users
+	// Role assignment would need to be done separately
 	return a.auth.Register(username, password, email)
 }
 
@@ -2232,7 +2258,7 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 		// Debug logging for account 100000 specifically
 		if isAccountMatch && accountNumber == "100000" && accountMatches <= 20 {
 			checkNum := fmt.Sprintf("%v", row[checkNumIdx])
-			amount := parseFloat(row[amountIdx])
+			amount := common.ParseFloat(row[amountIdx])
 			entryType := ""
 			if entryTypeIdx != -1 && len(row) > entryTypeIdx {
 				entryType = strings.TrimSpace(fmt.Sprintf("%v", row[entryTypeIdx]))
@@ -2275,7 +2301,7 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 			
 			check := map[string]interface{}{
 				"checkNumber": fmt.Sprintf("%v", row[checkNumIdx]),
-				"amount": parseFloat(row[amountIdx]),
+				"amount": common.ParseFloat(row[amountIdx]),
 				"account": checkAccount,
 				"entryType": entryType, // D = Deposit, C = Check
 			}
@@ -2396,12 +2422,12 @@ func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, err
 			
 			// Get debit amount if column exists
 			if debitIdx != -1 && len(row) > debitIdx {
-				debit = parseFloat(row[debitIdx])
+				debit = common.ParseFloat(row[debitIdx])
 			}
 			
 			// Get credit amount if column exists
 			if creditIdx != -1 && len(row) > creditIdx {
-				credit = parseFloat(row[creditIdx])
+				credit = common.ParseFloat(row[creditIdx])
 			}
 			
 			// For bank accounts, debits increase balance, credits decrease balance
@@ -2678,7 +2704,7 @@ func (a *App) parseCSVToBankTransactions(csvContent string, accountNumber string
 	}
 	
 	// Parse header to determine column indices - handle quoted fields properly
-	header := parseCSVLine(lines[0])
+	header := common.ParseCSVLine(lines[0])
 	columnMap := make(map[string]int)
 	
 	for i, col := range header {
@@ -2703,7 +2729,7 @@ func (a *App) parseCSVToBankTransactions(csvContent string, accountNumber string
 			continue
 		}
 		
-		fields := parseCSVLine(line)
+		fields := common.ParseCSVLine(line)
 		if len(fields) < len(header) {
 			continue // Skip malformed rows
 		}
@@ -2759,7 +2785,7 @@ func (a *App) parseCSVToBankTransactions(csvContent string, accountNumber string
 		
 		// Extract amount
 		if amountIdx, exists := columnMap["amount"]; exists && amountIdx < len(fields) {
-			transaction.Amount = parseFloat(fields[amountIdx])
+			transaction.Amount = common.ParseFloat(fields[amountIdx])
 		}
 		
 		// Extract type
@@ -2867,8 +2893,8 @@ func (a *App) autoMatchBankTransactions(bankTransactions []BankTransaction, exis
 	// Sort bank transactions by date to match older transactions first
 	// This helps with recurring transactions
 	sort.Slice(bankTransactions, func(i, j int) bool {
-		dateI, _ := parseDate(bankTransactions[i].TransactionDate)
-		dateJ, _ := parseDate(bankTransactions[j].TransactionDate)
+		dateI, _ := common.ParseDate(bankTransactions[i].TransactionDate)
+		dateJ, _ := common.ParseDate(bankTransactions[j].TransactionDate)
 		return dateI.Before(dateJ)
 	})
 	
@@ -2948,7 +2974,7 @@ func (a *App) calculateBankTxnMatchScore(txn *BankTransaction, check map[string]
 	score := 0.0
 	
 	// Amount matching (35% weight for recurring transactions)
-	checkAmount := parseFloat(check["amount"])
+	checkAmount := common.ParseFloat(check["amount"])
 	txnAmount := math.Abs(txn.Amount) // Always use absolute value for comparison
 	
 	amountMatches := false
@@ -2975,8 +3001,8 @@ func (a *App) calculateBankTxnMatchScore(txn *BankTransaction, check map[string]
 	// Date proximity matching (40% weight - INCREASED for recurring transactions)
 	// This is critical for matching recurring payments with same amounts
 	if txn.TransactionDate != "" {
-		txnDate, txnErr := parseDate(txn.TransactionDate)
-		checkDate, checkErr := parseDate(fmt.Sprintf("%v", check["date"]))
+		txnDate, txnErr := common.ParseDate(txn.TransactionDate)
+		checkDate, checkErr := common.ParseDate(fmt.Sprintf("%v", check["date"]))
 		
 		if txnErr == nil && checkErr == nil {
 			daysDiff := math.Abs(txnDate.Sub(checkDate).Hours() / 24)
@@ -3019,7 +3045,7 @@ func (a *App) calculateBankTxnMatchScore(txn *BankTransaction, check map[string]
 
 // determineBankTxnMatchType determines the type of match for bank transaction
 func (a *App) determineBankTxnMatchType(score float64, txn *BankTransaction, check map[string]interface{}) string {
-	checkAmount := parseFloat(check["amount"])
+	checkAmount := common.ParseFloat(check["amount"])
 	
 	// Exact match: amount + check number (if available)
 	if math.Abs(math.Abs(txn.Amount)-checkAmount) < 0.01 {
@@ -3638,30 +3664,6 @@ func (a *App) GetBankTransactions(companyName string, accountNumber string, impo
 	}, nil
 }
 
-// parseCSVLine properly parses a CSV line handling quoted fields
-func parseCSVLine(line string) []string {
-	var fields []string
-	var current strings.Builder
-	inQuotes := false
-	
-	for i := 0; i < len(line); i++ {
-		ch := line[i]
-		
-		if ch == '"' {
-			inQuotes = !inQuotes
-		} else if ch == ',' && !inQuotes {
-			fields = append(fields, current.String())
-			current.Reset()
-		} else {
-			current.WriteByte(ch)
-		}
-	}
-	
-	// Don't forget the last field
-	fields = append(fields, current.String())
-	
-	return fields
-}
 
 // parseCSVContent parses CSV content and handles different bank formats
 func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
@@ -3671,7 +3673,7 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 	}
 	
 	// Parse header to determine column indices - handle quoted fields
-	header := parseCSVLine(lines[0])
+	header := common.ParseCSVLine(lines[0])
 	columnMap := make(map[string]int)
 	
 	fmt.Printf("CSV Header: %v\n", header)
@@ -3702,7 +3704,7 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 		}
 		
 		// Parse CSV properly handling quoted fields
-		fields := parseCSVLine(line)
+		fields := common.ParseCSVLine(line)
 		if len(fields) < len(header) {
 			fmt.Printf("Skipping malformed row %d: %d fields vs %d expected\n", lineNum+1, len(fields), len(header))
 			continue // Skip malformed rows
@@ -3751,7 +3753,7 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 		// Extract amount (handle debit/credit columns or single amount column)
 		if amountIdx, exists := columnMap["amount"]; exists && amountIdx < len(fields) {
 			amountStr := strings.TrimSpace(fields[amountIdx])
-			transaction.Amount = parseFloat(amountStr)
+			transaction.Amount = common.ParseFloat(amountStr)
 			if transaction.Amount == 0 && amountStr != "0" && amountStr != "0.00" {
 				fmt.Printf("WARNING: Failed to parse amount: '%s'\n", amountStr)
 			}
@@ -3759,10 +3761,10 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 			// Handle separate debit/credit columns
 			var debit, credit float64
 			if debitIdx, exists := columnMap["debit"]; exists && debitIdx < len(fields) {
-				debit = parseFloat(fields[debitIdx])
+				debit = common.ParseFloat(fields[debitIdx])
 			}
 			if creditIdx, exists := columnMap["credit"]; exists && creditIdx < len(fields) {
-				credit = parseFloat(fields[creditIdx])
+				credit = common.ParseFloat(fields[creditIdx])
 			}
 			
 			// Net amount (debits are negative)
@@ -3789,7 +3791,7 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 		
 		// Extract balance (store in extended data)
 		if balanceIdx, exists := columnMap["balance"]; exists && balanceIdx < len(fields) {
-			balance := parseFloat(fields[balanceIdx])
+			balance := common.ParseFloat(fields[balanceIdx])
 			if transaction.ExtendedData == nil {
 				transaction.ExtendedData = make(map[string]interface{})
 			}
@@ -3807,7 +3809,7 @@ func (a *App) parseCSVContent(csvContent string) ([]BankTransaction, error) {
 		}
 		if transaction.CheckNumber == "" {
 			// Fallback to extracting from description
-			transaction.CheckNumber = extractCheckNumber(transaction.Description)
+			transaction.CheckNumber = common.ExtractCheckNumber(transaction.Description)
 		}
 		
 		transactions = append(transactions, transaction)
@@ -3864,7 +3866,7 @@ func (a *App) calculateMatchScore(csvTxn BankTransaction, check map[string]inter
 	score := 0.0
 	
 	// Amount matching (most important - 50% weight)
-	checkAmount := parseFloat(check["amount"])
+	checkAmount := common.ParseFloat(check["amount"])
 	if checkAmount > 0 && math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 0.01 {
 		score += 0.5 // Exact amount match
 	} else if checkAmount > 0 && math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 1.0 {
@@ -3883,8 +3885,8 @@ func (a *App) calculateMatchScore(csvTxn BankTransaction, check map[string]inter
 	
 	// Date proximity matching (20% weight)
 	if csvTxn.TransactionDate != "" {
-		csvDate, csvErr := parseDate(csvTxn.TransactionDate)
-		checkDate, checkErr := parseDate(fmt.Sprintf("%v", check["date"]))
+		csvDate, csvErr := common.ParseDate(csvTxn.TransactionDate)
+		checkDate, checkErr := common.ParseDate(fmt.Sprintf("%v", check["date"]))
 		
 		if csvErr == nil && checkErr == nil {
 			daysDiff := math.Abs(csvDate.Sub(checkDate).Hours() / 24)
@@ -3903,7 +3905,7 @@ func (a *App) calculateMatchScore(csvTxn BankTransaction, check map[string]inter
 
 // determineMatchType determines the type of match based on score and criteria
 func (a *App) determineMatchType(score float64, csvTxn BankTransaction, check map[string]interface{}) string {
-	checkAmount := parseFloat(check["amount"])
+	checkAmount := common.ParseFloat(check["amount"])
 	
 	// Exact match: amount + check number (if available)
 	if math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 0.01 {
@@ -3921,46 +3923,7 @@ func (a *App) determineMatchType(score float64, csvTxn BankTransaction, check ma
 	return "fuzzy"
 }
 
-// extractCheckNumber extracts check number from transaction description
-func extractCheckNumber(description string) string {
-	// Common patterns: "CHECK #1234", "Check 1234", "CHK 1234"
-	patterns := []string{
-		`(?i)check\s*#?\s*(\d+)`,
-		`(?i)chk\s*#?\s*(\d+)`,
-		`(?i)#(\d{4,})`, // Just # followed by 4+ digits
-	}
-	
-	for _, pattern := range patterns {
-		if re, err := regexp.Compile(pattern); err == nil {
-			if matches := re.FindStringSubmatch(description); len(matches) > 1 {
-				return matches[1]
-			}
-		}
-	}
-	
-	return ""
-}
 
-// parseDate parses various date formats commonly found in bank CSVs
-func parseDate(dateStr string) (time.Time, error) {
-	formats := []string{
-		"01/02/2006",  // MM/dd/yyyy
-		"1/2/2006",    // M/d/yyyy
-		"2006-01-02",  // yyyy-MM-dd
-		"01-02-2006",  // MM-dd-yyyy
-		"02/01/2006",  // dd/MM/yyyy (European)
-		"2006/01/02",  // yyyy/MM/dd
-	}
-	
-	dateStr = strings.TrimSpace(dateStr)
-	for _, format := range formats {
-		if t, err := time.Parse(format, dateStr); err == nil {
-			return t, nil
-		}
-	}
-	
-	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
-}
 
 // GetCachedBalances retrieves cached balances for all bank accounts
 func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, error) {
@@ -4320,7 +4283,7 @@ func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, err
 				"columns": glColumns,
 			}
 			if glAmountIdx >= 0 && glAmountIdx < len(row) {
-				entry["amount"] = parseFloat(row[glAmountIdx])
+				entry["amount"] = common.ParseFloat(row[glAmountIdx])
 			}
 			glMap[key] = append(glMap[key], entry)
 		}
@@ -4355,7 +4318,7 @@ func (a *App) AuditCheckBatches(companyName string) (map[string]interface{}, err
 		// Get check amount
 		var checkAmount float64
 		if amountIdx >= 0 && amountIdx < len(row) {
-			checkAmount = parseFloat(row[amountIdx])
+			checkAmount = common.ParseFloat(row[amountIdx])
 		}
 		
 		// Look for matching GL entries
@@ -4517,7 +4480,7 @@ func (a *App) AuditDuplicateCIDCHEC(companyName string) (map[string]interface{},
 			checkRecord["check_number"] = strings.TrimSpace(fmt.Sprintf("%v", row[checkNumIdx]))
 		}
 		if amountIdx != -1 && len(row) > amountIdx {
-			checkRecord["amount"] = parseFloat(row[amountIdx])
+			checkRecord["amount"] = common.ParseFloat(row[amountIdx])
 		}
 		if dateIdx != -1 && len(row) > dateIdx {
 			if dateVal := row[dateIdx]; dateVal != nil {
@@ -4750,8 +4713,8 @@ func (a *App) AuditVoidChecks(companyName string) (map[string]interface{}, error
 		
 		// Check 1: NAMOUNT should equal NVOIDAMT
 		if amountIdx != -1 && voidAmtIdx != -1 && len(row) > amountIdx && len(row) > voidAmtIdx {
-			amount := parseFloat(row[amountIdx])
-			voidAmount := parseFloat(row[voidAmtIdx])
+			amount := common.ParseFloat(row[amountIdx])
+			voidAmount := common.ParseFloat(row[voidAmtIdx])
 			if math.Abs(amount - voidAmount) > 0.01 { // Allow for small floating point differences
 				issueDetails = append(issueDetails, fmt.Sprintf("Amount mismatch: NAMOUNT=%.2f, NVOIDAMT=%.2f", amount, voidAmount))
 			}
@@ -4806,10 +4769,10 @@ func (a *App) AuditVoidChecks(companyName string) (map[string]interface{}, error
 				issueRecord["check_number"] = strings.TrimSpace(fmt.Sprintf("%v", row[checkNumIdx]))
 			}
 			if amountIdx != -1 && len(row) > amountIdx {
-				issueRecord["amount"] = parseFloat(row[amountIdx])
+				issueRecord["amount"] = common.ParseFloat(row[amountIdx])
 			}
 			if voidAmtIdx != -1 && len(row) > voidAmtIdx {
-				issueRecord["void_amount"] = parseFloat(row[voidAmtIdx])
+				issueRecord["void_amount"] = common.ParseFloat(row[voidAmtIdx])
 			}
 			if dateIdx != -1 && len(row) > dateIdx {
 				if dateVal := row[dateIdx]; dateVal != nil {
@@ -5032,7 +4995,7 @@ func (a *App) AuditCheckGLMatching(companyName string, accountNumber string, sta
 			payee = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
 		}
 		if idx, ok := checkIdxMap["NAMOUNT"]; ok && idx < len(row) {
-			amount = parseFloat(row[idx])
+			amount = common.ParseFloat(row[idx])
 		}
 		if idx, ok := checkIdxMap["CCHECKNO"]; ok && idx < len(row) {
 			checkNum = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
@@ -5111,10 +5074,10 @@ func (a *App) AuditCheckGLMatching(companyName string, accountNumber string, sta
 			cid = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
 		}
 		if idx, ok := glIdxMap["NCREDITS"]; ok && idx < len(row) {
-			credits = parseFloat(row[idx])
+			credits = common.ParseFloat(row[idx])
 		}
 		if idx, ok := glIdxMap["NDEBITS"]; ok && idx < len(row) {
-			debits = parseFloat(row[idx])
+			debits = common.ParseFloat(row[idx])
 		}
 		if idx, ok := glIdxMap["CDESC"]; ok && idx < len(row) {
 			desc = strings.TrimSpace(fmt.Sprintf("%v", row[idx]))
@@ -5248,35 +5211,7 @@ func (a *App) AuditCheckGLMatching(companyName string, accountNumber string, sta
 	return auditReport, nil
 }
 
-// Helper function to safely parse float values from DBF
-func parseFloat(value interface{}) float64 {
-	switch v := value.(type) {
-	case float64:
-		return v
-	case float32:
-		return float64(v)
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	case string:
-		// Remove commas and parse
-		cleanStr := strings.ReplaceAll(v, ",", "")
-		if f, err := strconv.ParseFloat(cleanStr, 64); err == nil {
-			return f
-		}
-	}
-	return 0.0
-}
 
-// Helper function to get map keys for debugging
-func getMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
 
 // AuditPayeeCIDVerification checks that check payees have matching CIDs in investor or vendor tables
 func (a *App) AuditPayeeCIDVerification(companyName string) (map[string]interface{}, error) {
@@ -5334,7 +5269,7 @@ func (a *App) AuditPayeeCIDVerification(companyName string) (map[string]interfac
 						checksRows = append(checksRows, row)
 					}
 				} else {
-					fmt.Printf("No columns found in checksData, available keys: %v\n", getMapKeys(checksData))
+					fmt.Printf("No columns found in checksData, available keys: %v\n", common.GetMapKeys(checksData))
 				}
 			}
 		default:
@@ -5546,9 +5481,9 @@ func (a *App) AuditPayeeCIDVerification(companyName string) (map[string]interfac
 		
 		// Get amount
 		if val, ok := check["AMOUNT"]; ok {
-			checkAmount = parseFloat(val)
+			checkAmount = common.ParseFloat(val)
 		} else if val, ok := check["NAMOUNT"]; ok {
-			checkAmount = parseFloat(val)
+			checkAmount = common.ParseFloat(val)
 		}
 		
 		// Get date
@@ -5775,7 +5710,7 @@ func (a *App) AuditBankReconciliation(companyName string) (map[string]interface{
 		}
 
 		accountNum := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
-		endingBalance := parseFloat(row[endingBalanceIdx])
+		endingBalance := common.ParseFloat(row[endingBalanceIdx])
 		
 		if i < 5 { // Debug first few rows
 			fmt.Printf("AuditBankReconciliation: Row %d - Account: %s, Balance: %f\n", i, accountNum, endingBalance)
@@ -6032,9 +5967,9 @@ func (a *App) AuditSingleBankAccount(companyName, accountNumber string) (map[str
 	var outstandingCount int
 	for _, balance := range cachedBalances {
 		if balance["account_number"].(string) == accountNumber {
-			glBalance = parseFloat(balance["gl_balance"])
-			outstandingChecks = parseFloat(balance["outstanding_total"])
-			outstandingCount = int(parseFloat(balance["outstanding_count"]))
+			glBalance = common.ParseFloat(balance["gl_balance"])
+			outstandingChecks = common.ParseFloat(balance["outstanding_total"])
+			outstandingCount = int(common.ParseFloat(balance["outstanding_count"]))
 			break
 		}
 	}
@@ -6092,7 +6027,7 @@ func (a *App) AuditSingleBankAccount(companyName, accountNumber string) (map[str
 			continue // Skip records for other accounts
 		}
 
-		endingBalance := parseFloat(row[endingBalanceIdx])
+		endingBalance := common.ParseFloat(row[endingBalanceIdx])
 		
 		var recDate time.Time
 		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
@@ -6273,16 +6208,16 @@ func (a *App) GetLastReconciliation(companyName, accountNumber string) (map[stri
 		
 		// Get balances
 		if endBalIdx != -1 && len(row) > endBalIdx {
-			record["ending_balance"] = parseFloat(row[endBalIdx])
+			record["ending_balance"] = common.ParseFloat(row[endBalIdx])
 		}
 		if begBalIdx != -1 && len(row) > begBalIdx {
-			record["beginning_balance"] = parseFloat(row[begBalIdx])
+			record["beginning_balance"] = common.ParseFloat(row[begBalIdx])
 		}
 		if clearedCountIdx != -1 && len(row) > clearedCountIdx {
-			record["cleared_count"] = int(parseFloat(row[clearedCountIdx]))
+			record["cleared_count"] = int(common.ParseFloat(row[clearedCountIdx]))
 		}
 		if clearedAmtIdx != -1 && len(row) > clearedAmtIdx {
-			record["cleared_amount"] = parseFloat(row[clearedAmtIdx])
+			record["cleared_amount"] = common.ParseFloat(row[clearedAmtIdx])
 		}
 		
 		// Only add if we have a valid date
@@ -7150,14 +7085,6 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		},
 	}
 	
-	// Helper function to get map keys for debugging
-	getMapKeys := func(m map[string]interface{}) []string {
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		return keys
-	}
 	
 	// Helper function to search for batch in a table
 	searchTable := func(tableName string, resultKey string) {
@@ -7200,7 +7127,7 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 		if rowsRaw, exists := data["rows"]; exists {
 			fmt.Printf("FollowBatchNumber: data[\"rows\"] type in %s: %T\n", tableName, rowsRaw)
 		} else {
-			fmt.Printf("FollowBatchNumber: No 'rows' key in data for %s. Keys: %v\n", tableName, getMapKeys(data))
+			fmt.Printf("FollowBatchNumber: No 'rows' key in data for %s. Keys: %v\n", tableName, common.GetMapKeys(data))
 		}
 		
 		if rows, ok := data["rows"].([]map[string]interface{}); ok {
@@ -7211,7 +7138,7 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 					if batchRaw, exists := row[searchField]; exists {
 						fmt.Printf("FollowBatchNumber: Row %d %s in %s: '%v' (type: %T)\n", i, searchField, tableName, batchRaw, batchRaw)
 					} else {
-						fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, getMapKeys(row))
+						fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, common.GetMapKeys(row))
 					}
 				}
 				
@@ -7248,7 +7175,7 @@ func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[str
 						if batchRaw, exists := row[searchField]; exists {
 							fmt.Printf("FollowBatchNumber: Row %d %s in %s: '%v' (type: %T)\n", i, searchField, tableName, batchRaw, batchRaw)
 						} else {
-							fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, getMapKeys(row))
+							fmt.Printf("FollowBatchNumber: Row %d in %s has no %s field. Keys: %v\n", i, tableName, searchField, common.GetMapKeys(row))
 						}
 					}
 					
@@ -7817,7 +7744,7 @@ func (a *App) GetChartOfAccounts(companyName string, sortBy string, includeInact
 		return nil, fmt.Errorf("failed to read Chart of Accounts: %v", err)
 	}
 	
-	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: COA.dbf read successfully, data keys: %v", getMapKeys(coaData)))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: COA.dbf read successfully, data keys: %v", common.GetMapKeys(coaData)))
 	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("COA.dbf read, checking data structure"))
 	
 	// Get rows as [][]interface{} since ReadDBFFile returns array format
@@ -9091,6 +9018,111 @@ func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, incl
 	
 	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("PDF report saved to %s", selectedFile))
 	return selectedFile, nil
+}
+
+// ============================================================================
+// I18N FUNCTIONS
+// ============================================================================
+
+// GetLocale returns the current locale
+func (a *App) GetLocale() string {
+	if a.i18n != nil {
+		return a.i18n.GetLocale()
+	}
+	return "en"
+}
+
+// SetLocale sets the current locale
+func (a *App) SetLocale(locale string) {
+	if a.i18n != nil {
+		a.i18n.SetLocale(locale)
+	}
+}
+
+// GetAvailableLocales returns all available locales
+func (a *App) GetAvailableLocales() []string {
+	if a.i18n != nil {
+		return a.i18n.GetAvailableLocales()
+	}
+	return []string{"en"}
+}
+
+// Translate translates a key to the current locale
+func (a *App) Translate(key string) string {
+	if a.i18n != nil {
+		return a.i18n.T(key)
+	}
+	return key
+}
+
+// ============================================================================
+// PASSWORD MANAGEMENT FUNCTIONS
+// ============================================================================
+
+// ChangePassword allows a user to change their own password
+func (a *App) ChangePassword(oldPassword, newPassword string) error {
+	if a.currentUser == nil {
+		return fmt.Errorf("user not authenticated")
+	}
+	
+	if a.auth == nil {
+		return fmt.Errorf("auth service not initialized")
+	}
+	
+	return a.auth.ChangePassword(a.currentUser.ID, oldPassword, newPassword)
+}
+
+// RequestPasswordReset sends a password reset email to the user
+func (a *App) RequestPasswordReset(email string) error {
+	// In a real application, this would send an email
+	// For now, we'll just generate the token and return success
+	
+	// We need to initialize auth with a database first
+	// This should use the master database or a specific company database
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	
+	// Use the current database connection
+	if a.auth == nil {
+		return fmt.Errorf("auth service not initialized")
+	}
+	
+	token, err := a.auth.RequestPasswordReset(email)
+	if err != nil {
+		return err
+	}
+	
+	if token != nil {
+		// In production, send email with reset link
+		// For development, log the token
+		logger.WriteInfo("PasswordReset", fmt.Sprintf("Reset token generated for %s: %s", email, token.Token))
+	}
+	
+	return nil
+}
+
+// ResetPassword resets a user's password with a valid token
+func (a *App) ResetPassword(token, newPassword string) error {
+	if a.auth == nil {
+		return fmt.Errorf("auth service not initialized")
+	}
+	
+	return a.auth.ResetPassword(token, newPassword)
+}
+
+// AdminResetPassword allows an admin to reset any user's password
+func (a *App) AdminResetPassword(userID int, newPassword string) error {
+	// Check if current user is admin
+	if a.currentUser == nil || (!a.currentUser.IsRoot && a.currentUser.RoleName != "Admin") {
+		return fmt.Errorf("insufficient permissions")
+	}
+	
+	if a.auth == nil {
+		return fmt.Errorf("auth service not initialized")
+	}
+	
+	return a.auth.AdminResetPassword(userID, newPassword)
 }
 
 func main() {

@@ -23,10 +23,10 @@ var (
 	platform           string = runtime.GOOS
 )
 
-// normalizeCompanyPath converts a company path based on the current platform
+// NormalizeCompanyPath converts a company path based on the current platform
 // On Windows: Clean the path but keep it intact (remove trailing spaces/junk)
 // On Mac/Linux: Extract just the company folder name since folders are relative to compmast.dbf
-func normalizeCompanyPath(companyPath string) string {
+func NormalizeCompanyPath(companyPath string) string {
 	// If empty, return as-is
 	if companyPath == "" {
 		return companyPath
@@ -117,10 +117,10 @@ func GetSavedDataPath() string {
 	return strings.TrimSpace(string(data))
 }
 
-// getDatafilesPath returns the path to the datafiles directory
+// GetDatafilesPath returns the path to the datafiles directory
 // It looks for the directory in multiple locations to handle both dev and production scenarios
 // Uses caching to avoid repeated scanning after first discovery
-func getDatafilesPath() (string, error) {
+func GetDatafilesPath() (string, error) {
 	// Check cache first
 	datafilesPathMutex.RLock()
 	if cachedDatafilesPath != "" {
@@ -195,7 +195,7 @@ type Company struct {
 
 // DetectCompanies scans the datafiles directory for company folders
 func DetectCompanies() ([]Company, error) {
-	datafilesPath, err := getDatafilesPath()
+	datafilesPath, err := GetDatafilesPath()
 	if err != nil {
 		fmt.Printf("Error getting datafiles path: %v\n", err)
 		return []Company{}, err
@@ -265,7 +265,7 @@ func ValidateCompanyName(name string) error {
 	}
 
 	// Check if it already exists
-	datafilesPath, err := getDatafilesPath()
+	datafilesPath, err := GetDatafilesPath()
 	if err != nil {
 		return err
 	}
@@ -281,7 +281,7 @@ func ValidateCompanyName(name string) error {
 // CreateCompanyDirectory creates a new company directory structure
 func CreateCompanyDirectory(name string) error {
 	// Normalize the company path based on platform
-	name = normalizeCompanyPath(name)
+	name = NormalizeCompanyPath(name)
 	
 	// Only validate for empty name and invalid characters, not existence
 	if name == "" {
@@ -296,7 +296,7 @@ func CreateCompanyDirectory(name string) error {
 		}
 	}
 
-	datafilesPath, err := getDatafilesPath()
+	datafilesPath, err := GetDatafilesPath()
 	if err != nil {
 		return err
 	}
@@ -317,7 +317,7 @@ func GetDBFFiles(companyName string) ([]string, error) {
 	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Called with: %s", companyName))
 	
 	// Normalize the company path based on platform
-	companyName = normalizeCompanyPath(companyName)
+	companyName = NormalizeCompanyPath(companyName)
 	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Normalized to: %s", companyName))
 	writeErrorLog(fmt.Sprintf("GetDBFFiles: Normalized company path: %s", companyName))
 	
@@ -338,7 +338,7 @@ func GetDBFFiles(companyName string) ([]string, error) {
 			companyPath = filepath.Join(exeDir, companyName)
 		} else {
 			// On Mac/Linux, it should be relative to datafiles
-			datafilesPath, err := getDatafilesPath()
+			datafilesPath, err := GetDatafilesPath()
 			if err != nil {
 				return nil, err
 			}
@@ -348,7 +348,7 @@ func GetDBFFiles(companyName string) ([]string, error) {
 		debug.LogInfo("GetDBFFiles", fmt.Sprintf("Using relative path: %s -> %s", companyName, companyPath))
 	} else {
 		// Just a folder name - use the datafiles structure
-		datafilesPath, err := getDatafilesPath()
+		datafilesPath, err := GetDatafilesPath()
 		if err != nil {
 			return nil, err
 		}
@@ -568,7 +568,7 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 	writeErrorLog(fmt.Sprintf("ReadDBFFile: START - company='%s', file='%s'", companyName, fileName))
 	
 	// Normalize the company path based on platform
-	companyName = normalizeCompanyPath(companyName)
+	companyName = NormalizeCompanyPath(companyName)
 	debug.LogInfo("ReadDBFFile", fmt.Sprintf("Normalized to: %s", companyName))
 	writeErrorLog(fmt.Sprintf("ReadDBFFile: Normalized company path: %s", companyName))
 	
@@ -597,7 +597,7 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 		// On Mac/Linux, use the original logic
 		if strings.Contains(companyName, string(os.PathSeparator)) || strings.Contains(companyName, "/") {
 			// It's a relative path
-			datafilesPath, err := getDatafilesPath()
+			datafilesPath, err := GetDatafilesPath()
 			if err != nil {
 				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
 				return nil, err
@@ -605,7 +605,7 @@ func ReadDBFFile(companyName, fileName, searchTerm string, offset, limit int, so
 			filePath = filepath.Join(datafilesPath, filepath.Base(companyName), fileName)
 		} else {
 			// Just a folder name
-			datafilesPath, err := getDatafilesPath()
+			datafilesPath, err := GetDatafilesPath()
 			if err != nil {
 				writeErrorLog(fmt.Sprintf("ReadDBFFile: Failed to get datafiles path: %v", err))
 				return nil, err
@@ -944,7 +944,7 @@ func getCheckActivity(companyName string) (map[string]interface{}, error) {
 
 // getRecordCount efficiently counts active records in a DBF file without loading all data
 func getRecordCount(companyName, fileName string) (uint32, error) {
-	datafilesPath, err := getDatafilesPath()
+	datafilesPath, err := GetDatafilesPath()
 	if err != nil {
 		return 0, err
 	}

@@ -321,16 +321,22 @@ export default function SherWareLegacy() {
     return Icon
   }
 
+  // If VFP is disabled, only show the warning message
+  if (!vfpEnabled) {
+    return (
+      <Alert className="border-yellow-200 bg-yellow-50">
+        <AlertCircle className="h-4 w-4 text-yellow-600" />
+        <AlertDescription className="text-yellow-800">
+          VFP integration is disabled. Go to Settings → Legacy Integration to enable it.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-gray-900">SherWare Legacy Forms</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Launch Visual FoxPro forms directly from FinancialsX
-          </p>
-        </div>
+      {/* View Mode Toggle */}
+      <div className="flex justify-end">
         <div className="flex items-center space-x-2">
           <Button
             variant={viewMode === 'grid' ? 'default' : 'outline'}
@@ -348,16 +354,6 @@ export default function SherWareLegacy() {
           </Button>
         </div>
       </div>
-
-      {/* Status Alert */}
-      {!vfpEnabled && (
-        <Alert className="border-yellow-200 bg-yellow-50">
-          <AlertCircle className="h-4 w-4 text-yellow-600" />
-          <AlertDescription className="text-yellow-800">
-            VFP integration is disabled. Go to Settings → Legacy Integration to enable it.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {error && (
         <Alert className="border-red-200 bg-red-50">

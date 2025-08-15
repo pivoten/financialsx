@@ -89,6 +89,8 @@ import UserProfile from './components/UserProfile'
 import WellManagement from './components/WellManagement'
 import LegacyIntegration from './components/LegacyIntegration'
 import SherWareLegacy from './components/SherWareLegacy'
+import VendorManagement from './components/VendorManagement'
+import VendorManagementDynamic from './components/VendorManagementDynamic'
 import AuditTools from './components/AuditTools'
 import FollowBatchNumber from './components/FollowBatchNumber'
 import FinancialReports from './components/FinancialReports'
@@ -121,7 +123,6 @@ import {
   FileSearch,
   Menu,
   ChevronLeft,
-  ChevronDown,
   Shield,
   Wrench,
   Upload,
@@ -558,12 +559,13 @@ interface AdvancedDashboardProps {
 function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCompanyDisplay }: AdvancedDashboardProps) {
   const [activeView, setActiveView] = useState('dashboard')
   const [activeSubView, setActiveSubView] = useState('')
+  const [activeSubSubView, setActiveSubSubView] = useState('')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   // Main navigation items
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'sherware', label: 'SherWare Legacy', icon: ExternalLink },
+    { id: 'sherware', label: 'Legacy', icon: ExternalLink },
     { id: 'operations', label: 'Operations', icon: Activity },
     { id: 'financials', label: 'Financials', icon: DollarSign },
     { id: 'data', label: 'Data', icon: Database },
@@ -574,6 +576,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
 
   const getPageTitle = () => {
     if (activeView === 'dashboard') return 'Dashboard'
+    if (activeView === 'sherware') return 'Legacy'
     
     // Sub-view titles
     if (activeSubView) {
@@ -620,7 +623,8 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
       data: 'Data Management Dashboard',
       reporting: 'Reports Dashboard',
       utilities: 'Utilities Dashboard',
-      settings: 'Settings Dashboard'
+      settings: 'Settings Dashboard',
+      sherware: 'Legacy'
     }
     
     return viewTitles[activeView] || 'Dashboard'
@@ -634,7 +638,8 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
       data: 'Database maintenance and data management',
       reporting: 'Reports, compliance, and documentation',
       utilities: 'Tools, calculators, and system utilities',
-      settings: 'System configuration and user management'
+      settings: 'System configuration and user management',
+      sherware: 'Launch Visual FoxPro forms directly from FinancialsX'
     }
     
     return descriptions[activeView] || ''
@@ -683,6 +688,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
                 onClick={() => {
                   setActiveView(item.id)
                   setActiveSubView('')
+                  setActiveSubSubView('')
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md mb-1 transition-all ${
                   activeView === item.id
@@ -749,7 +755,10 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
                     <BreadcrumbItem>
                       {activeSubView ? (
                         <BreadcrumbLink
-                          onClick={() => setActiveSubView('')}
+                          onClick={() => {
+                            setActiveSubView('')
+                            setActiveSubSubView('')
+                          }}
                         >
                           {menuItems.find(item => item.id === activeView)?.label}
                         </BreadcrumbLink>
@@ -777,126 +786,6 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
           
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
-              {/* Section Navigation Dropdown */}
-              {activeView !== 'dashboard' && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                      {menuItems.find(item => item.id === activeView)?.icon && 
-                        React.createElement(menuItems.find(item => item.id === activeView)!.icon, { className: "w-4 h-4" })
-                      }
-                      {menuItems.find(item => item.id === activeView)?.label}
-                      <ChevronDown className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
-                    {activeView === 'financials' && (
-                      <>
-                        <DropdownMenuLabel>Financial Menu</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setActiveSubView('banking')}>
-                          <Home className="mr-2 h-4 w-4" />
-                          <span>Banking</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('transactions')}>
-                          <DollarSign className="mr-2 h-4 w-4" />
-                          <span>Accounts Payable</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('revenue')}>
-                          <TrendingUp className="mr-2 h-4 w-4" />
-                          <span>Revenue Analysis</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('expenses')}>
-                          <Calculator className="mr-2 h-4 w-4" />
-                          <span>Expense Management</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('analytics')}>
-                          <BarChart3 className="mr-2 h-4 w-4" />
-                          <span>Financial Analytics</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('accounting')}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          <span>Accounting Tools</span>
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {activeView === 'data' && (
-                      <>
-                        <DropdownMenuLabel>Data Menu</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setActiveSubView('dbf-explorer')}>
-                          <Database className="mr-2 h-4 w-4" />
-                          <span>DBF Explorer</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('import')}>
-                          <Upload className="mr-2 h-4 w-4" />
-                          <span>Import Data</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('export')}>
-                          <Download className="mr-2 h-4 w-4" />
-                          <span>Export Data</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('backup')}>
-                          <Archive className="mr-2 h-4 w-4" />
-                          <span>Backup & Restore</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('maintenance')}>
-                          <Wrench className="mr-2 h-4 w-4" />
-                          <span>Database Maintenance</span>
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {activeView === 'reporting' && (
-                      <>
-                        <DropdownMenuLabel>Reports Menu</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setActiveSubView('state')}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          <span>State Reports</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('financial')}>
-                          <DollarSign className="mr-2 h-4 w-4" />
-                          <span>Financial Reports</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('production')}>
-                          <TrendingUp className="mr-2 h-4 w-4" />
-                          <span>Production Reports</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('custom')}>
-                          <FileSearch className="mr-2 h-4 w-4" />
-                          <span>Custom Reports</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('audit')}>
-                          <Copy className="mr-2 h-4 w-4" />
-                          <span>Audit Trail</span>
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {activeView === 'settings' && (
-                      <>
-                        <DropdownMenuLabel>Settings Menu</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setActiveSubView('users')}>
-                          <Users className="mr-2 h-4 w-4" />
-                          <span>User Management</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('appearance')}>
-                          <Settings className="mr-2 h-4 w-4" />
-                          <span>Appearance</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('system')}>
-                          <Database className="mr-2 h-4 w-4" />
-                          <span>System Configuration</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setActiveSubView('security')}>
-                          <Shield className="mr-2 h-4 w-4" />
-                          <span>Security Settings</span>
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
               
               {/* Page Title */}
               <div>
@@ -1047,12 +936,35 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
                     onClick={() => setActiveSubView('audit')}
                     accentColor="amber"
                   />
+                  <DashboardCard
+                    title="Maintain"
+                    subtitle="Account Management"
+                    description="Maintain accounts, vendors, and financial records"
+                    icon={Wrench}
+                    onClick={() => setActiveSubView('maintain')}
+                    accentColor="gray"
+                  />
                 </div>
               )}
               
               {activeSubView === 'banking' && <BankingSection currentUser={currentUser} companyName={selectedCompany} />}
               {activeSubView === 'audit' && <AuditTools currentUser={currentUser} companyName={selectedCompany} />}
               {activeSubView === 'transactions' && <BillEntryEnhanced currentUser={currentUser} companyName={selectedCompany} />}
+              {activeSubView === 'maintain' && !activeSubSubView && (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  <DashboardCard
+                    title="Vendors"
+                    subtitle="Vendor Management"
+                    description="Manage vendor information and records"
+                    icon={Users}
+                    onClick={() => setActiveSubSubView('vendors')}
+                    accentColor="blue"
+                  />
+                </div>
+              )}
+              {activeSubView === 'maintain' && activeSubSubView === 'vendors' && (
+                <VendorManagementDynamic currentUser={currentUser} companyName={selectedCompany} />
+              )}
               {activeSubView === 'revenue' && (
                 <Card>
                   <CardHeader>

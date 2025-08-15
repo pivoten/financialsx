@@ -118,6 +118,8 @@ export function isEncryptedTaxId(value: any): boolean {
   const hasNonPrintable = /[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\xFF]/.test(trimmed);
   
   // Check if it looks like a normal tax ID (should not be encrypted)
+  // SSN: XXX-XX-XXXX or 9 digits
+  // EIN: XX-XXXXXXX
   const normalTaxIdPattern = /^\d{9}$|^\d{3}-\d{2}-\d{4}$|^\d{2}-\d{7}$/;
   const isNormalTaxId = normalTaxIdPattern.test(trimmed);
   
@@ -159,6 +161,11 @@ export function decryptTaxId(value: any): string {
   // IMPORTANT: Trim spaces like FoxPro's ALLTRIM() function
   // DBF files store fixed-width fields padded with spaces
   const trimmedValue = String(value).trim();
+  
+  // If the trimmed value is empty, return empty string
+  if (!trimmedValue || trimmedValue === '') {
+    return '';
+  }
   
   // Debug logging with more detail
   const hexBytes = trimmedValue.split('').map((c: string) => '0x' + c.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
@@ -211,18 +218,46 @@ export function decryptTaxId(value: any): string {
     logger.debug('Cleaned decrypted value', { decrypted: decrypted });
     
     // Validate that the decrypted value looks like a tax ID
-    // US Tax IDs are typically 9 digits (SSN) or formatted with dashes
+    // US Tax IDs can be:
+    // - SSN: 9 digits formatted as XXX-XX-XXXX
+    // - EIN: 9 digits formatted as XX-XXXXXXX
     // Trim the decrypted value to handle trailing spaces
     const trimmedDecrypted = decrypted.trim();
-    const taxIdPattern = /^\d{9}$|^\d{3}-\d{2}-\d{4}$|^\d{2}-\d{7}$/;
+    const ssnPattern = /^\d{9}$|^\d{3}-\d{2}-\d{4}$/;
+    const einPattern = /^\d{2}-\d{7}$/;
     
-    if (taxIdPattern.test(trimmedDecrypted)) {
-      // Format as XXX-XX-XXXX for display
+    // Check if it matches either SSN or EIN pattern
+    if (ssnPattern.test(trimmedDecrypted) || einPattern.test(trimmedDecrypted)) {
       const digits = trimmedDecrypted.replace(/\D/g, '');
+      
       if (digits.length === 9) {
-        const formatted = `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
-        logger.info('Successfully decrypted tax ID', { formatted });
-        return formatted;
+        // Try to detect if it's an EIN or SSN based on the format or digits
+        // EINs typically start with specific prefixes (e.g., 20-98 for certain types)
+        // If the original had a dash after 2 digits, keep it as EIN format
+        if (einPattern.test(trimmedDecrypted)) {
+          // Already in EIN format
+          logger.info('Successfully decrypted EIN', { decrypted: trimmedDecrypted });
+          return trimmedDecrypted;
+        } else if (trimmedDecrypted.includes('-') && trimmedDecrypted.indexOf('-') === 3) {
+          // Already in SSN format
+          logger.info('Successfully decrypted SSN', { decrypted: trimmedDecrypted });
+          return trimmedDecrypted;
+        } else {
+          // No dashes - need to determine format
+          // Check if first two digits look like EIN prefix (most EINs start with 10-98)
+          const firstTwo = parseInt(digits.slice(0, 2));
+          if (firstTwo >= 10 && firstTwo <= 98) {
+            // Format as EIN: XX-XXXXXXX
+            const formatted = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+            logger.info('Successfully decrypted tax ID as EIN', { formatted });
+            return formatted;
+          } else {
+            // Format as SSN: XXX-XX-XXXX
+            const formatted = `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+            logger.info('Successfully decrypted tax ID as SSN', { formatted });
+            return formatted;
+          }
+        }
       }
       logger.info('Successfully decrypted tax ID', { decrypted: trimmedDecrypted });
       return trimmedDecrypted;
@@ -230,7 +265,8 @@ export function decryptTaxId(value: any): string {
     
     logger.warn('Decrypted value does not match tax ID pattern', { 
       decrypted,
-      pattern: taxIdPattern.toString() 
+      ssnPattern: ssnPattern.toString(),
+      einPattern: einPattern.toString()
     });
     
     // If decrypted value doesn't look like a tax ID, show indicator

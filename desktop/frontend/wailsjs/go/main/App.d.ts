@@ -119,6 +119,8 @@ export function GetVFPFormList():Promise<Array<Record<string, string>>>;
 
 export function GetVFPSettings():Promise<Record<string, any>>;
 
+export function GetVendors(arg1:string):Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportBankStatement(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
@@ -198,6 +200,8 @@ export function UpdateDBFRecord(arg1:string,arg2:string,arg3:number,arg4:number,
 export function UpdateUserRole(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateUserStatus(arg1:number,arg2:boolean):Promise<void>;
+
+export function UpdateVendor(arg1:string,arg2:number,arg3:Record<string, any>):Promise<void>;
 
 export function ValidateGLBalances(arg1:string,arg2:string):Promise<Record<string, any>>;
 

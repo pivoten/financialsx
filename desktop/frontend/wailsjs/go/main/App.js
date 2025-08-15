@@ -234,6 +234,10 @@ export function GetVFPSettings() {
   return window['go']['main']['App']['GetVFPSettings']();
 }
 
+export function GetVendors(arg1) {
+  return window['go']['main']['App']['GetVendors'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -392,6 +396,10 @@ export function UpdateUserRole(arg1, arg2) {
 
 export function UpdateUserStatus(arg1, arg2) {
   return window['go']['main']['App']['UpdateUserStatus'](arg1, arg2);
+}
+
+export function UpdateVendor(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateVendor'](arg1, arg2, arg3);
 }
 
 export function ValidateGLBalances(arg1, arg2) {

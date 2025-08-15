@@ -17,6 +17,7 @@ import (
 
 	"github.com/jung-kurt/gofpdf/v2"
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
+	"github.com/pivoten/financialsx/desktop/internal/app"
 	"github.com/pivoten/financialsx/desktop/internal/common"
 	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/config"
@@ -51,6 +52,9 @@ type App struct {
 	auditService *audit.Service  // Financial audit service (uses wrappers for compatibility)
 	dataBasePath string // Base path where compmast.dbf is located
 	*common.I18n // Embedded i18n - methods are directly available
+	
+	// Services - new modular architecture
+	Services *app.Services
 	
 	// Platform detection (cached at startup)
 	platform     string // Operating system: "windows", "darwin", "linux"
@@ -249,6 +253,11 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 		a.currentCompanyPath = companyPath
 		a.reconciliationService = reconciliation.NewService(db)
 		
+		// Initialize services with the new modular architecture
+		if a.Services == nil {
+			a.Services = app.NewServices(db)
+		}
+		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
 		a.VFPWrapper = legacy.NewVFPWrapper(a.vfpClient)
@@ -295,6 +304,11 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize services with the new modular architecture
+		if a.Services == nil {
+			a.Services = app.NewServices(db)
+		}
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
@@ -356,6 +370,11 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize services with the new modular architecture
+		if a.Services == nil {
+			a.Services = app.NewServices(db)
+		}
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
@@ -443,6 +462,11 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
 		a.reconciliationService = reconciliation.NewService(db)
+		
+		// Initialize services with the new modular architecture
+		if a.Services == nil {
+			a.Services = app.NewServices(db)
+		}
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
@@ -2036,6 +2060,29 @@ func (a *App) ExportNetDistribution(periodStart, periodEnd, outputPath string) e
 
 // GetBankAccounts returns bank accounts from COA.dbf where LBANKACCT = true
 func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, error) {
+	// Use the new service architecture if available
+	if a.Services != nil && a.Services.Banking != nil {
+		accounts, err := a.Services.Banking.GetBankAccounts(companyName)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Convert BankAccount structs to map[string]interface{} for frontend compatibility
+		result := make([]map[string]interface{}, len(accounts))
+		for i, account := range accounts {
+			result[i] = map[string]interface{}{
+				"account_number":   account.AccountNumber,
+				"account_name":     account.AccountName,
+				"account_type":     fmt.Sprintf("%d", account.AccountType),
+				"balance":          account.Balance,
+				"description":      account.AccountName,
+				"is_bank_account":  account.IsBankAccount,
+			}
+		}
+		return result, nil
+	}
+	
+	// Legacy implementation fallback
 	fmt.Printf("GetBankAccounts called for company: %s\n", companyName)
 	debug.SimpleLog(fmt.Sprintf("GetBankAccounts: company=%s, currentUser=%v", companyName, a.currentUser != nil))
 	
@@ -2377,6 +2424,12 @@ func (a *App) GetOutstandingChecks(companyName string, accountNumber string) (ma
 
 // GetAccountBalance retrieves the current GL balance for a specific account
 func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, error) {
+	// Use the new service architecture if available
+	if a.Services != nil && a.Services.Banking != nil {
+		return a.Services.Banking.GetAccountBalance(companyName, accountNumber)
+	}
+	
+	// Legacy implementation fallback
 	fmt.Printf("GetAccountBalance called for company: %s, account: %s\n", companyName, accountNumber)
 	debug.LogInfo("GetAccountBalance", fmt.Sprintf("Called for company=%s, account=%s", companyName, accountNumber))
 	

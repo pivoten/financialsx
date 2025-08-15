@@ -4,8 +4,6 @@ package operations
 import (
 	"fmt"
 	"time"
-
-	"github.com/pivoten/financialsx/desktop/internal/common"
 )
 
 // Service handles all business operations

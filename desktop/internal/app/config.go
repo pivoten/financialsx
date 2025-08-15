@@ -1,9 +1,8 @@
 package app
 
 import (
-	"database/sql"
-	
 	"github.com/pivoten/financialsx/desktop/internal/common"
+	"github.com/pivoten/financialsx/desktop/internal/database"
 	"github.com/pivoten/financialsx/desktop/internal/financials/audit"
 	"github.com/pivoten/financialsx/desktop/internal/financials/banking"
 	"github.com/pivoten/financialsx/desktop/internal/financials/gl"
@@ -12,7 +11,6 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/operations"
 	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
 	"github.com/pivoten/financialsx/desktop/internal/reports"
-	"github.com/pivoten/financialsx/desktop/internal/utilities"
 	"github.com/pivoten/financialsx/desktop/internal/vfp"
 )
 
@@ -37,41 +35,38 @@ type Services struct {
 	// Operations
 	Operations *operations.Service
 	
-	// Utilities
-	Utilities *utilities.Service
-	
 	// Legacy integration
 	*legacy.VFPWrapper // Embedded for direct method access
 	VFPClient *vfp.VFPClient // Internal use
 }
 
 // NewServices creates and initializes all services
-func NewServices(db *sql.DB) *Services {
+func NewServices(dbConn *database.DB) *Services {
+	// Get the underlying SQL DB for services that need it
+	sqlDB := dbConn.GetDB()
+	
 	// Initialize VFP client
-	vfpClient := vfp.NewVFPClient(db)
+	vfpClient := vfp.NewVFPClient(sqlDB)
 	
 	return &Services{
 		// Core services
-		Auth: common.NewAuth(db),
+		Auth: common.New(dbConn, ""), // Company name will be set later
 		I18n: common.NewI18n("en"),
 		
 		// Financial services
-		Banking:  banking.NewService(db),
-		Matching: matching.NewService(db),
-		GL:       gl.NewService(db),
+		Banking:  banking.NewService(sqlDB),
+		Matching: matching.NewService(sqlDB),
+		GL:       gl.NewService(sqlDB),
 		Audit:    audit.NewService(),
 		
 		// Reconciliation
-		Reconciliation: reconciliation.NewService(db),
+		Reconciliation: reconciliation.NewService(dbConn),
 		
 		// Reports
-		Reports: reports.NewService(db),
+		Reports: reports.NewService(),
 		
 		// Operations
-		Operations: operations.NewService(db),
-		
-		// Utilities
-		Utilities: utilities.NewService(db),
+		Operations: operations.NewService(),
 		
 		// Legacy integration
 		VFPWrapper: legacy.NewVFPWrapper(vfpClient),

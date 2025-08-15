@@ -80,6 +80,7 @@ import {
 import { BankingSection } from './components/BankingSection'
 import { DBFExplorer } from './components/DBFExplorer'
 import OutstandingChecks from './components/OutstandingChecks'
+import UtilitiesSection from './components/UtilitiesSection'
 import { BankReconciliation } from './components/BankReconciliation'
 import { CheckAudit } from './components/CheckAudit'
 import { UserManagement } from './components/UserManagement'
@@ -568,7 +569,6 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
     { id: 'sherware', label: 'Legacy', icon: ExternalLink },
     { id: 'operations', label: 'Operations', icon: Activity },
     { id: 'financials', label: 'Financials', icon: DollarSign },
-    { id: 'data', label: 'Data', icon: Database },
     { id: 'reporting', label: 'Reporting', icon: FileText },
     { id: 'utilities', label: 'Utilities', icon: Wrench },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -619,8 +619,7 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
     
     const viewTitles: Record<string, string> = {
       operations: 'Operations Dashboard',
-      financials: 'Financial Dashboard', 
-      data: 'Data Management Dashboard',
+      financials: 'Financial Dashboard',
       reporting: 'Reports Dashboard',
       utilities: 'Utilities Dashboard',
       settings: 'Settings Dashboard',
@@ -1002,57 +1001,6 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
             </div>
           )}
 
-          {/* Data Management Section */}
-          {activeView === 'data' && (
-            <div className="space-y-6">
-              {!activeSubView && (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  <DashboardCard
-                    title="Browse"
-                    subtitle="DBF Explorer"
-                    description="View and edit DBF files"
-                    icon={Database}
-                    onClick={() => setActiveSubView('dbf-explorer')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="Import"
-                    subtitle="Data Import"
-                    description="Import data from external sources"
-                    icon={Upload}
-                    onClick={() => setActiveSubView('import')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="Export"
-                    subtitle="Data Export"
-                    description="Export data to various formats"
-                    icon={Download}
-                    onClick={() => setActiveSubView('export')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="Backup"
-                    subtitle="Backup & Restore"
-                    description="Backup and restore database"
-                    icon={Archive}
-                    onClick={() => setActiveSubView('backup')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="Maintenance"
-                    subtitle="Database"
-                    description="Database optimization and repair"
-                    icon={Wrench}
-                    onClick={() => setActiveSubView('maintenance')}
-                    accentColor="gray"
-                  />
-                </div>
-              )}
-              
-              {activeSubView === 'dbf-explorer' && <DBFExplorer currentUser={currentUser} />}
-            </div>
-          )}
 
           {/* SherWare Legacy Section */}
           {activeView === 'sherware' && (
@@ -1212,36 +1160,10 @@ function AdvancedDashboard({ currentUser, onLogout, selectedCompany, selectedCom
 
           {/* Utilities Section */}
           {activeView === 'utilities' && (
-            <div className="space-y-6">
-              {!activeSubView && (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  <DashboardCard
-                    title="Calculators"
-                    subtitle="Tools"
-                    description="Financial and production calculators"
-                    icon={Calculator}
-                    onClick={() => setActiveSubView('calculators')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="Converters"
-                    subtitle="Utilities"
-                    description="Unit and data converters"
-                    icon={Activity}
-                    onClick={() => setActiveSubView('converters')}
-                    accentColor="gray"
-                  />
-                  <DashboardCard
-                    title="System Tools"
-                    subtitle="Maintenance"
-                    description="System utilities and tools"
-                    icon={Wrench}
-                    onClick={() => setActiveSubView('tools')}
-                    accentColor="gray"
-                  />
-                </div>
-              )}
-            </div>
+            <UtilitiesSection 
+              currentUser={currentUser} 
+              currentCompany={selectedCompany} 
+            />
           )}
         </main>
       </div>

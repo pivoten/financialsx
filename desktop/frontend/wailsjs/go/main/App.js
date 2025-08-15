@@ -66,6 +66,14 @@ export function CreateUser(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3, arg4);
 }
 
+export function Currency(arg1) {
+  return window['go']['main']['App']['Currency'](arg1);
+}
+
+export function Date(arg1) {
+  return window['go']['main']['App']['Date'](arg1);
+}
+
 export function DeleteBankStatement(arg1, arg2) {
   return window['go']['main']['App']['DeleteBankStatement'](arg1, arg2);
 }
@@ -274,6 +282,14 @@ export function LaunchVFPForm(arg1, arg2) {
   return window['go']['main']['App']['LaunchVFPForm'](arg1, arg2);
 }
 
+export function LoadLocale(arg1, arg2) {
+  return window['go']['main']['App']['LoadLocale'](arg1, arg2);
+}
+
+export function LoadLocalesFromDir(arg1) {
+  return window['go']['main']['App']['LoadLocalesFromDir'](arg1);
+}
+
 export function LogError(arg1, arg2) {
   return window['go']['main']['App']['LogError'](arg1, arg2);
 }
@@ -296,6 +312,10 @@ export function ManualMatchTransaction(arg1, arg2, arg3) {
 
 export function MigrateReconciliationData(arg1) {
   return window['go']['main']['App']['MigrateReconciliationData'](arg1);
+}
+
+export function Pluralize(arg1, arg2) {
+  return window['go']['main']['App']['Pluralize'](arg1, arg2);
 }
 
 export function PreloadOLEConnection(arg1) {
@@ -380,6 +400,10 @@ export function SetOLEIdleTimeout(arg1) {
 
 export function SyncVFPCompany() {
   return window['go']['main']['App']['SyncVFPCompany']();
+}
+
+export function T(arg1, arg2) {
+  return window['go']['main']['App']['T'](arg1, arg2);
 }
 
 export function TestAPIKey(arg1, arg2) {

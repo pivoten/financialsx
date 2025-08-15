@@ -35,6 +35,10 @@ export function CommitReconciliation(arg1:string,arg2:string):Promise<Record<str
 
 export function CreateUser(arg1:string,arg2:string,arg3:string,arg4:number):Promise<common.User>;
 
+export function Currency(arg1:number):Promise<string>;
+
+export function Date(arg1:string):Promise<string>;
+
 export function DeleteBankStatement(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteReconciliationDraft(arg1:string,arg2:string):Promise<Record<string, any>>;
@@ -139,6 +143,10 @@ export function InitializeLogging(arg1:boolean):Promise<Record<string, any>>;
 
 export function LaunchVFPForm(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function LoadLocale(arg1:string,arg2:string):Promise<void>;
+
+export function LoadLocalesFromDir(arg1:string):Promise<void>;
+
 export function LogError(arg1:string,arg2:string):Promise<void>;
 
 export function LogMessage(arg1:string,arg2:string,arg3:string,arg4:Record<string, any>):Promise<Record<string, any>>;
@@ -150,6 +158,8 @@ export function Logout(arg1:string):Promise<void>;
 export function ManualMatchTransaction(arg1:number,arg2:string,arg3:number):Promise<Record<string, any>>;
 
 export function MigrateReconciliationData(arg1:string):Promise<Record<string, any>>;
+
+export function Pluralize(arg1:string,arg2:number):Promise<string>;
 
 export function PreloadOLEConnection(arg1:string):Promise<Record<string, any>>;
 
@@ -192,6 +202,8 @@ export function SetLocale(arg1:string):Promise<void>;
 export function SetOLEIdleTimeout(arg1:number):Promise<Record<string, any>>;
 
 export function SyncVFPCompany():Promise<Record<string, any>>;
+
+export function T(arg1:string,arg2:Array<any>):Promise<string>;
 
 export function TestAPIKey(arg1:string,arg2:string):Promise<boolean>;
 

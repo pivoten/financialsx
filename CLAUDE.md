@@ -23,20 +23,43 @@ Pivoten Financials X - Enhanced Legacy is a modern desktop companion app to the 
 
 ```
 financialsx/
-├── desktop/                  # Wails desktop application
-│   ├── main.go              # Entry point with Wails setup
-│   ├── go.mod               # Module: github.com/pivoten/financialsx/desktop
-│   ├── wails.json           # Wails configuration
-│   ├── build/               # Build configuration and assets
-│   └── frontend/            # React + Vite frontend
+├── desktop/                      # Wails desktop application
+│   ├── main.go                  # Entry point with Wails setup (thin wrapper)
+│   ├── go.mod                   # Module: github.com/pivoten/financialsx/desktop
+│   ├── wails.json               # Wails configuration
+│   ├── build/                   # Build configuration and assets
+│   ├── internal/                # Internal packages (modular architecture)
+│   │   ├── app/                # Application configuration
+│   │   │   └── config.go       # Service orchestration
+│   │   ├── common/             # Shared utilities and types
+│   │   │   ├── auth.go        # Authentication system
+│   │   │   ├── i18n.go        # Internationalization
+│   │   │   ├── types.go       # Common types
+│   │   │   └── validation.go  # Validation utilities
+│   │   ├── company/            # Company management
+│   │   │   └── company.go     # DBF operations
+│   │   ├── database/           # Database operations
+│   │   │   └── database.go    # SQLite operations
+│   │   ├── financials/         # Financial modules
+│   │   │   ├── audit/         # Audit operations
+│   │   │   ├── banking/       # Banking operations
+│   │   │   ├── gl/           # General ledger
+│   │   │   ├── matching/     # Transaction matching
+│   │   │   └── vendor/       # Vendor management
+│   │   ├── legacy/            # Legacy integration
+│   │   │   └── vfp_wrapper.go # VFP integration
+│   │   ├── reconciliation/    # Bank reconciliation
+│   │   ├── reports/           # Report generation
+│   │   └── vfp/              # VFP client
+│   └── frontend/               # React + Vite frontend
 │       ├── src/
-│       │   ├── main.js      # Frontend entry point
-│       │   ├── app.css      # Application styles
-│       │   └── assets/      # Images and fonts
-│       └── wailsjs/         # Generated Wails bindings
-│           ├── go/          # Go struct bindings
-│           └── runtime/     # Wails runtime API
-└── go.mod                   # Root module: github.com/pivoten/financialsx
+│       │   ├── main.js        # Frontend entry point
+│       │   ├── app.css        # Application styles
+│       │   └── assets/        # Images and fonts
+│       └── wailsjs/           # Generated Wails bindings
+│           ├── go/            # Go struct bindings
+│           └── runtime/       # Wails runtime API
+└── go.mod                      # Root module: github.com/pivoten/financialsx
 ```
 
 ## Performance Optimizations
@@ -580,8 +603,155 @@ Interactive flow chart visualization for tracing batch numbers through the compl
 - **Visual Indicators**: "Click to view records" prompt on cards with data
 - **Responsive Layout**: Side-by-side display for header/detail relationships
 
+## Modular Architecture Guidelines (IMPORTANT - December 2024)
+
+### Overview
+The application is being refactored from a monolithic main.go (7,000+ lines) to a modular service-based architecture. This provides better maintainability, testability, and scalability.
+
+### Service Architecture Pattern
+
+#### 1. Service Structure
+Each service should follow this pattern:
+```go
+package servicename
+
+import (
+    "database/sql"
+)
+
+// Service handles [domain] operations
+type Service struct {
+    db *sql.DB
+    // other dependencies
+}
+
+// NewService creates a new service instance
+func NewService(db *sql.DB) *Service {
+    return &Service{db: db}
+}
+
+// Domain types (e.g., BankAccount, GLEntry)
+type DomainType struct {
+    // fields with json tags
+}
+
+// Public methods for the service
+func (s *Service) MethodName(params) (ReturnType, error) {
+    // implementation
+}
+
+// Private helper methods
+func (s *Service) helperMethod() {
+    // implementation
+}
+```
+
+#### 2. Service Organization
+Services are organized by domain:
+- **Banking Service** (`internal/financials/banking/`): Bank accounts, balances, outstanding checks
+- **GL Service** (`internal/financials/gl/`): General ledger, chart of accounts, period closing
+- **Matching Service** (`internal/financials/matching/`): Transaction matching, bank imports
+- **Audit Service** (`internal/financials/audit/`): Various audit operations
+- **Reports Service** (`internal/reports/`): All report generation (PDF, CSV, etc.)
+- **Reconciliation Service** (`internal/reconciliation/`): Bank reconciliation operations
+
+#### 3. main.go Structure
+main.go should be a thin wrapper that:
+1. Initializes services
+2. Provides wrapper methods for Wails bindings
+3. Delegates all business logic to services
+
+Example wrapper pattern:
+```go
+// In main.go - thin wrapper for Wails
+func (a *App) GetBankAccounts(companyName string) ([]map[string]interface{}, error) {
+    accounts, err := a.Services.Banking.GetBankAccounts(companyName)
+    if err != nil {
+        return nil, err
+    }
+    // Convert to map for frontend compatibility if needed
+    return convertAccountsToMaps(accounts), nil
+}
+```
+
+#### 4. Embedding vs Composition
+- **Use Embedding** when:
+  - Method names match frontend expectations
+  - No type conversion needed
+  - Service has unique method names (no conflicts)
+  - Example: VFPWrapper, I18n
+
+- **Use Composition** when:
+  - Method names need to be different for frontend
+  - Return types need transformation
+  - Multiple services have similar method names
+  - Example: Banking, GL, Matching services
+
+#### 5. Service Dependencies
+- Services should depend on interfaces, not concrete types
+- Use dependency injection through constructors
+- Avoid circular dependencies between services
+- If services need to communicate, use events or a mediator pattern
+
+#### 6. Error Handling
+- Services should return meaningful errors
+- Use error wrapping for context: `fmt.Errorf("banking service: %w", err)`
+- main.go wrappers should handle error formatting for frontend
+
+#### 7. Testing
+Each service should have its own test file:
+- `banking/service_test.go`
+- Mock the database using interfaces
+- Test business logic independently
+- Use table-driven tests for comprehensive coverage
+
+### Migration Strategy
+
+#### Phase 1: Create Service Stubs ✅ COMPLETED
+- Created stubs for all major services
+- Defined service interfaces and types
+- Created app config for service orchestration
+
+#### Phase 2: Migrate Functions (IN PROGRESS)
+Priority order for migration:
+1. Banking functions (GetBankAccounts, GetAccountBalance, etc.)
+2. GL functions (AnalyzeGLBalances, ValidateGLBalances, etc.)
+3. Matching functions (RunMatching, ImportBankStatement, etc.)
+4. Report functions (GenerateChartOfAccountsPDF, etc.)
+5. Remaining utility functions
+
+#### Phase 3: Update main.go
+- Replace implementations with service calls
+- Keep thin wrappers for Wails compatibility
+- Reduce main.go to under 1,000 lines
+
+#### Phase 4: Testing & Optimization
+- Write unit tests for each service
+- Add integration tests
+- Optimize service interactions
+- Add proper logging and metrics
+
+### Best Practices
+
+1. **Keep Services Focused**: Each service should have a single, clear responsibility
+2. **Use Domain Types**: Define proper structs instead of using `map[string]interface{}`
+3. **Avoid Tight Coupling**: Services should not directly import each other
+4. **Document Public APIs**: All public methods should have clear documentation
+5. **Handle Concurrency**: Use appropriate locking when needed
+6. **Cache Wisely**: Implement caching at the service level when beneficial
+7. **Version Your APIs**: Plan for backward compatibility
+
+### Common Pitfalls to Avoid
+
+1. **Don't create mega-services**: If a service is getting too large, split it
+2. **Don't bypass services**: main.go should never directly access the database
+3. **Don't mix concerns**: Keep business logic in services, not in main.go
+4. **Don't ignore errors**: Proper error handling is crucial
+5. **Don't forget cleanup**: Services should properly close resources
+
 ## Next Steps
 
+- **Complete Service Migration**: Move all functions from main.go to appropriate services
 - **Bill Entry Backend**: Create Go API endpoints for bill CRUD operations
 - **DBF Integration**: Connect bills to APPURCHH.dbf and APPURCHD.dbf
 - **Vendor Management**: Implement vendor lookup and quick-add

@@ -46,11 +46,11 @@ type App struct {
 	currentUser *common.User
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
-	vfpClient *vfp.VFPClient  // VFP integration client
-	vfpWrapper *legacy.VFPWrapper  // VFP wrapper for legacy integration
-	auditService *audit.Service  // Financial audit service
+	vfpClient *vfp.VFPClient  // VFP integration client (internal use)
+	*legacy.VFPWrapper  // Embedded VFP wrapper - methods are directly available
+	auditService *audit.Service  // Financial audit service (uses wrappers for compatibility)
 	dataBasePath string // Base path where compmast.dbf is located
-	i18n         *common.I18n // i18n support
+	*common.I18n // Embedded i18n - methods are directly available
 	
 	// Platform detection (cached at startup)
 	platform     string // Operating system: "windows", "darwin", "linux"
@@ -94,10 +94,10 @@ func (a *App) startup(ctx context.Context) {
 	debug.SimpleLog(fmt.Sprintf("PROCESSOR_ARCHITECTURE: %s", os.Getenv("PROCESSOR_ARCHITECTURE")))
 	
 	// Initialize i18n
-	a.i18n = common.NewI18n("en")
+	a.I18n = common.NewI18n("en")
 	// Try to load locales from frontend directory
 	localesPath := filepath.Join("frontend", "src", "locales")
-	if err := a.i18n.LoadLocalesFromDir(localesPath); err != nil {
+	if err := a.I18n.LoadLocalesFromDir(localesPath); err != nil {
 		debug.SimpleLog(fmt.Sprintf("Failed to load locales: %v", err))
 	}
 	
@@ -251,7 +251,7 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
-		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
+		a.VFPWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		
 		// Initialize audit service
 		a.auditService = audit.NewService()
@@ -298,7 +298,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
-		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
+		a.VFPWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		
 		// Initialize audit service
 		a.auditService = audit.NewService()
@@ -359,7 +359,7 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
-		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
+		a.VFPWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		
 		// Initialize audit service
 		a.auditService = audit.NewService()
@@ -446,7 +446,7 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
-		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
+		a.VFPWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		
 		// Initialize audit service
 		a.auditService = audit.NewService()
@@ -4980,67 +4980,18 @@ func (a *App) GetLogFilePath() string {
 }
 
 // ============================================================================
-// VFP Integration Methods
+// VFP Integration Methods - Now Embedded via *legacy.VFPWrapper
 // ============================================================================
-
-// GetVFPSettings retrieves the current VFP connection settings
-func (a *App) GetVFPSettings() (map[string]interface{}, error) {
-	if a.vfpWrapper == nil {
-		return nil, fmt.Errorf("VFP wrapper not initialized")
-	}
-	return a.vfpWrapper.GetSettings()
-}
-
-// SaveVFPSettings updates the VFP connection settings
-func (a *App) SaveVFPSettings(host string, port int, enabled bool, timeout int) error {
-	if a.vfpWrapper == nil {
-		return fmt.Errorf("VFP wrapper not initialized")
-	}
-	return a.vfpWrapper.SaveSettings(host, port, enabled, timeout)
-}
-
-// TestVFPConnection tests the connection to the VFP listener
-func (a *App) TestVFPConnection() (map[string]interface{}, error) {
-	if a.vfpWrapper == nil {
-		return nil, fmt.Errorf("VFP wrapper not initialized")
-	}
-	return a.vfpWrapper.TestConnection()
-}
-
-// LaunchVFPForm launches a VFP form with optional argument and company synchronization
-func (a *App) LaunchVFPForm(formName string, argument string) (map[string]interface{}, error) {
-	if a.vfpWrapper == nil {
-		return nil, fmt.Errorf("VFP wrapper not initialized")
-	}
-	return a.vfpWrapper.LaunchForm(formName, argument)
-}
-
-// SyncVFPCompany synchronizes the company between FinancialsX and VFP
-func (a *App) SyncVFPCompany() (map[string]interface{}, error) {
-	if a.vfpWrapper == nil {
-		return nil, fmt.Errorf("VFP wrapper not initialized")
-	}
-	// Get current company from FinancialsX
-	// For now, don't sync company - user will ensure correct company is open
-	currentCompany := ""
-	return a.vfpWrapper.SyncCompany(currentCompany)
-}
-
-// GetVFPCompany gets the current company from VFP
-func (a *App) GetVFPCompany() (map[string]interface{}, error) {
-	if a.vfpWrapper == nil {
-		return nil, fmt.Errorf("VFP wrapper not initialized")
-	}
-	return a.vfpWrapper.GetCompany()
-}
-
-// GetVFPFormList returns a list of available VFP forms
-func (a *App) GetVFPFormList() []map[string]string {
-	if a.vfpWrapper == nil {
-		return []map[string]string{}
-	}
-	return a.vfpWrapper.GetFormList()
-}
+// The following methods are now directly available through embedding:
+// - GetSettings() -> GetVFPSettings() [renamed in VFPWrapper]
+// - SaveSettings() -> SaveVFPSettings() [renamed in VFPWrapper]  
+// - TestConnection() -> TestVFPConnection() [renamed in VFPWrapper]
+// - LaunchForm() -> LaunchVFPForm() [renamed in VFPWrapper]
+// - SyncCompany() -> SyncVFPCompany() [renamed in VFPWrapper]
+// - GetCompany() -> GetVFPCompany() [renamed in VFPWrapper]
+// - GetFormList() -> GetVFPFormList() [renamed in VFPWrapper]
+//
+// These methods are exposed directly to Wails through the embedded struct
 
 // FollowBatchNumber fetches records from multiple tables for a given batch number
 func (a *App) FollowBatchNumber(companyName string, batchNumber string) (map[string]interface{}, error) {
@@ -7035,36 +6986,21 @@ func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, incl
 }
 
 // ============================================================================
-// I18N FUNCTIONS
+// I18N FUNCTIONS - NOW HANDLED BY EMBEDDING
 // ============================================================================
+// The following methods are now available directly through embedding:
+// - GetLocale() - from embedded *common.I18n
+// - SetLocale() - from embedded *common.I18n  
+// - GetAvailableLocales() - from embedded *common.I18n
+// - T() - from embedded *common.I18n (was wrapped as Translate)
+//
+// NOTE: The frontend uses "Translate" but I18n provides "T"
+// We need to add a Translate wrapper for backward compatibility
 
-// GetLocale returns the current locale
-func (a *App) GetLocale() string {
-	if a.i18n != nil {
-		return a.i18n.GetLocale()
-	}
-	return "en"
-}
-
-// SetLocale sets the current locale
-func (a *App) SetLocale(locale string) {
-	if a.i18n != nil {
-		a.i18n.SetLocale(locale)
-	}
-}
-
-// GetAvailableLocales returns all available locales
-func (a *App) GetAvailableLocales() []string {
-	if a.i18n != nil {
-		return a.i18n.GetAvailableLocales()
-	}
-	return []string{"en"}
-}
-
-// Translate translates a key to the current locale
+// Translate wraps the T() method for backward compatibility with frontend
 func (a *App) Translate(key string) string {
-	if a.i18n != nil {
-		return a.i18n.T(key)
+	if a.I18n != nil {
+		return a.I18n.T(key)
 	}
 	return key
 }

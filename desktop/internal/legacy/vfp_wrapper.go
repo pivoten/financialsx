@@ -17,8 +17,8 @@ func NewVFPWrapper(vfpClient *vfp.VFPClient) *VFPWrapper {
 	}
 }
 
-// GetSettings retrieves the current VFP connection settings
-func (w *VFPWrapper) GetSettings() (map[string]interface{}, error) {
+// GetVFPSettings retrieves the current VFP connection settings
+func (w *VFPWrapper) GetVFPSettings() (map[string]interface{}, error) {
 	if w.vfpClient == nil {
 		return nil, fmt.Errorf("VFP client not initialized")
 	}
@@ -37,8 +37,8 @@ func (w *VFPWrapper) GetSettings() (map[string]interface{}, error) {
 	}, nil
 }
 
-// SaveSettings updates the VFP connection settings
-func (w *VFPWrapper) SaveSettings(host string, port int, enabled bool, timeout int) error {
+// SaveVFPSettings updates the VFP connection settings
+func (w *VFPWrapper) SaveVFPSettings(host string, port int, enabled bool, timeout int) error {
 	if w.vfpClient == nil {
 		return fmt.Errorf("VFP client not initialized")
 	}
@@ -53,8 +53,8 @@ func (w *VFPWrapper) SaveSettings(host string, port int, enabled bool, timeout i
 	return w.vfpClient.SaveSettings(settings)
 }
 
-// TestConnection tests the connection to the VFP listener
-func (w *VFPWrapper) TestConnection() (map[string]interface{}, error) {
+// TestVFPConnection tests the connection to the VFP listener
+func (w *VFPWrapper) TestVFPConnection() (map[string]interface{}, error) {
 	if w.vfpClient == nil {
 		return nil, fmt.Errorf("VFP client not initialized")
 	}
@@ -73,8 +73,8 @@ func (w *VFPWrapper) TestConnection() (map[string]interface{}, error) {
 	}, nil
 }
 
-// LaunchForm launches a VFP form with optional argument and company synchronization
-func (w *VFPWrapper) LaunchForm(formName string, argument string) (map[string]interface{}, error) {
+// LaunchVFPForm launches a VFP form with optional argument and company synchronization
+func (w *VFPWrapper) LaunchVFPForm(formName string, argument string) (map[string]interface{}, error) {
 	if w.vfpClient == nil {
 		return nil, fmt.Errorf("VFP client not initialized")
 	}
@@ -94,8 +94,11 @@ func (w *VFPWrapper) LaunchForm(formName string, argument string) (map[string]in
 	}, nil
 }
 
-// SyncCompany synchronizes the company between FinancialsX and VFP
-func (w *VFPWrapper) SyncCompany(currentCompany string) (map[string]interface{}, error) {
+// SyncVFPCompany synchronizes the company between FinancialsX and VFP
+func (w *VFPWrapper) SyncVFPCompany() (map[string]interface{}, error) {
+	// Get current company from FinancialsX
+	// For now, don't sync company - user will ensure correct company is open
+	currentCompany := ""
 	if w.vfpClient == nil {
 		return map[string]interface{}{
 			"success": false,
@@ -123,8 +126,8 @@ func (w *VFPWrapper) SyncCompany(currentCompany string) (map[string]interface{},
 	}, nil
 }
 
-// GetCompany gets the current company from VFP
-func (w *VFPWrapper) GetCompany() (map[string]interface{}, error) {
+// GetVFPCompany gets the current company from VFP
+func (w *VFPWrapper) GetVFPCompany() (map[string]interface{}, error) {
 	if w.vfpClient == nil {
 		return map[string]interface{}{
 			"success": false,
@@ -146,8 +149,8 @@ func (w *VFPWrapper) GetCompany() (map[string]interface{}, error) {
 	}, nil
 }
 
-// GetFormList returns a list of available VFP forms
-func (w *VFPWrapper) GetFormList() []map[string]string {
+// GetVFPFormList returns a list of available VFP forms
+func (w *VFPWrapper) GetVFPFormList() []map[string]string {
 	if w.vfpClient == nil {
 		return []map[string]string{}
 	}

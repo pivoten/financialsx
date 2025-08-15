@@ -26,6 +26,7 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/ole"
 	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
+	"github.com/pivoten/financialsx/desktop/internal/legacy"
 	"github.com/pivoten/financialsx/desktop/internal/vfp"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -45,6 +46,7 @@ type App struct {
 	currentCompanyPath string
 	reconciliationService *reconciliation.Service
 	vfpClient *vfp.VFPClient  // VFP integration client
+	vfpWrapper *legacy.VFPWrapper  // VFP wrapper for legacy integration
 	dataBasePath string // Base path where compmast.dbf is located
 	i18n         *common.I18n // i18n support
 	
@@ -247,6 +249,7 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		if err := a.vfpClient.InitializeSchema(); err != nil {
 			debug.SimpleLog(fmt.Sprintf("App.InitializeCompanyDatabase: Error initializing VFP schema: %v", err))
 			// Non-fatal error, VFP integration is optional
@@ -289,6 +292,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		if err := a.vfpClient.InitializeSchema(); err != nil {
 			// Non-fatal error, VFP integration is optional
 		}
@@ -345,6 +349,7 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		if err := a.vfpClient.InitializeSchema(); err != nil {
 			// Non-fatal error, VFP integration is optional
 		}
@@ -427,6 +432,7 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 		
 		// Initialize VFP integration client
 		a.vfpClient = vfp.NewVFPClient(db.GetDB())
+		a.vfpWrapper = legacy.NewVFPWrapper(a.vfpClient)
 		if err := a.vfpClient.InitializeSchema(); err != nil {
 			// Non-fatal error, VFP integration is optional
 		}
@@ -6888,144 +6894,61 @@ func (a *App) GetLogFilePath() string {
 
 // GetVFPSettings retrieves the current VFP connection settings
 func (a *App) GetVFPSettings() (map[string]interface{}, error) {
-	if a.vfpClient == nil {
-		return nil, fmt.Errorf("VFP client not initialized")
+	if a.vfpWrapper == nil {
+		return nil, fmt.Errorf("VFP wrapper not initialized")
 	}
-	
-	settings, err := a.vfpClient.GetSettings()
-	if err != nil {
-		return nil, err
-	}
-	
-	return map[string]interface{}{
-		"host":    settings.Host,
-		"port":    settings.Port,
-		"enabled": settings.Enabled,
-		"timeout": settings.Timeout,
-		"updated_at": settings.UpdatedAt,
-	}, nil
+	return a.vfpWrapper.GetSettings()
 }
 
 // SaveVFPSettings updates the VFP connection settings
 func (a *App) SaveVFPSettings(host string, port int, enabled bool, timeout int) error {
-	if a.vfpClient == nil {
-		return fmt.Errorf("VFP client not initialized")
+	if a.vfpWrapper == nil {
+		return fmt.Errorf("VFP wrapper not initialized")
 	}
-	
-	settings := &vfp.Settings{
-		Host:    host,
-		Port:    port,
-		Enabled: enabled,
-		Timeout: timeout,
-	}
-	
-	return a.vfpClient.SaveSettings(settings)
+	return a.vfpWrapper.SaveSettings(host, port, enabled, timeout)
 }
 
 // TestVFPConnection tests the connection to the VFP listener
 func (a *App) TestVFPConnection() (map[string]interface{}, error) {
-	if a.vfpClient == nil {
-		return nil, fmt.Errorf("VFP client not initialized")
+	if a.vfpWrapper == nil {
+		return nil, fmt.Errorf("VFP wrapper not initialized")
 	}
-	
-	err := a.vfpClient.TestConnection()
-	if err != nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		}, nil
-	}
-	
-	return map[string]interface{}{
-		"success": true,
-		"message": "Connection successful",
-	}, nil
+	return a.vfpWrapper.TestConnection()
 }
 
 // LaunchVFPForm launches a VFP form with optional argument and company synchronization
 func (a *App) LaunchVFPForm(formName string, argument string) (map[string]interface{}, error) {
-	if a.vfpClient == nil {
-		return nil, fmt.Errorf("VFP client not initialized")
+	if a.vfpWrapper == nil {
+		return nil, fmt.Errorf("VFP wrapper not initialized")
 	}
-	
-	// Don't send company for now - user will ensure correct company is open
-	response, err := a.vfpClient.LaunchForm(formName, argument, "")
-	if err != nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		}, nil
-	}
-	
-	return map[string]interface{}{
-		"success": true,
-		"message": response,
-	}, nil
+	return a.vfpWrapper.LaunchForm(formName, argument)
 }
 
 // SyncVFPCompany synchronizes the company between FinancialsX and VFP
 func (a *App) SyncVFPCompany() (map[string]interface{}, error) {
-	if a.vfpClient == nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": "VFP integration not initialized",
-		}, nil
+	if a.vfpWrapper == nil {
+		return nil, fmt.Errorf("VFP wrapper not initialized")
 	}
-
 	// Get current company from FinancialsX
 	// For now, don't sync company - user will ensure correct company is open
 	currentCompany := ""
-	
-	// Set it in VFP
-	err := a.vfpClient.SetVFPCompany(currentCompany)
-	if err != nil {
-		// Try to get VFP's current company for info
-		vfpCompany, _ := a.vfpClient.GetVFPCompany()
-		return map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-			"financialsxCompany": currentCompany,
-			"vfpCompany": vfpCompany,
-		}, nil
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"message": "Company synchronized",
-		"company": currentCompany,
-	}, nil
+	return a.vfpWrapper.SyncCompany(currentCompany)
 }
 
 // GetVFPCompany gets the current company from VFP
 func (a *App) GetVFPCompany() (map[string]interface{}, error) {
-	if a.vfpClient == nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": "VFP integration not initialized",
-		}, nil
+	if a.vfpWrapper == nil {
+		return nil, fmt.Errorf("VFP wrapper not initialized")
 	}
-
-	company, err := a.vfpClient.GetVFPCompany()
-	if err != nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		}, nil
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"company": company,
-	}, nil
+	return a.vfpWrapper.GetCompany()
 }
 
 // GetVFPFormList returns a list of available VFP forms
 func (a *App) GetVFPFormList() []map[string]string {
-	if a.vfpClient == nil {
+	if a.vfpWrapper == nil {
 		return []map[string]string{}
 	}
-	
-	return a.vfpClient.GetFormList()
+	return a.vfpWrapper.GetFormList()
 }
 
 // FollowBatchNumber fetches records from multiple tables for a given batch number

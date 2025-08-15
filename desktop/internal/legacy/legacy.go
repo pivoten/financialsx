@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
-	"github.com/pivoten/financialsx/desktop/internal/common"
 )
 
 // Service handles all legacy system operations
@@ -97,15 +96,15 @@ func (s *Service) GetDBFStructure(companyPath, fileName string) (*DBFTable, erro
 		columns = append(columns, Column{
 			Name:     col.Name(),
 			Type:     string(col.Type()),
-			Length:   col.Length(),
-			Decimals: col.Decimals(),
+			Length:   int(col.Length),
+			Decimals: int(col.Decimals),
 		})
 	}
 
 	return &DBFTable{
 		Name:        fileName,
 		Path:        filePath,
-		RecordCount: table.RecordsCount(),
+		RecordCount: int(table.Header().RecordsCount()),
 		Columns:     columns,
 	}, nil
 }

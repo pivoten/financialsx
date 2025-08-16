@@ -9,6 +9,7 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/financials/banking"
 	"github.com/pivoten/financialsx/desktop/internal/financials/gl"
 	"github.com/pivoten/financialsx/desktop/internal/financials/matching"
+	"github.com/pivoten/financialsx/desktop/internal/financials/vendor"
 	"github.com/pivoten/financialsx/desktop/internal/legacy"
 	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/ole"
@@ -35,6 +36,7 @@ type Services struct {
 	Matching     *matching.Service
 	GL           *gl.Service
 	Audit        *audit.Service
+	Vendor       *vendor.Service
 	
 	// Reconciliation
 	Reconciliation *reconciliation.Service
@@ -78,6 +80,7 @@ func NewServices(dbConn *database.DB) *Services {
 		Matching: matching.NewService(sqlDB),
 		GL:       gl.NewService(sqlDB),
 		Audit:    audit.NewService(),
+		Vendor:   vendor.NewService(),
 		
 		// Reconciliation
 		Reconciliation: reconciliation.NewService(dbConn),

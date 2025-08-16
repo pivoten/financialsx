@@ -7,16 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Valentin-Kaiser/go-dbase/dbase"
 	"github.com/pivoten/financialsx/desktop/internal/app"
 	"github.com/pivoten/financialsx/desktop/internal/common"
 	"github.com/pivoten/financialsx/desktop/internal/company"
@@ -1566,110 +1562,6 @@ func (a *App) GetBankTransactions(companyName string, accountNumber string, impo
 	}, nil
 }
 
-// autoMatchCSVTransactions matches CSV transactions with existing checks
-func (a *App) autoMatchCSVTransactions(csvTransactions []BankTransaction, existingChecks []map[string]interface{}) []MatchResult {
-	var matches []MatchResult
-
-	for _, csvTxn := range csvTransactions {
-		// Only match debits (checks, withdrawals) for reconciliation
-		if csvTxn.Amount >= 0 {
-			continue
-		}
-
-		bestMatch := a.findBestCheckMatch(csvTxn, existingChecks)
-		if bestMatch != nil {
-			matches = append(matches, *bestMatch)
-		}
-	}
-
-	return matches
-}
-
-// findBestCheckMatch finds the best matching check for a CSV transaction
-func (a *App) findBestCheckMatch(csvTxn BankTransaction, existingChecks []map[string]interface{}) *MatchResult {
-	var bestMatch *MatchResult
-	highestScore := 0.0
-
-	for _, check := range existingChecks {
-		score := a.calculateMatchScore(csvTxn, check)
-		if score > highestScore && score > 0.5 { // Minimum confidence threshold
-			matchType := a.determineMatchType(score, csvTxn, check)
-			bestMatch = &MatchResult{
-				BankTransaction: csvTxn,
-				MatchedCheck:    check,
-				Confidence:      score,
-				MatchType:       matchType,
-				Confirmed:       false,
-			}
-			highestScore = score
-		}
-	}
-
-	return bestMatch
-}
-
-// calculateMatchScore calculates confidence score between CSV transaction and check
-func (a *App) calculateMatchScore(csvTxn BankTransaction, check map[string]interface{}) float64 {
-	score := 0.0
-
-	// Amount matching (most important - 50% weight)
-	checkAmount := common.ParseFloat(check["amount"])
-	if checkAmount > 0 && math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 0.01 {
-		score += 0.5 // Exact amount match
-	} else if checkAmount > 0 && math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 1.0 {
-		score += 0.3 // Close amount match
-	}
-
-	// Check number matching (30% weight)
-	if csvTxn.CheckNumber != "" {
-		checkNumber := fmt.Sprintf("%v", check["checkNumber"])
-		if csvTxn.CheckNumber == checkNumber {
-			score += 0.3 // Exact check number match
-		} else if strings.Contains(csvTxn.CheckNumber, checkNumber) || strings.Contains(checkNumber, csvTxn.CheckNumber) {
-			score += 0.15 // Partial check number match
-		}
-	}
-
-	// Date proximity matching (20% weight)
-	if csvTxn.TransactionDate != "" {
-		csvDate, csvErr := common.ParseDate(csvTxn.TransactionDate)
-		checkDate, checkErr := common.ParseDate(fmt.Sprintf("%v", check["date"]))
-
-		if csvErr == nil && checkErr == nil {
-			daysDiff := math.Abs(csvDate.Sub(checkDate).Hours() / 24)
-			if daysDiff == 0 {
-				score += 0.2 // Same day
-			} else if daysDiff <= 3 {
-				score += 0.1 // Within 3 days
-			} else if daysDiff <= 7 {
-				score += 0.05 // Within a week
-			}
-		}
-	}
-
-	return score
-}
-
-// determineMatchType determines the type of match based on score and criteria
-func (a *App) determineMatchType(score float64, csvTxn BankTransaction, check map[string]interface{}) string {
-	checkAmount := common.ParseFloat(check["amount"])
-
-	// Exact match: amount + check number (if available)
-	if math.Abs(math.Abs(csvTxn.Amount)-checkAmount) < 0.01 {
-		if csvTxn.CheckNumber != "" && csvTxn.CheckNumber == fmt.Sprintf("%v", check["checkNumber"]) {
-			return "exact"
-		}
-		return "amount_exact"
-	}
-
-	// Fuzzy match
-	if score > 0.7 {
-		return "high_confidence"
-	}
-
-	return "fuzzy"
-}
-
 // GetCachedBalances retrieves cached balances for all bank accounts
 func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, error) {
 	fmt.Printf("GetCachedBalances called for company: %s\n", companyName)
@@ -2779,123 +2671,18 @@ func (a *App) ExamineOwnerStatementStructure(companyName string, fileName string
 
 // GetVendors retrieves all vendors from VENDOR.dbf
 func (a *App) GetVendors(companyName string) (map[string]interface{}, error) {
-	logger.WriteInfo("GetVendors", fmt.Sprintf("Called for company: %s", companyName))
-	fmt.Printf("GetVendors: Called for company: %s\n", companyName)
-
-	// Read the VENDOR.dbf file
-	vendorData, err := company.ReadDBFFile(companyName, "VENDOR.dbf", "", 0, 0, "", "")
-	if err != nil {
-		logger.WriteError("GetVendors", fmt.Sprintf("Error reading VENDOR.dbf: %v", err))
-		fmt.Printf("GetVendors: Error reading VENDOR.dbf: %v\n", err)
-		return nil, fmt.Errorf("error reading vendor data: %v", err)
+	if a.Services != nil && a.Services.Vendor != nil {
+		return a.Services.Vendor.GetVendors(companyName)
 	}
-
-	// Log the data structure
-	if rows, ok := vendorData["rows"].([][]interface{}); ok {
-		fmt.Printf("GetVendors: Found %d vendor records\n", len(rows))
-		if len(rows) > 0 {
-			fmt.Printf("GetVendors: First vendor record has %d fields\n", len(rows[0]))
-			// Log column names
-			if columns, ok := vendorData["columns"].([]string); ok {
-				fmt.Printf("GetVendors: Columns: %v\n", columns)
-			}
-		}
-	} else {
-		fmt.Printf("GetVendors: No rows found in vendor data\n")
-	}
-
-	return vendorData, nil
+	return nil, fmt.Errorf("vendor service not initialized")
 }
 
 // UpdateVendor updates a vendor record in VENDOR.dbf
 func (a *App) UpdateVendor(companyName string, vendorIndex int, vendorData map[string]interface{}) error {
-	logger.WriteInfo("UpdateVendor", fmt.Sprintf("Updating vendor at index %d for company %s", vendorIndex, companyName))
-
-	var vendorPath string
-
-	// Check if companyName is already an absolute path (Windows)
-	if filepath.IsAbs(companyName) {
-		// It's already an absolute path, just append VENDOR.dbf
-		vendorPath = filepath.Join(companyName, "VENDOR.dbf")
-		logger.WriteInfo("UpdateVendor", fmt.Sprintf("Using absolute path: %s", vendorPath))
-	} else {
-		// It's a relative path, construct the full path
-		datafilesPath, err := company.GetDatafilesPath()
-		if err != nil {
-			return fmt.Errorf("failed to get datafiles path: %w", err)
-		}
-
-		// Normalize the company path
-		normalizedCompanyName := company.NormalizeCompanyPath(companyName)
-
-		// Construct the full path to VENDOR.dbf
-		vendorPath = filepath.Join(datafilesPath, normalizedCompanyName, "VENDOR.dbf")
-		logger.WriteInfo("UpdateVendor", fmt.Sprintf("Using constructed path: %s", vendorPath))
+	if a.Services != nil && a.Services.Vendor != nil {
+		return a.Services.Vendor.UpdateVendor(companyName, vendorIndex, vendorData)
 	}
-
-	// Open the table for writing
-	table, err := dbase.OpenTable(&dbase.Config{
-		Filename:   vendorPath,
-		ReadOnly:   false,
-		TrimSpaces: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to open VENDOR.dbf for writing: %w", err)
-	}
-	defer table.Close()
-
-	// Navigate to the specific record
-	currentIndex := 0
-	var targetRow *dbase.Row
-
-	for {
-		row, err := table.Next()
-		if err != nil {
-			if err.Error() == "EOF" {
-				return fmt.Errorf("vendor record not found at index %d", vendorIndex)
-			}
-			return fmt.Errorf("error reading vendor table: %w", err)
-		}
-
-		// Skip deleted records
-		if row.Deleted {
-			continue
-		}
-
-		if currentIndex == vendorIndex {
-			targetRow = row
-			break
-		}
-		currentIndex++
-	}
-
-	if targetRow == nil {
-		return fmt.Errorf("vendor record not found at index %d", vendorIndex)
-	}
-
-	// Update the fields in the row
-	for fieldName, value := range vendorData {
-		field := targetRow.FieldByName(fieldName)
-		if field == nil {
-			// Skip fields that don't exist in the DBF
-			continue
-		}
-
-		// Set the field value using the actual API
-		err := field.SetValue(value)
-		if err != nil {
-			return fmt.Errorf("failed to set field %s: %w", fieldName, err)
-		}
-	}
-
-	// Write the updated row back to the file
-	err = table.WriteRow(targetRow)
-	if err != nil {
-		return fmt.Errorf("failed to write updated vendor record: %w", err)
-	}
-
-	logger.WriteInfo("UpdateVendor", fmt.Sprintf("Successfully updated vendor at index %d", vendorIndex))
-	return nil
+	return fmt.Errorf("vendor service not initialized")
 }
 
 // GenerateChartOfAccountsPDF generates a PDF report of the Chart of Accounts

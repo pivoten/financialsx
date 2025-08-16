@@ -141,9 +141,38 @@ func (s *Service) RunMatching(companyName, accountNumber string, options map[str
 		logger.WriteInfo("RunMatching", fmt.Sprintf("Using all %d checks for matching (no date filter)", len(checksToMatch)))
 	}
 	
+	// Extract transactions array from the map
+	var bankTxns []BankTransaction
+	if txnList, ok := transactions["transactions"].([]interface{}); ok {
+		for _, txn := range txnList {
+			if txnMap, ok := txn.(map[string]interface{}); ok {
+				bt := BankTransaction{}
+				if id, ok := txnMap["id"].(float64); ok {
+					bt.ID = int(id)
+				}
+				if date, ok := txnMap["transaction_date"].(string); ok {
+					bt.TransactionDate = date
+				}
+				if desc, ok := txnMap["description"].(string); ok {
+					bt.Description = desc
+				}
+				if amt, ok := txnMap["amount"].(float64); ok {
+					bt.Amount = amt
+				}
+				if txnType, ok := txnMap["transaction_type"].(string); ok {
+					bt.TransactionType = txnType
+				}
+				if account, ok := txnMap["account_number"].(string); ok {
+					bt.AccountNumber = account
+				}
+				bankTxns = append(bankTxns, bt)
+			}
+		}
+	}
+	
 	// Run matching algorithm
-	logger.WriteInfo("RunMatching", fmt.Sprintf("Matching %d bank transactions with %d checks", len(transactions), len(checksToMatch)))
-	matches := s.autoMatchBankTransactions(transactions, checksToMatch)
+	logger.WriteInfo("RunMatching", fmt.Sprintf("Matching %d bank transactions with %d checks", len(bankTxns), len(checksToMatch)))
+	matches := s.autoMatchBankTransactions(bankTxns, checksToMatch)
 	logger.WriteInfo("RunMatching", fmt.Sprintf("Found %d matches", len(matches)))
 	
 	// Update the database with matches

@@ -365,18 +365,14 @@ func (s *Service) GetOwnersList(companyName string, fileName string) ([]map[stri
 	columns := table.Columns()
 	var ownerFieldIndex int = -1
 	var ownerKeyIndex int = -1
-	var ownerFieldName string
-	var keyFieldName string
 	
 	for i, column := range columns {
 		fieldName := strings.ToUpper(column.Name())
 		if strings.Contains(fieldName, "OWNER") && !strings.Contains(fieldName, "KEY") {
 			ownerFieldIndex = i
-			ownerFieldName = column.Name()
 		}
 		if strings.Contains(fieldName, "KEY") || strings.Contains(fieldName, "ID") {
 			ownerKeyIndex = i
-			keyFieldName = column.Name()
 		}
 	}
 
@@ -397,15 +393,15 @@ func (s *Service) GetOwnersList(companyName string, fileName string) ([]map[stri
 			continue
 		}
 
-		ownerName := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldName)))
+		ownerName := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldIndex)))
 		if ownerName == "" {
 			continue
 		}
 
 		// Use owner key if available, otherwise use name as key
 		key := ownerName
-		if ownerKeyIndex >= 0 && keyFieldName != "" {
-			keyValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(keyFieldName)))
+		if ownerKeyIndex >= 0 {
+			keyValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerKeyIndex)))
 			if keyValue != "" {
 				key = keyValue
 			}
@@ -458,11 +454,11 @@ func (s *Service) GetOwnerStatementData(companyName string, fileName string, own
 	}
 
 	// Find owner field
-	var ownerFieldName string
-	for _, name := range fieldNames {
+	var ownerFieldIndex int = -1
+	for i, name := range fieldNames {
 		upperName := strings.ToUpper(name)
 		if strings.Contains(upperName, "OWNER") || strings.Contains(upperName, "KEY") {
-			ownerFieldName = name
+			ownerFieldIndex = i
 			break
 		}
 	}
@@ -480,15 +476,17 @@ func (s *Service) GetOwnerStatementData(companyName string, fileName string, own
 		}
 
 		// Check if this record belongs to the requested owner
-		ownerValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldName)))
-		if ownerValue != ownerKey {
-			continue
+		if ownerFieldIndex >= 0 {
+			ownerValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldIndex)))
+			if ownerValue != ownerKey {
+				continue
+			}
 		}
 
 		// Build record map
 		recordMap := make(map[string]interface{})
-		for _, fieldName := range fieldNames {
-			recordMap[fieldName] = record.Field(fieldName)
+		for i, fieldName := range fieldNames {
+			recordMap[fieldName] = record.Field(i)
 		}
 		records = append(records, recordMap)
 	}

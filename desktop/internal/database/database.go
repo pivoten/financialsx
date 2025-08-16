@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pivoten/financialsx/desktop/internal/debug"
 	_ "modernc.org/sqlite"
 )
 
@@ -453,4 +454,51 @@ func (db *DB) assignRolePermissions() error {
 
 func (db *DB) GetConn() *sql.DB {
 	return db.conn
+}
+
+// InitializeForCompany handles all database initialization for a company
+// This consolidates initialization logic that was scattered across main.go
+func InitializeForCompany(companyPath string, existingDB *DB) (*DB, error) {
+	debug.SimpleLog(fmt.Sprintf("Database.InitializeForCompany: Called with companyPath: %s", companyPath))
+	fmt.Printf("InitializeForCompany: Called with companyPath: %s\n", companyPath)
+
+	// If we have an existing DB for the same company, reuse it
+	if existingDB != nil {
+		// TODO: Check if it's the same company path
+		debug.SimpleLog("Database.InitializeForCompany: Reusing existing database connection")
+		return existingDB, nil
+	}
+
+	// Create new database connection
+	debug.SimpleLog(fmt.Sprintf("Database.InitializeForCompany: Creating new database for path: %s", companyPath))
+	fmt.Printf("InitializeForCompany: Creating new database for path: %s\n", companyPath)
+
+	db, err := New(companyPath)
+	if err != nil {
+		errMsg := fmt.Sprintf("InitializeForCompany: Error creating database: %v", err)
+		debug.SimpleLog(errMsg)
+		fmt.Printf("%s\n", errMsg)
+		return nil, fmt.Errorf("failed to create database: %v", err)
+	}
+
+	debug.SimpleLog("Database.InitializeForCompany: Database created, initializing tables")
+	fmt.Printf("InitializeForCompany: Database created, initializing tables\n")
+
+	// Initialize balance cache tables
+	err = InitializeBalanceCache(db)
+	if err != nil {
+		errMsg := fmt.Sprintf("InitializeForCompany: Error initializing balance cache: %v", err)
+		debug.SimpleLog(errMsg)
+		fmt.Printf("%s\n", errMsg)
+		// Don't fail completely - the database is still usable
+		// Just log the error and continue
+	}
+
+	// User and auth tables are created on-demand by the auth system
+
+	successMsg := "InitializeForCompany: Database initialized successfully"
+	debug.SimpleLog(successMsg)
+	fmt.Printf("%s\n", successMsg)
+
+	return db, nil
 }

@@ -207,39 +207,16 @@ func (a *App) GetCompanies() ([]company.Company, error) {
 // InitializeCompanyDatabase initializes the SQLite database for a company
 // This is called when a company is selected (even with Supabase auth)
 func (a *App) InitializeCompanyDatabase(companyPath string) error {
-	debug.SimpleLog(fmt.Sprintf("App.InitializeCompanyDatabase: Called with companyPath: %s", companyPath))
-	fmt.Printf("InitializeCompanyDatabase: Called with companyPath: %s\n", companyPath)
-
 	// Check if we need to reinitialize (different company or no DB)
 	if a.db == nil || a.currentCompanyPath != companyPath {
 		if a.db != nil {
-			debug.SimpleLog("App.InitializeCompanyDatabase: Closing existing database connection")
-			fmt.Printf("InitializeCompanyDatabase: Closing existing database connection\n")
 			a.db.Close()
 		}
 
-		debug.SimpleLog(fmt.Sprintf("App.InitializeCompanyDatabase: Creating new database for path: %s", companyPath))
-		fmt.Printf("InitializeCompanyDatabase: Creating new database for path: %s\n", companyPath)
-
-		db, err := database.New(companyPath)
+		// Use the consolidated initialization method
+		db, err := database.InitializeForCompany(companyPath, nil)
 		if err != nil {
-			errMsg := fmt.Sprintf("InitializeCompanyDatabase: Error creating database: %v", err)
-			debug.SimpleLog(errMsg)
-			fmt.Printf("%s\n", errMsg)
-			return fmt.Errorf("failed to create database: %v", err)
-		}
-
-		debug.SimpleLog("App.InitializeCompanyDatabase: Database created, initializing balance cache tables")
-		fmt.Printf("InitializeCompanyDatabase: Database created, initializing balance cache tables\n")
-
-		// Initialize balance cache tables
-		err = database.InitializeBalanceCache(db)
-		if err != nil {
-			errMsg := fmt.Sprintf("InitializeCompanyDatabase: Error initializing balance cache: %v", err)
-			debug.SimpleLog(errMsg)
-			fmt.Printf("%s\n", errMsg)
-			// Don't fail completely - the database is still usable
-			// return fmt.Errorf("failed to initialize balance cache: %w", err)
+			return err
 		}
 
 		a.db = db
@@ -262,14 +239,6 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 			debug.SimpleLog(fmt.Sprintf("App.InitializeCompanyDatabase: Error initializing VFP schema: %v", err))
 			// Non-fatal error, VFP integration is optional
 		}
-
-		successMsg := "InitializeCompanyDatabase: Database initialized successfully"
-		debug.SimpleLog(successMsg)
-		fmt.Printf("%s\n", successMsg)
-	} else {
-		msg := "InitializeCompanyDatabase: Database already initialized for this company"
-		debug.SimpleLog(msg)
-		fmt.Printf("%s\n", msg)
 	}
 
 	return nil
@@ -283,15 +252,9 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 			a.db.Close()
 		}
 
-		db, err := database.New(companyName)
+		db, err := database.InitializeForCompany(companyName, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to database: %w", err)
-		}
-
-		// Initialize balance cache tables
-		err = database.InitializeBalanceCache(db)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 
 		a.db = db
@@ -349,15 +312,9 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 			a.db.Close()
 		}
 
-		db, err := database.New(companyName)
+		db, err := database.InitializeForCompany(companyName, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to database: %w", err)
-		}
-
-		// Initialize balance cache tables
-		err = database.InitializeBalanceCache(db)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 
 		a.db = db
@@ -441,15 +398,9 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 			a.db.Close()
 		}
 
-		db, err := database.New(companyName)
+		db, err := database.InitializeForCompany(companyName, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to company database: %w", err)
-		}
-
-		// Initialize balance cache tables
-		err = database.InitializeBalanceCache(db)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize balance cache: %w", err)
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 
 		a.db = db
@@ -864,33 +815,17 @@ func (a *App) RunNetDistribution(periodStart, periodEnd string, processType stri
 
 // PreloadOLEConnection preloads the OLE connection for a company
 func (a *App) PreloadOLEConnection(companyName string) map[string]interface{} {
-	ole.PreloadOLEConnection(companyName)
-	fmt.Printf("PreloadOLEConnection: Requested for company: %s\n", companyName)
-	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("OLE connection preloaded for %s", companyName),
-	}
+	return a.Services.OLE.PreloadConnection(companyName)
 }
 
 // CloseOLEConnection closes the current OLE connection
 func (a *App) CloseOLEConnection() map[string]interface{} {
-	ole.CloseOLEConnection()
-	fmt.Printf("CloseOLEConnection: Connection closed\n")
-	return map[string]interface{}{
-		"success": true,
-		"message": "OLE connection closed",
-	}
+	return a.Services.OLE.CloseConnection()
 }
 
 // SetOLEIdleTimeout sets the idle timeout for OLE connections
 func (a *App) SetOLEIdleTimeout(minutes int) map[string]interface{} {
-	timeout := time.Duration(minutes) * time.Minute
-	ole.SetIdleTimeout(timeout)
-	fmt.Printf("SetOLEIdleTimeout: Set to %d minutes\n", minutes)
-	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Idle timeout set to %d minutes", minutes),
-	}
+	return a.Services.OLE.SetIdleTimeout(minutes)
 }
 
 // TestDatabaseQuery executes a test query using Pivoten.DbApi
@@ -2506,102 +2441,7 @@ func (a *App) GetBankAccountsForAudit(companyName string) ([]map[string]interfac
 
 // TestOLEConnection tests if we can connect to FoxPro OLE server
 func (a *App) TestOLEConnection() (map[string]interface{}, error) {
-	// Add immediate console output
-	fmt.Println("=== TestOLEConnection STARTED ===")
-	fmt.Printf("TestOLEConnection called at %s\n", time.Now().Format("2006-01-02 15:04:05"))
-
-	// Also add to debug log
-	debug.SimpleLog("=== TestOLEConnection STARTED ===")
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection called at %s", time.Now().Format("2006-01-02 15:04:05")))
-
-	// Log the test attempt
-	exePath, _ := os.Executable()
-	fmt.Printf("TestOLEConnection: Executable path: %s\n", exePath)
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection: Executable path: %s", exePath))
-
-	logDir := filepath.Join(filepath.Dir(exePath), "logs")
-	fmt.Printf("TestOLEConnection: Log directory: %s\n", logDir)
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection: Log directory: %s", logDir))
-
-	// Create logs directory if it doesn't exist
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		fmt.Printf("TestOLEConnection: ERROR creating logs directory: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestOLEConnection: ERROR creating logs directory: %v", err))
-	}
-
-	timestamp := time.Now().Format("2006-01-02")
-	logPath := filepath.Join(logDir, fmt.Sprintf("financialsx_ole_%s.log", timestamp))
-	testLogPath := filepath.Join(logDir, fmt.Sprintf("financialsx_test_%s.log", timestamp))
-
-	fmt.Printf("TestOLEConnection: OLE log path: %s\n", logPath)
-	fmt.Printf("TestOLEConnection: Test log path: %s\n", testLogPath)
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection: OLE log path: %s", logPath))
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection: Test log path: %s", testLogPath))
-
-	// Write a test log to confirm function was called
-	testLog := fmt.Sprintf("[%s] TestOLEConnection called from UI\n", time.Now().Format("2006-01-02 15:04:05"))
-	if err := os.WriteFile(testLogPath, []byte(testLog), 0644); err != nil {
-		fmt.Printf("TestOLEConnection: ERROR writing test log: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestOLEConnection: ERROR writing test log: %v", err))
-	} else {
-		fmt.Printf("TestOLEConnection: Test log written successfully\n")
-		debug.SimpleLog("TestOLEConnection: Test log written successfully")
-	}
-
-	// Try to create DbApi client
-	fmt.Printf("TestOLEConnection: Attempting to create OLE DbApi client...\n")
-	fmt.Printf("TestOLEConnection: Using ProgID: Pivoten.DbApi\n")
-	debug.SimpleLog("TestOLEConnection: Attempting to create OLE DbApi client...")
-	debug.SimpleLog("TestOLEConnection: Using ProgID: Pivoten.DbApi")
-
-	client, err := ole.NewDbApiClient()
-	if err != nil {
-		errMsg := fmt.Sprintf("TestOLEConnection: FAILED to connect to OLE server: %v", err)
-		fmt.Printf("%s\n", errMsg)
-		debug.SimpleLog(errMsg)
-
-		// Provide detailed instructions for fixing the OLE server
-		result := map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-			"message": "Could not connect to Pivoten.DbApi COM server. The dbapi.prg file has been fixed.",
-			"logPath": logPath,
-			"hint":    "To register: 1) Build dbapi.exe from dbapi.prg in VFP, 2) Run 'dbapi.exe /regserver' as admin",
-			"details": "The dbapi.prg file in project root has been fixed to remove TRY/CATCH issues",
-		}
-
-		fmt.Printf("TestOLEConnection: Returning error result: %v\n", result)
-		debug.SimpleLog(fmt.Sprintf("TestOLEConnection: Returning error result: %v", result))
-		fmt.Println("=== TestOLEConnection ENDED (FAILED) ===")
-		debug.SimpleLog("=== TestOLEConnection ENDED (FAILED) ===")
-
-		return result, nil
-	}
-	defer client.Close()
-
-	fmt.Printf("TestOLEConnection: SUCCESS - Connected to OLE server!\n")
-	debug.SimpleLog("TestOLEConnection: SUCCESS - Connected to OLE server!")
-
-	// Try to call Ping() method to verify server is working
-	fmt.Printf("TestOLEConnection: Testing Ping() method...\n")
-	debug.SimpleLog("TestOLEConnection: Testing Ping() method...")
-
-	// Note: This would require actual OLE implementation
-	// For now, we just report successful connection
-
-	result := map[string]interface{}{
-		"success": true,
-		"message": "Successfully connected to Pivoten.DbApi COM server (v1.0.1)!",
-		"logPath": logPath,
-		"version": "1.0.1",
-	}
-
-	fmt.Printf("TestOLEConnection: Returning success result: %v\n", result)
-	debug.SimpleLog(fmt.Sprintf("TestOLEConnection: Returning success result: %v", result))
-	fmt.Println("=== TestOLEConnection ENDED (SUCCESS) ===")
-	debug.SimpleLog("=== TestOLEConnection ENDED (SUCCESS) ===")
-
-	return result, nil
+	return a.Services.OLE.TestConnection()
 }
 
 // GetCompanyInfo retrieves company information from FoxPro OLE server

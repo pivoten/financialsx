@@ -2144,8 +2144,6 @@ func (a *App) ClearMatchesAndRerun(companyName string, accountNumber string, opt
 
 // ImportBankStatement parses and stores CSV bank statement in SQLite (without auto-matching)
 func (a *App) ImportBankStatement(companyName string, csvContent string, accountNumber string) (map[string]interface{}, error) {
-	fmt.Printf("ImportBankStatement called for company: %s, account: %s\n", companyName, accountNumber)
-	
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -2155,234 +2153,24 @@ func (a *App) ImportBankStatement(companyName string, csvContent string, account
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Generate unique batch ID for this import
-	batchID := fmt.Sprintf("import_%d_%s", time.Now().Unix(), accountNumber)
-	statementDate := time.Now().Format("2006-01-02") // Use today as statement date, can be overridden
-	
-	// Parse CSV content into BankTransaction objects
-	bankTransactions, err := a.parseCSVToBankTransactions(csvContent, accountNumber, batchID)
+	// Delegate to Matching service
+	result, err := a.Services.Matching.ImportBankStatement(companyName, csvContent, accountNumber)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse CSV: %w", err)
+		return nil, err
 	}
 	
-	// SKIP auto-matching during import - will be done separately via RunMatching button
-	fmt.Printf("Skipping auto-match during import - use Match button to run matching\n")
-	
-	// Create bank statement record first
-	statementID, err := a.createBankStatement(companyName, accountNumber, statementDate, batchID, len(bankTransactions))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bank statement: %w", err)
-	}
-	fmt.Printf("Created bank statement with ID: %d\n", statementID)
-	
-	// Update transactions with statement ID
-	for i := range bankTransactions {
-		bankTransactions[i].StatementID = statementID
-	}
-	
-	// Store bank transactions in SQLite
-	fmt.Printf("Storing %d bank transactions in database\n", len(bankTransactions))
-	err = a.storeBankTransactions(bankTransactions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to store bank transactions: %w", err)
-	}
-	
-	return map[string]interface{}{
-		"status":            "success",
-		"importBatchId":     batchID,
-		"statementID":       statementID,
-		"bankTransactions":  bankTransactions,
-		"totalTransactions": len(bankTransactions),
-		"message":           "Transactions imported successfully. Click 'Run Matching' to match with checks.",
-	}, nil
-}
-
-// parseCSVToBankTransactions parses CSV content into BankTransaction objects
-func (a *App) parseCSVToBankTransactions(csvContent string, accountNumber string, batchID string) ([]BankTransaction, error) {
-	lines := strings.Split(strings.TrimSpace(csvContent), "\n")
-	if len(lines) < 2 {
-		return nil, fmt.Errorf("CSV must contain header and at least one data row")
-	}
-	
-	// Parse header to determine column indices - handle quoted fields properly
-	header := common.ParseCSVLine(lines[0])
-	columnMap := make(map[string]int)
-	
-	for i, col := range header {
-		colName := strings.ToLower(strings.TrimSpace(strings.Trim(col, `"`)))
-		columnMap[colName] = i
-		
-		// Handle common variations
-		switch colName {
-		case "transaction date", "posting date", "trans date":
-			columnMap["date"] = i
-		case "payee", "merchant", "vendor", "memo":
-			columnMap["description"] = i
-		case "check #", "check number", "chk #":
-			columnMap["check_number"] = i
-		}
-	}
-	
-	var transactions []BankTransaction
-	
-	for _, line := range lines[1:] {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		
-		fields := common.ParseCSVLine(line)
-		if len(fields) < len(header) {
-			continue // Skip malformed rows
-		}
-		
-		// Clean fields
-		for i, field := range fields {
-			fields[i] = strings.TrimSpace(strings.Trim(field, `"`))
-		}
-		
-		transaction := BankTransaction{
-			CompanyName:   a.currentUser.CompanyName,
-			AccountNumber: accountNumber,
-			ImportBatchID: batchID,
-			ImportedBy:    a.currentUser.Username,
-		}
-		
-		// Extract date - convert to YYYY-MM-DD for SQLite DATE column
-		if dateIdx, exists := columnMap["date"]; exists && dateIdx < len(fields) {
-			dateStr := strings.TrimSpace(fields[dateIdx])
-			// Parse MM/DD and convert to 2025-MM-DD
-			parts := strings.Split(dateStr, "/")
-			if len(parts) == 2 {
-				month, _ := strconv.Atoi(parts[0])
-				day, _ := strconv.Atoi(parts[1])
-				transaction.TransactionDate = fmt.Sprintf("2025-%02d-%02d", month, day)
-			} else if len(parts) == 3 {
-				// MM/DD/YYYY - convert to YYYY-MM-DD
-				month, _ := strconv.Atoi(parts[0])
-				day, _ := strconv.Atoi(parts[1])
-				year, _ := strconv.Atoi(parts[2])
-				transaction.TransactionDate = fmt.Sprintf("%04d-%02d-%02d", year, month, day)
-			} else {
-				transaction.TransactionDate = "2025-01-01"
+	// Update imported_by field with current user
+	if txns, ok := result["bankTransactions"].([]interface{}); ok {
+		for _, txn := range txns {
+			if t, ok := txn.(map[string]interface{}); ok {
+				t["imported_by"] = a.currentUser.Username
 			}
 		}
-		
-		// Extract check number
-		if checkIdx, exists := columnMap["check_number"]; exists && checkIdx < len(fields) {
-			checkNum := strings.TrimSpace(fields[checkIdx])
-			// Remove asterisks from check numbers
-			checkNum = strings.ReplaceAll(checkNum, "*", "")
-			transaction.CheckNumber = checkNum
-		} else if checkIdx, exists := columnMap["check #"]; exists && checkIdx < len(fields) {
-			checkNum := strings.TrimSpace(fields[checkIdx])
-			checkNum = strings.ReplaceAll(checkNum, "*", "")
-			transaction.CheckNumber = checkNum
-		}
-		
-		// Extract description
-		if descIdx, exists := columnMap["description"]; exists && descIdx < len(fields) {
-			transaction.Description = fields[descIdx]
-		}
-		
-		// Extract amount
-		if amountIdx, exists := columnMap["amount"]; exists && amountIdx < len(fields) {
-			transaction.Amount = common.ParseFloat(fields[amountIdx])
-		}
-		
-		// Extract type
-		if typeIdx, exists := columnMap["type"]; exists && typeIdx < len(fields) {
-			transaction.TransactionType = fields[typeIdx]
-		} else {
-			// Infer type from amount or other context
-			if transaction.Amount < 0 {
-				transaction.TransactionType = "Debit"
-			} else if transaction.CheckNumber != "" {
-				transaction.TransactionType = "Check"
-			} else {
-				transaction.TransactionType = "Deposit"
-			}
-		}
-		
-		transactions = append(transactions, transaction)
 	}
 	
-	fmt.Printf("Parsed %d bank transactions from CSV\n", len(transactions))
-	return transactions, nil
+	return result, nil
 }
 
-// storeBankTransactions stores bank transactions in SQLite
-// createBankStatement creates a bank statement record for tracking import sessions
-func (a *App) createBankStatement(companyName, accountNumber, statementDate, batchID string, transactionCount int) (int, error) {
-	if a.db == nil {
-		return 0, fmt.Errorf("database not initialized")
-	}
-	
-	query := `
-		INSERT INTO bank_statements (
-			company_name, account_number, statement_date, import_batch_id,
-			imported_by, transaction_count, is_active
-		) VALUES (?, ?, ?, ?, ?, ?, TRUE)
-	`
-	
-	result, err := a.db.Exec(query, companyName, accountNumber, statementDate, batchID, 
-		a.currentUser.Username, transactionCount)
-	if err != nil {
-		return 0, fmt.Errorf("failed to insert bank statement: %w", err)
-	}
-	
-	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get statement ID: %w", err)
-	}
-	
-	return int(id), nil
-}
-
-func (a *App) storeBankTransactions(transactions []BankTransaction) error {
-	if a.db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	
-	// Begin transaction for atomic insert
-	tx, err := a.db.GetConn().Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-	
-	stmt, err := tx.Prepare(`
-		INSERT INTO bank_transactions (
-			company_name, account_number, statement_id, transaction_date, check_number, description,
-			amount, transaction_type, import_batch_id, imported_by, matched_check_id,
-			matched_dbf_row_index, match_confidence, match_type, is_matched, manually_matched, extended_data
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
-	
-	for _, txn := range transactions {
-		extendedDataJSON := "{}"
-		if len(txn.ExtendedData) > 0 {
-			if data, err := json.Marshal(txn.ExtendedData); err == nil {
-				extendedDataJSON = string(data)
-			}
-		}
-		
-		_, err = stmt.Exec(
-			txn.CompanyName, txn.AccountNumber, txn.StatementID, txn.TransactionDate, txn.CheckNumber,
-			txn.Description, txn.Amount, txn.TransactionType, txn.ImportBatchID,
-			txn.ImportedBy, txn.MatchedCheckID, txn.MatchedDBFRowIndex, txn.MatchConfidence, txn.MatchType,
-			txn.IsMatched, txn.ManuallyMatched, extendedDataJSON,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert transaction: %w", err)
-		}
-	}
-	
-	return tx.Commit()
-}
 
 // autoMatchBankTransactions matches bank transactions with existing checks
 func (a *App) autoMatchBankTransactions(bankTransactions []BankTransaction, existingChecks []map[string]interface{}) []MatchResult {

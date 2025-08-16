@@ -69,6 +69,83 @@ func NewService(db *database.DB) *Service {
 	return &Service{db: db}
 }
 
+// SaveDraftFromMap saves or updates a draft reconciliation from a map
+func (s *Service) SaveDraftFromMap(companyName string, draftData map[string]interface{}, username string) (map[string]interface{}, error) {
+	fmt.Printf("SaveDraftFromMap called for company: %s\n", companyName)
+
+	// Parse the request
+	var req SaveDraftRequest
+	req.CompanyName = companyName
+	req.CreatedBy = username
+
+	// Extract data from map
+	if accountNumber, ok := draftData["account_number"].(string); ok {
+		req.AccountNumber = accountNumber
+	} else {
+		return nil, fmt.Errorf("account_number is required")
+	}
+
+	if statementDate, ok := draftData["statement_date"].(string); ok {
+		req.StatementDate = statementDate
+	} else {
+		return nil, fmt.Errorf("statement_date is required")
+	}
+
+	if balance, ok := draftData["statement_balance"].(float64); ok {
+		req.StatementBalance = balance
+	}
+	if credits, ok := draftData["statement_credits"].(float64); ok {
+		req.StatementCredits = credits
+	}
+	if debits, ok := draftData["statement_debits"].(float64); ok {
+		req.StatementDebits = debits
+	}
+	if begBalance, ok := draftData["beginning_balance"].(float64); ok {
+		req.BeginningBalance = begBalance
+	}
+
+	// Parse selected checks
+	if checksData, ok := draftData["selected_checks"].([]interface{}); ok {
+		for _, checkData := range checksData {
+			if checkMap, ok := checkData.(map[string]interface{}); ok {
+				var check SelectedCheck
+				if cidchec, ok := checkMap["cidchec"].(string); ok {
+					check.CIDCHEC = cidchec
+				}
+				if checkNumber, ok := checkMap["checkNumber"].(string); ok {
+					check.CheckNumber = checkNumber
+				}
+				if amount, ok := checkMap["amount"].(float64); ok {
+					check.Amount = amount
+				}
+				if payee, ok := checkMap["payee"].(string); ok {
+					check.Payee = payee
+				}
+				if checkDate, ok := checkMap["checkDate"].(string); ok {
+					check.CheckDate = checkDate
+				}
+				if rowIndex, ok := checkMap["rowIndex"].(float64); ok {
+					check.RowIndex = int(rowIndex)
+				}
+				req.SelectedChecks = append(req.SelectedChecks, check)
+			}
+		}
+	}
+
+	// Save the draft
+	result, err := s.SaveDraft(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save draft: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":         "success",
+		"id":             result.ID,
+		"message":        "Draft saved successfully",
+		"reconciliation": result,
+	}, nil
+}
+
 // SaveDraft saves or updates a draft reconciliation
 func (s *Service) SaveDraft(req SaveDraftRequest) (*Reconciliation, error) {
 	// Parse statement date
@@ -147,6 +224,27 @@ func (s *Service) SaveDraft(req SaveDraftRequest) (*Reconciliation, error) {
 	}
 	
 	return reconciliation, nil
+}
+
+// GetDraftAsMap retrieves the current draft reconciliation for an account as a map
+func (s *Service) GetDraftAsMap(companyName, accountNumber string) (map[string]interface{}, error) {
+	fmt.Printf("GetDraftAsMap called for company: %s, account: %s\n", companyName, accountNumber)
+
+	draft, err := s.GetDraft(companyName, accountNumber)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return map[string]interface{}{
+				"status":  "no_draft",
+				"message": "No draft reconciliation found",
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to get draft: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status": "success",
+		"draft":  draft,
+	}, nil
 }
 
 // GetDraft retrieves the current draft reconciliation for an account

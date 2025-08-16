@@ -282,6 +282,72 @@ func (s *Service) UpdateBatchFields(companyName, batchNumber string, fieldMappin
 	return result, fmt.Errorf("UpdateBatchFields not fully implemented - DBF write operations needed")
 }
 
+// RunNetDistribution runs the net revenue distribution process
+func (s *Service) RunNetDistribution(periodStart, periodEnd string, processType string, recalculateAll bool, userID int, companyName string) (map[string]interface{}, error) {
+	// TODO: Uncomment when ready to use the distribution processor
+	/*
+		logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", companyName), log.LstdFlags)
+		netDistProcess := processes.NewDistributionProcessor(a.db, companyName, logger)
+		periodStartDate, err := time.Parse("2006-01-02", periodStart)
+		if err != nil {
+			return nil, fmt.Errorf("invalid period start date: %w", err)
+		}
+		periodEndDate, err := time.Parse("2006-01-02", periodEnd)
+		if err != nil {
+			return nil, fmt.Errorf("invalid period end date: %w", err)
+		}
+		config := &processes.ProcessingConfig{
+			Period:      fmt.Sprintf("%02d", periodStartDate.Month()),
+			Year:        fmt.Sprintf("%04d", periodStartDate.Year()),
+			AcctDate:    periodEndDate,
+			RevDate:     periodEndDate,
+			ExpDate:     periodEndDate,
+			UserID:      userID,
+			IsNewRun:    true,
+			IsClosing:   false,
+		}
+	*/
+	// For now, return a placeholder response while we're developing
+	// TODO: Uncomment below when ready to hook up the full distribution processor
+	/*
+		options := &processes.ProcessingOptions{
+			RevSummarize: true,
+			ExpSummarize: true,
+			GLSummary:    true,
+		}
+		if err := netDistProcess.Initialize(config, options); err != nil {
+			return nil, fmt.Errorf("failed to initialize distribution processor: %w", err)
+		}
+		result, err := netDistProcess.Main()
+		if err != nil {
+			return nil, fmt.Errorf("net distribution process failed: %w", err)
+		}
+		// Convert result to map for JSON serialization
+		return map[string]interface{}{
+			"run_number":       result.RunNumber,
+			"run_year":         result.RunYear,
+			"status":          result.Status,
+			"wells_processed": result.WellsProcessed,
+			"owners_processed": result.OwnersProcessed,
+			"records_created":  result.RecordsCreated,
+			"total_revenue":    result.TotalRevenue.String(),
+			"total_expenses":   result.TotalExpenses.String(),
+			"net_distributed":  result.NetDistributed.String(),
+			"warnings":        result.Warnings,
+			"errors":          result.Errors,
+			"duration":        result.Duration.String(),
+			"start_time":      result.StartTime,
+			"end_time":        result.EndTime,
+		}, nil
+	*/
+	// Placeholder response for development
+	return map[string]interface{}{
+		"status":   "development",
+		"message":  "Distribution processor in development - not yet connected",
+		"duration": "0s",
+	}, nil
+}
+
 // Example function structures - to be implemented by moving from main.go
 func (s *Service) GetVendors(companyName string) ([]Vendor, error) {
 	// TODO: Move implementation from main.go

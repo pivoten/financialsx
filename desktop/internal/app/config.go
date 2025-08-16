@@ -64,6 +64,10 @@ func NewServices(dbConn *database.DB) *Services {
 	bankingService := banking.NewService(sqlDB)
 	bankingService.SetDatabaseHelper(dbConn)
 	
+	// Create audit service and set banking dependency
+	auditService := audit.NewService()
+	auditService.SetBankingService(bankingService)
+	
 	return &Services{
 		// Core services
 		Auth:    common.New(dbConn, ""), // Company name will be set later
@@ -79,7 +83,7 @@ func NewServices(dbConn *database.DB) *Services {
 		Banking:  bankingService,
 		Matching: matching.NewService(sqlDB),
 		GL:       gl.NewService(sqlDB),
-		Audit:    audit.NewService(),
+		Audit:    auditService,
 		Vendor:   vendor.NewService(),
 		
 		// Reconciliation

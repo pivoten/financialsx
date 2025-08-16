@@ -2,6 +2,7 @@ package matching
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -44,6 +45,11 @@ type BankTransaction struct {
 	MatchConfidence    float64                `json:"match_confidence"`
 	MatchType          string                 `json:"match_type"`
 	IsMatched          bool                   `json:"is_matched"`
+	ManuallyMatched    bool                   `json:"manually_matched"`
+	IsReconciled       bool                   `json:"is_reconciled"`
+	ReconciledDate     *string                `json:"reconciled_date"`   // Pointer to handle NULL
+	ReconciliationID   *int                   `json:"reconciliation_id"` // Pointer to handle NULL
+	ExtendedData       map[string]interface{} `json:"extended_data"`
 	CreatedAt          time.Time              `json:"created_at"`
 }
 
@@ -577,51 +583,104 @@ func (s *Service) GetMatchedTransactions(companyName, accountNumber string) (map
 	}, nil
 }
 
-// GetBankTransactions retrieves bank transactions for a specific import batch
-func (s *Service) GetBankTransactions(companyName, accountNumber, importBatchID string) ([]BankTransaction, error) {
-	query := `
-		SELECT id, company_name, account_number, statement_id, transaction_date,
-		       check_number, description, amount, transaction_type,
-		       import_batch_id, import_date, imported_by,
-		       matched_check_id, matched_dbf_row_index, match_confidence,
-		       match_type, is_matched
-		FROM bank_transactions
-		WHERE company_name = ?
-		  AND account_number = ?
-	`
-	
-	args := []interface{}{companyName, accountNumber}
-	
+// GetBankTransactions retrieves bank transactions for a specific account and optionally import batch
+func (s *Service) GetBankTransactions(companyName string, accountNumber string, importBatchID string) (map[string]interface{}, error) {
+	fmt.Printf("GetBankTransactions called for company: %s, account: %s, batch: %s\n", companyName, accountNumber, importBatchID)
+
+	var query string
+	var args []interface{}
+
 	if importBatchID != "" {
-		query += " AND import_batch_id = ?"
-		args = append(args, importBatchID)
+		query = `
+			SELECT bt.id, bt.company_name, bt.account_number, bt.statement_id, bt.transaction_date, bt.check_number,
+				   bt.description, bt.amount, bt.transaction_type, bt.import_batch_id, bt.import_date,
+				   bt.imported_by, bt.matched_check_id, bt.matched_dbf_row_index, bt.match_confidence, bt.match_type,
+				   bt.is_matched, bt.manually_matched, bt.is_reconciled, bt.reconciled_date,
+				   bt.reconciliation_id, bt.extended_data
+			FROM bank_transactions bt
+			WHERE bt.company_name = ? AND bt.account_number = ? AND bt.import_batch_id = ?
+			ORDER BY bt.transaction_date, bt.id
+		`
+		args = []interface{}{companyName, accountNumber, importBatchID}
+	} else {
+		// Only show unmatched transactions from active statements
+		query = `
+			SELECT bt.id, bt.company_name, bt.account_number, bt.statement_id, bt.transaction_date, bt.check_number,
+				   bt.description, bt.amount, bt.transaction_type, bt.import_batch_id, bt.import_date,
+				   bt.imported_by, bt.matched_check_id, bt.matched_dbf_row_index, bt.match_confidence, bt.match_type,
+				   bt.is_matched, bt.manually_matched, bt.is_reconciled, bt.reconciled_date,
+				   bt.reconciliation_id, bt.extended_data
+			FROM bank_transactions bt
+			INNER JOIN bank_statements bs ON bt.statement_id = bs.id
+			WHERE bt.company_name = ? AND bt.account_number = ? 
+			  AND bs.is_active = TRUE
+			  AND bt.is_matched = FALSE
+			ORDER BY bt.import_date DESC, bt.transaction_date, bt.id
+		`
+		args = []interface{}{companyName, accountNumber}
 	}
-	
-	query += " ORDER BY transaction_date DESC"
-	
+
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query bank transactions: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var transactions []BankTransaction
 	for rows.Next() {
-		var t BankTransaction
+		var txn BankTransaction
+		var extendedDataStr string
+		var reconciledDate sql.NullString
+		var reconciliationID sql.NullInt64
+		var matchedCheckID sql.NullString
+		var matchedDBFRowIndex sql.NullInt64
+
 		err := rows.Scan(
-			&t.ID, &t.CompanyName, &t.AccountNumber, &t.StatementID,
-			&t.TransactionDate, &t.CheckNumber, &t.Description, &t.Amount,
-			&t.TransactionType, &t.ImportBatchID, &t.ImportDate, &t.ImportedBy,
-			&t.MatchedCheckID, &t.MatchedDBFRowIndex, &t.MatchConfidence,
-			&t.MatchType, &t.IsMatched,
+			&txn.ID, &txn.CompanyName, &txn.AccountNumber, &txn.StatementID, &txn.TransactionDate,
+			&txn.CheckNumber, &txn.Description, &txn.Amount, &txn.TransactionType,
+			&txn.ImportBatchID, &txn.ImportDate, &txn.ImportedBy, &matchedCheckID,
+			&matchedDBFRowIndex, &txn.MatchConfidence, &txn.MatchType, &txn.IsMatched, &txn.ManuallyMatched,
+			&txn.IsReconciled, &reconciledDate, &reconciliationID, &extendedDataStr,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
 		}
-		transactions = append(transactions, t)
+
+		// Handle nullable matched_check_id
+		if matchedCheckID.Valid {
+			txn.MatchedCheckID = matchedCheckID.String
+		}
+		if matchedDBFRowIndex.Valid {
+			txn.MatchedDBFRowIndex = int(matchedDBFRowIndex.Int64)
+		}
+
+		// Debug first transaction
+		if len(transactions) == 0 {
+			fmt.Printf("DEBUG: First transaction date from DB: '%s'\n", txn.TransactionDate)
+		}
+
+		// Handle nullable fields
+		if reconciledDate.Valid {
+			txn.ReconciledDate = &reconciledDate.String
+		}
+		if reconciliationID.Valid {
+			recID := int(reconciliationID.Int64)
+			txn.ReconciliationID = &recID
+		}
+
+		// Parse extended data JSON
+		if extendedDataStr != "" {
+			json.Unmarshal([]byte(extendedDataStr), &txn.ExtendedData)
+		}
+
+		transactions = append(transactions, txn)
 	}
-	
-	return transactions, nil
+
+	return map[string]interface{}{
+		"status":       "success",
+		"transactions": transactions,
+		"count":        len(transactions),
+	}, nil
 }
 
 // GetRecentStatements retrieves recent bank statements
@@ -632,9 +691,42 @@ func (s *Service) GetRecentStatements(companyName, accountNumber string) ([]map[
 
 // DeleteStatement deletes a bank statement and its transactions
 func (s *Service) DeleteStatement(companyName, importBatchID string) error {
-	// Implementation will be moved from main.go
-	return fmt.Errorf("not implemented")
+	fmt.Printf("DeleteStatement called for company: %s, batch: %s\n", companyName, importBatchID)
+
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete bank transactions first (due to foreign key)
+	_, err = tx.Exec(`
+		DELETE FROM bank_transactions 
+		WHERE company_name = ? AND import_batch_id = ?
+	`, companyName, importBatchID)
+	if err != nil {
+		return fmt.Errorf("failed to delete bank transactions: %w", err)
+	}
+
+	// Delete bank statement
+	_, err = tx.Exec(`
+		DELETE FROM bank_statements 
+		WHERE company_name = ? AND import_batch_id = ?
+	`, companyName, importBatchID)
+	if err != nil {
+		return fmt.Errorf("failed to delete bank statement: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	fmt.Printf("Successfully deleted bank statement batch: %s\n", importBatchID)
+	return nil
 }
+
 
 // Private helper methods
 

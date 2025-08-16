@@ -1,8 +1,26 @@
+// Package main provides the Wails desktop application entry point and API endpoints.
+// This file acts as a thin wrapper, delegating all business logic to specialized services.
+//
+// Architecture:
+//   - main.go handles Wails integration and API routing
+//   - Services contain all business logic and database operations
+//   - Frontend communicates through these API endpoints
+//
+// Organization:
+//   - App Initialization & Lifecycle
+//   - Authentication & Session Management
+//   - User Management API
+//   - Company Management API
+//   - Banking & Financial API
+//   - GL & Accounting API
+//   - Reconciliation API
+//   - Reporting API
+//   - System & Configuration API
+//   - Utility Functions
 package main
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -10,7 +28,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/pivoten/financialsx/desktop/internal/app"
@@ -34,7 +51,13 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// App struct
+// ============================================================================
+// APP STRUCTURE AND INITIALIZATION
+// ============================================================================
+
+// App struct represents the main application with all services and state.
+// It implements the Wails application interface and provides API endpoints
+// for the frontend to interact with backend services.
 type App struct {
 	ctx                   context.Context
 	db                    *database.DB
@@ -67,6 +90,10 @@ type App struct {
 func NewApp() *App {
 	return &App{}
 }
+
+// ============================================================================
+// APP LIFECYCLE METHODS
+// ============================================================================
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -163,6 +190,100 @@ func (a *App) hasPermission(permission string) bool {
 	return false
 }
 
+// ============================================================================
+// STANDARDIZED HELPER FUNCTIONS
+// These helpers ensure consistent error handling and permission checking.
+// Use these in all API functions for consistency.
+// ============================================================================
+
+// requireAuth checks if user is authenticated and returns standardized error
+func (a *App) requireAuth() error {
+	if a.currentUser == nil {
+		return fmt.Errorf("user not authenticated")
+	}
+	return nil
+}
+
+// requirePermission checks if user has specific permission and returns standardized error
+func (a *App) requirePermission(permission string) error {
+	if err := a.requireAuth(); err != nil {
+		return err
+	}
+	if !a.hasPermission(permission) {
+		return fmt.Errorf("insufficient permissions: %s required", permission)
+	}
+	return nil
+}
+
+// requireAdminOrRoot checks if user is admin or root and returns standardized error
+func (a *App) requireAdminOrRoot() error {
+	if err := a.requireAuth(); err != nil {
+		return err
+	}
+	if !a.isRoot && !a.isAdmin {
+		return fmt.Errorf("insufficient permissions: admin or root required")
+	}
+	return nil
+}
+
+// requireService checks if a service is initialized and returns standardized error
+func (a *App) requireService(serviceName string) error {
+	if a.Services == nil {
+		return fmt.Errorf("services not initialized")
+	}
+	// Check specific services
+	switch serviceName {
+	case "banking":
+		if a.Services.Banking == nil {
+			return fmt.Errorf("banking service not initialized")
+		}
+	case "gl":
+		if a.Services.GL == nil {
+			return fmt.Errorf("GL service not initialized")
+		}
+	case "dbf":
+		if a.Services.DBF == nil {
+			return fmt.Errorf("DBF service not initialized")
+		}
+	case "auth":
+		if a.Services.Auth == nil {
+			return fmt.Errorf("auth service not initialized")
+		}
+	case "operations":
+		if a.Services.Operations == nil {
+			return fmt.Errorf("operations service not initialized")
+		}
+	case "reconciliation":
+		if a.Services.Reconciliation == nil {
+			return fmt.Errorf("reconciliation service not initialized")
+		}
+	case "reports":
+		if a.Services.Reports == nil {
+			return fmt.Errorf("reports service not initialized")
+		}
+	case "audit":
+		if a.Services.Audit == nil {
+			return fmt.Errorf("audit service not initialized")
+		}
+	case "matching":
+		if a.Services.Matching == nil {
+			return fmt.Errorf("matching service not initialized")
+		}
+	case "company":
+		if a.Services.Company == nil {
+			return fmt.Errorf("company service not initialized")
+		}
+	case "ole":
+		if a.Services.OLE == nil {
+			return fmt.Errorf("OLE service not initialized")
+		}
+	// Add more services as needed
+	default:
+		return fmt.Errorf("unknown service: %s", serviceName)
+	}
+	return nil
+}
+
 // GetPlatform returns the current platform information
 func (a *App) GetPlatform() map[string]interface{} {
 	return map[string]interface{}{
@@ -217,7 +338,7 @@ func (a *App) InitializeCompanyDatabase(companyPath string) error {
 
 		a.db = db
 		a.currentCompanyPath = companyPath
-		a.reconciliationService = reconciliation.NewService(db)
+		a.Services.Reconciliation = reconciliation.NewService(db)
 
 		// Initialize services with the new modular architecture
 		if a.Services == nil {
@@ -255,7 +376,7 @@ func (a *App) Login(username, password, companyName string) (map[string]interfac
 
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
-		a.reconciliationService = reconciliation.NewService(db)
+		a.Services.Reconciliation = reconciliation.NewService(db)
 
 		// Initialize services with the new modular architecture
 		if a.Services == nil {
@@ -315,7 +436,7 @@ func (a *App) Register(username, password, email, companyName string) (map[strin
 
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
-		a.reconciliationService = reconciliation.NewService(db)
+		a.Services.Reconciliation = reconciliation.NewService(db)
 
 		// Initialize services with the new modular architecture
 		if a.Services == nil {
@@ -401,7 +522,7 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 
 		a.db = db
 		a.auth = common.New(db, companyName) // Pass companyName to Auth constructor
-		a.reconciliationService = reconciliation.NewService(db)
+		a.Services.Reconciliation = reconciliation.NewService(db)
 
 		// Initialize services with the new modular architecture
 		if a.Services == nil {
@@ -730,81 +851,20 @@ func (a *App) TestAPIKey(service, key string) (bool, error) {
 
 // RunNetDistribution executes the net distribution process
 func (a *App) RunNetDistribution(periodStart, periodEnd string, processType string, recalculateAll bool) (map[string]interface{}, error) {
-	// Check permissions
-	if a.currentUser == nil || !a.currentUser.HasPermission("database.maintain") {
-		return nil, fmt.Errorf("insufficient permissions")
+	// Use standardized helper for permission check
+	if err := a.requirePermission("database.maintain"); err != nil {
+		return nil, err
 	}
-
-	// TODO: Uncomment when ready to use the distribution processor
-	/*
-		logger := log.New(log.Writer(), fmt.Sprintf("[NETDIST-%s] ", a.currentUser.CompanyName), log.LstdFlags)
-		netDistProcess := processes.NewDistributionProcessor(a.db, a.currentUser.CompanyName, logger)
-
-		periodStartDate, err := time.Parse("2006-01-02", periodStart)
-		if err != nil {
-			return nil, fmt.Errorf("invalid period start date: %w", err)
-		}
-
-		periodEndDate, err := time.Parse("2006-01-02", periodEnd)
-		if err != nil {
-			return nil, fmt.Errorf("invalid period end date: %w", err)
-		}
-
-		config := &processes.ProcessingConfig{
-			Period:      fmt.Sprintf("%02d", periodStartDate.Month()),
-			Year:        fmt.Sprintf("%04d", periodStartDate.Year()),
-			AcctDate:    periodEndDate,
-			RevDate:     periodEndDate,
-			ExpDate:     periodEndDate,
-			UserID:      a.currentUser.ID,
-			IsNewRun:    true,
-			IsClosing:   false,
-		}
-	*/
-
-	// For now, return a placeholder response while we're developing
-	// TODO: Uncomment below when ready to hook up the full distribution processor
-	/*
-		options := &processes.ProcessingOptions{
-			RevSummarize: true,
-			ExpSummarize: true,
-			GLSummary:    true,
-		}
-
-		if err := netDistProcess.Initialize(config, options); err != nil {
-			return nil, fmt.Errorf("failed to initialize distribution processor: %w", err)
-		}
-
-		result, err := netDistProcess.Main()
-		if err != nil {
-			return nil, fmt.Errorf("net distribution process failed: %w", err)
-		}
-
-		// Convert result to map for JSON serialization
-		return map[string]interface{}{
-			"run_number":       result.RunNumber,
-			"run_year":         result.RunYear,
-			"status":          result.Status,
-			"wells_processed": result.WellsProcessed,
-			"owners_processed": result.OwnersProcessed,
-			"records_created":  result.RecordsCreated,
-			"total_revenue":    result.TotalRevenue.String(),
-			"total_expenses":   result.TotalExpenses.String(),
-			"net_distributed":  result.NetDistributed.String(),
-			"warnings":        result.Warnings,
-			"errors":          result.Errors,
-			"duration":        result.Duration.String(),
-			"start_time":      result.StartTime,
-			"end_time":        result.EndTime,
-		}, nil
-	*/
-
-	// Placeholder response for development
-	return map[string]interface{}{
-		"status":   "development",
-		"message":  "Distribution processor in development - not yet connected",
-		"duration": "0s",
-	}, nil
+	
+	// Use standardized helper for service check
+	if err := a.requireService("operations"); err != nil {
+		return nil, err
+	}
+	
+	return a.Services.Operations.RunNetDistribution(
+		periodStart, periodEnd, processType, recalculateAll, 
+		a.currentUser.ID, a.currentUser.CompanyName,
+	)
 }
 
 // LogError logs frontend errors to the backend
@@ -826,281 +886,13 @@ func (a *App) SetOLEIdleTimeout(minutes int) map[string]interface{} {
 
 // TestDatabaseQuery executes a test query using Pivoten.DbApi
 func (a *App) TestDatabaseQuery(companyName, query string) (map[string]interface{}, error) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WriteCrash("TestDatabaseQuery", r, nil)
-		}
-	}()
-
-	fmt.Printf("=== TestDatabaseQuery STARTED (OLE TEST ONLY) ===\n")
-	fmt.Printf("TestDatabaseQuery: company=%s\n", companyName)
-	fmt.Printf("TestDatabaseQuery: query=%s\n", query)
-	debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: company=%s, query=%s", companyName, query))
-
-	// Skip strict auth check like other functions
-	if a.currentUser == nil {
-		fmt.Printf("TestDatabaseQuery: Warning - currentUser is nil, proceeding anyway\n")
-		debug.SimpleLog("TestDatabaseQuery: Warning - currentUser is nil, proceeding anyway")
-	}
-
-	startTime := time.Now()
-
-	// This is specifically for testing OLE server - no fallback
-	fmt.Printf("TestDatabaseQuery: Testing OLE server (Pivoten.DbApi)...\n")
-	debug.SimpleLog("TestDatabaseQuery: Testing OLE server connection")
-
-	// Execute on dedicated COM thread to avoid threading issues
-	var jsonResult string
-	var queryErr error
-
-	err := ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
-		fmt.Printf("TestDatabaseQuery: Executing on COM thread\n")
-		debug.SimpleLog("TestDatabaseQuery: Using COM thread for OLE connection")
-
-		// Note: Ping method would be called here if implemented in OLE client
-		fmt.Printf("TestDatabaseQuery: OLE connection established\n")
-		debug.SimpleLog("TestDatabaseQuery: OLE connection established")
-
-		// Database should already be open via ExecuteOnCOMThread
-		fmt.Printf("TestDatabaseQuery: Database is open on COM thread\n")
-
-		// Execute the query via OLE using JSON
-		fmt.Printf("TestDatabaseQuery: Executing SQL query via OLE (JSON)...\n")
-		jsonResult, queryErr = client.QueryToJson(query)
-		return queryErr
-	})
-
-	if err != nil {
-		fmt.Printf("TestDatabaseQuery: Failed to use singleton OLE connection: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: OLE singleton connection failed: %v", err))
-
-		return map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("OLE server connection failed: %v", err),
-			"message": "Could not connect to Pivoten.DbApi COM server",
-			"hint":    "To use OLE: 1) Build dbapi.exe from dbapi.prg in Visual FoxPro, 2) Run 'dbapi.exe /regserver' as admin",
-			"progId":  "Pivoten.DbApi",
-		}, nil
-	}
-
-	if err != nil {
-		fmt.Printf("TestDatabaseQuery: Query execution failed: %v\n", err)
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: Query failed: %v", err))
-
-		// Get last error from OLE server if available
-		var lastError string
-		ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
-			lastError = client.GetLastError()
-			return nil
-		})
-
-		return map[string]interface{}{
-			"success":   false,
-			"error":     fmt.Sprintf("Query execution failed: %v", err),
-			"lastError": lastError,
-			"database":  companyName,
-			"query":     query,
-		}, nil
-	}
-
-	// Success!
-	elapsedTime := time.Since(startTime)
-	fmt.Printf("TestDatabaseQuery: Query executed successfully in %.2fms\n", elapsedTime.Seconds()*1000)
-
-	// Parse the JSON result
-	var queryResult map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonResult), &queryResult); err != nil {
-		fmt.Printf("TestDatabaseQuery: Failed to parse JSON: %v\n", err)
-		fmt.Printf("TestDatabaseQuery: Attempting to fix common JSON issues...\n")
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: JSON parse error: %v", err))
-
-		// Try to fix common FoxPro JSON issues
-		fixedJson := jsonResult
-		// Fix unescaped backslashes in paths (common in Windows paths)
-		// This is a simple fix - replace single backslashes with double
-		// But be careful not to double-escape already escaped ones
-		fixedJson = strings.ReplaceAll(fixedJson, `\`, `\\`)
-		// Fix already double-escaped becoming quad-escaped
-		fixedJson = strings.ReplaceAll(fixedJson, `\\\\`, `\\`)
-
-		// Try parsing again with fixed JSON
-		if err2 := json.Unmarshal([]byte(fixedJson), &queryResult); err2 != nil {
-			fmt.Printf("TestDatabaseQuery: Still failed after fix attempt: %v\n", err2)
-			// Return the raw result if parsing still fails
-			queryResult = map[string]interface{}{
-				"raw":          jsonResult,
-				"parseError":   err.Error(),
-				"fixAttempted": true,
-			}
-		} else {
-			fmt.Printf("TestDatabaseQuery: JSON fix successful!\n")
-		}
-	} else {
-		fmt.Printf("TestDatabaseQuery: JSON parsed successfully\n")
-		if success, ok := queryResult["success"].(bool); ok && !success {
-			// Query returned an error
-			if errMsg, ok := queryResult["error"].(string); ok {
-				return map[string]interface{}{
-					"success":  false,
-					"error":    errMsg,
-					"database": companyName,
-					"query":    query,
-				}, nil
-			}
-		}
-	}
-
-	// Log the JSON result for debugging
-	fmt.Printf("TestDatabaseQuery: JSON result length: %d bytes\n", len(jsonResult))
-	debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: JSON result length: %d bytes", len(jsonResult)))
-
-	// Log first 500 chars for debugging
-	if len(jsonResult) > 0 {
-		maxLen := 500
-		if len(jsonResult) < maxLen {
-			maxLen = len(jsonResult)
-		}
-		fmt.Printf("TestDatabaseQuery: JSON preview: %s...\n", jsonResult[:maxLen])
-		debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: JSON preview: %s", jsonResult[:maxLen]))
-	}
-
-	// Extract the actual data array and count from the FoxPro JSON response
-	var dataArray []map[string]interface{}
-	var rowCount int
-
-	// Debug: Log the structure of queryResult
-	fmt.Printf("TestDatabaseQuery: queryResult type: %T\n", queryResult)
-	fmt.Printf("TestDatabaseQuery: queryResult keys: ")
-	for key, value := range queryResult {
-		fmt.Printf("%s(%T) ", key, value)
-	}
-	fmt.Printf("\n")
-
-	// Check if data is directly in queryResult
-	if data, ok := queryResult["data"].([]interface{}); ok {
-		fmt.Printf("TestDatabaseQuery: Found data array with %d items\n", len(data))
-		// Convert []interface{} to []map[string]interface{}
-		for _, item := range data {
-			if row, ok := item.(map[string]interface{}); ok {
-				dataArray = append(dataArray, row)
-			}
-		}
-		rowCount = len(dataArray)
-		fmt.Printf("TestDatabaseQuery: Extracted %d rows\n", rowCount)
-	} else {
-		fmt.Printf("TestDatabaseQuery: data field not found or not an array, checking type: %T\n", queryResult["data"])
-		// Check if the whole queryResult might BE the data itself
-		if queryResult["success"] != nil && queryResult["count"] != nil {
-			// This means we parsed the FoxPro JSON correctly
-			fmt.Printf("TestDatabaseQuery: FoxPro response structure detected\n")
-		}
-		// Fallback if structure is different
-		dataArray = []map[string]interface{}{}
-		rowCount = 0
-	}
-
-	// Also check for count field - could be float64 or int
-	if count, ok := queryResult["count"].(float64); ok {
-		rowCount = int(count)
-		fmt.Printf("TestDatabaseQuery: Found count field (float64): %d\n", rowCount)
-	} else if count, ok := queryResult["count"].(int); ok {
-		rowCount = count
-		fmt.Printf("TestDatabaseQuery: Found count field (int): %d\n", rowCount)
-	}
-
-	result := map[string]interface{}{
-		"success":       true,
-		"database":      companyName,
-		"query":         query,
-		"method":        "OLE/COM JSON (Pivoten.DbApi)",
-		"executionTime": fmt.Sprintf("%.2fms", elapsedTime.Seconds()*1000),
-		"data":          dataArray,
-		"rowCount":      rowCount,
-		"raw":           jsonResult,
-		"message":       "Query executed successfully via OLE server (JSON)",
-	}
-
-	fmt.Printf("TestDatabaseQuery: SUCCESS - Query executed in %.2fms\n", elapsedTime.Seconds()*1000)
-	debug.SimpleLog(fmt.Sprintf("TestDatabaseQuery: SUCCESS - Query executed in %.2fms", elapsedTime.Seconds()*1000))
-	fmt.Printf("=== TestDatabaseQuery COMPLETED ===\n")
-
-	return result, nil
+	// Delegate to OLE service
+	return a.Services.OLE.TestDatabaseQuery(companyName, query)
 }
 
 // GetTableList returns a list of tables in the database
 func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
-	fmt.Printf("GetTableList: Getting tables for company: %s\n", companyName)
-	debug.SimpleLog(fmt.Sprintf("GetTableList: Getting tables for company: %s", companyName))
-
-	// Execute on dedicated COM thread to avoid threading issues
-	var jsonResult string
-	var tableErr error
-
-	err := ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
-		fmt.Printf("GetTableList: Executing on COM thread\n")
-		debug.SimpleLog("GetTableList: Using COM thread for OLE connection")
-
-		// Database should already be open via ExecuteOnCOMThread
-		// Use the new JSON method to get table list
-		jsonResult, tableErr = client.GetTableListSimple()
-		return tableErr
-	})
-
-	if err != nil {
-		fmt.Printf("GetTableList: Failed to use singleton OLE connection: %v\n", err)
-		// Fall back to hardcoded list if OLE not available
-		tables := []string{
-			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
-			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
-			"ACPAY", "ACREC", "JOURNAL",
-		}
-		return map[string]interface{}{
-			"success": true,
-			"tables":  tables,
-			"source":  "hardcoded",
-		}, nil
-	}
-
-	if err != nil {
-		fmt.Printf("GetTableList: Failed to get table list: %v\n", err)
-		// Fall back to hardcoded list
-		tables := []string{
-			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
-			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
-			"ACPAY", "ACREC", "JOURNAL",
-		}
-		return map[string]interface{}{
-			"success": true,
-			"tables":  tables,
-			"source":  "hardcoded-fallback",
-		}, nil
-	}
-
-	// Parse JSON result to extract table names
-	fmt.Printf("GetTableList: Got JSON result: %s\n", jsonResult)
-	debug.SimpleLog(fmt.Sprintf("GetTableList: JSON result: %s", jsonResult))
-
-	// Parse the JSON array of table names
-	var tableList []string
-	err = json.Unmarshal([]byte(jsonResult), &tableList)
-	if err != nil {
-		fmt.Printf("GetTableList: Failed to parse JSON: %v\n", err)
-		// Fall back to hardcoded list
-		tableList = []string{
-			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
-			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
-			"ACPAY", "ACREC", "JOURNAL",
-		}
-	} else {
-		fmt.Printf("GetTableList: Found %d tables from database\n", len(tableList))
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"tables":  tableList,
-		"source":  "database",
-		"count":   len(tableList),
-	}, nil
+	return a.Services.DBF.GetTableList(companyName)
 }
 
 
@@ -1248,38 +1040,7 @@ func (a *App) GetAccountBalance(companyName, accountNumber string) (float64, err
 }
 
 // Bank Transaction structures for SQLite persistence
-type BankTransaction struct {
-	ID                 int                    `json:"id"`
-	CompanyName        string                 `json:"company_name"`
-	AccountNumber      string                 `json:"account_number"`
-	StatementID        int                    `json:"statement_id"`
-	TransactionDate    string                 `json:"transaction_date"`
-	CheckNumber        string                 `json:"check_number"`
-	Description        string                 `json:"description"`
-	Amount             float64                `json:"amount"`
-	TransactionType    string                 `json:"transaction_type"`
-	ImportBatchID      string                 `json:"import_batch_id"`
-	ImportDate         string                 `json:"import_date"`
-	ImportedBy         string                 `json:"imported_by"`
-	MatchedCheckID     string                 `json:"matched_check_id"`
-	MatchedDBFRowIndex int                    `json:"matched_dbf_row_index"`
-	MatchConfidence    float64                `json:"match_confidence"`
-	MatchType          string                 `json:"match_type"`
-	IsMatched          bool                   `json:"is_matched"`
-	ManuallyMatched    bool                   `json:"manually_matched"`
-	IsReconciled       bool                   `json:"is_reconciled"`
-	ReconciledDate     *string                `json:"reconciled_date"`   // Changed to pointer to handle NULL
-	ReconciliationID   *int                   `json:"reconciliation_id"` // Changed to pointer to handle NULL
-	ExtendedData       map[string]interface{} `json:"extended_data"`
-}
 
-type MatchResult struct {
-	BankTransaction BankTransaction        `json:"bankTransaction"`
-	MatchedCheck    map[string]interface{} `json:"matchedCheck"`
-	Confidence      float64                `json:"confidence"`
-	MatchType       string                 `json:"matchType"`
-	Confirmed       bool                   `json:"confirmed"`
-}
 
 // RunMatching runs the matching algorithm on unmatched bank transactions
 func (a *App) RunMatching(companyName string, accountNumber string, options map[string]interface{}) (map[string]interface{}, error) {
@@ -1341,8 +1102,6 @@ func (a *App) ImportBankStatement(companyName string, csvContent string, account
 }
 
 func (a *App) DeleteBankStatement(companyName string, importBatchID string) error {
-	fmt.Printf("DeleteBankStatement called for company: %s, batch: %s\n", companyName, importBatchID)
-
 	// Check permissions
 	if a.currentUser == nil {
 		return fmt.Errorf("user not authenticated")
@@ -1352,42 +1111,8 @@ func (a *App) DeleteBankStatement(companyName string, importBatchID string) erro
 		return fmt.Errorf("insufficient permissions to delete bank statements")
 	}
 
-	if a.db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-
-	// Start transaction
-	tx, err := a.db.GetConn().Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Delete bank transactions first (due to foreign key)
-	_, err = tx.Exec(`
-		DELETE FROM bank_transactions 
-		WHERE company_name = ? AND import_batch_id = ?
-	`, companyName, importBatchID)
-	if err != nil {
-		return fmt.Errorf("failed to delete bank transactions: %w", err)
-	}
-
-	// Delete bank statement
-	_, err = tx.Exec(`
-		DELETE FROM bank_statements 
-		WHERE company_name = ? AND import_batch_id = ?
-	`, companyName, importBatchID)
-	if err != nil {
-		return fmt.Errorf("failed to delete bank statement: %w", err)
-	}
-
-	// Commit transaction
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	fmt.Printf("Successfully deleted bank statement batch: %s\n", importBatchID)
-	return nil
+	// Delegate to Matching service
+	return a.Services.Matching.DeleteStatement(companyName, importBatchID)
 }
 
 // ManualMatchTransaction manually matches a bank transaction to a check
@@ -1451,8 +1176,6 @@ func (a *App) UnmatchTransaction(transactionID int) (map[string]interface{}, err
 }
 
 func (a *App) GetBankTransactions(companyName string, accountNumber string, importBatchID string) (map[string]interface{}, error) {
-	fmt.Printf("GetBankTransactions called for company: %s, account: %s, batch: %s\n", companyName, accountNumber, importBatchID)
-
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -1462,104 +1185,8 @@ func (a *App) GetBankTransactions(companyName string, accountNumber string, impo
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	if a.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	var query string
-	var args []interface{}
-
-	if importBatchID != "" {
-		query = `
-			SELECT bt.id, bt.company_name, bt.account_number, bt.statement_id, bt.transaction_date, bt.check_number,
-				   bt.description, bt.amount, bt.transaction_type, bt.import_batch_id, bt.import_date,
-				   bt.imported_by, bt.matched_check_id, bt.matched_dbf_row_index, bt.match_confidence, bt.match_type,
-				   bt.is_matched, bt.manually_matched, bt.is_reconciled, bt.reconciled_date,
-				   bt.reconciliation_id, bt.extended_data
-			FROM bank_transactions bt
-			WHERE bt.company_name = ? AND bt.account_number = ? AND bt.import_batch_id = ?
-			ORDER BY bt.transaction_date, bt.id
-		`
-		args = []interface{}{companyName, accountNumber, importBatchID}
-	} else {
-		// Only show unmatched transactions from active statements
-		query = `
-			SELECT bt.id, bt.company_name, bt.account_number, bt.statement_id, bt.transaction_date, bt.check_number,
-				   bt.description, bt.amount, bt.transaction_type, bt.import_batch_id, bt.import_date,
-				   bt.imported_by, bt.matched_check_id, bt.matched_dbf_row_index, bt.match_confidence, bt.match_type,
-				   bt.is_matched, bt.manually_matched, bt.is_reconciled, bt.reconciled_date,
-				   bt.reconciliation_id, bt.extended_data
-			FROM bank_transactions bt
-			INNER JOIN bank_statements bs ON bt.statement_id = bs.id
-			WHERE bt.company_name = ? AND bt.account_number = ? 
-			  AND bs.is_active = TRUE
-			  AND bt.is_matched = FALSE
-			ORDER BY bt.import_date DESC, bt.transaction_date, bt.id
-		`
-		args = []interface{}{companyName, accountNumber}
-	}
-
-	rows, err := a.db.GetConn().Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query bank transactions: %w", err)
-	}
-	defer rows.Close()
-
-	var transactions []BankTransaction
-	for rows.Next() {
-		var txn BankTransaction
-		var extendedDataStr string
-		var reconciledDate sql.NullString
-		var reconciliationID sql.NullInt64
-		var matchedCheckID sql.NullString
-		var matchedDBFRowIndex sql.NullInt64
-
-		err := rows.Scan(
-			&txn.ID, &txn.CompanyName, &txn.AccountNumber, &txn.StatementID, &txn.TransactionDate,
-			&txn.CheckNumber, &txn.Description, &txn.Amount, &txn.TransactionType,
-			&txn.ImportBatchID, &txn.ImportDate, &txn.ImportedBy, &matchedCheckID,
-			&matchedDBFRowIndex, &txn.MatchConfidence, &txn.MatchType, &txn.IsMatched, &txn.ManuallyMatched,
-			&txn.IsReconciled, &reconciledDate, &reconciliationID, &extendedDataStr,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan transaction: %w", err)
-		}
-
-		// Handle nullable matched_check_id
-		if matchedCheckID.Valid {
-			txn.MatchedCheckID = matchedCheckID.String
-		}
-		if matchedDBFRowIndex.Valid {
-			txn.MatchedDBFRowIndex = int(matchedDBFRowIndex.Int64)
-		}
-
-		// Debug first transaction
-		if len(transactions) == 0 {
-			fmt.Printf("DEBUG: First transaction date from DB: '%s'\n", txn.TransactionDate)
-		}
-
-		// Handle nullable fields
-		if reconciledDate.Valid {
-			txn.ReconciledDate = &reconciledDate.String
-		}
-		if reconciliationID.Valid {
-			recID := int(reconciliationID.Int64)
-			txn.ReconciliationID = &recID
-		}
-
-		// Parse extended data JSON
-		if extendedDataStr != "" {
-			json.Unmarshal([]byte(extendedDataStr), &txn.ExtendedData)
-		}
-
-		transactions = append(transactions, txn)
-	}
-
-	return map[string]interface{}{
-		"status":       "success",
-		"transactions": transactions,
-		"count":        len(transactions),
-	}, nil
+	// Delegate to Matching service
+	return a.Services.Matching.GetBankTransactions(companyName, accountNumber, importBatchID)
 }
 
 // GetCachedBalances retrieves cached balances for all bank accounts
@@ -1576,42 +1203,19 @@ func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, e
 
 	// Use service if available
 	if a.Services != nil && a.Services.Banking != nil {
-		balances, err := a.Services.Banking.GetCachedBalances(companyName)
+		balancesInterface, err := a.Services.Banking.GetCachedBalances(companyName)
 		if err != nil {
 			return nil, err
 		}
 
-		// Convert to map for frontend compatibility
-		result := make([]map[string]interface{}, len(balances))
-		for i, b := range balances {
-			// Calculate age hours
-			glAgeHours := time.Since(b.GLLastUpdated).Hours()
-			checksAgeHours := time.Since(b.ChecksLastUpdated).Hours()
-
-			result[i] = map[string]interface{}{
-				"account_number":      b.AccountNumber,
-				"account_name":        b.AccountName,
-				"gl_balance":          b.GLBalance,
-				"outstanding_total":   b.OutstandingChecksTotal,
-				"outstanding_count":   b.OutstandingChecksCount,
-				"bank_balance":        b.BankBalance,
-				"gl_last_updated":     b.GLLastUpdated,
-				"checks_last_updated": b.ChecksLastUpdated,
-				"gl_age_hours":        glAgeHours,
-				"checks_age_hours":    checksAgeHours,
-				"gl_freshness":        utilities.GetFreshnessStatus(b.GLLastUpdated),
-				"checks_freshness":    utilities.GetFreshnessStatus(b.ChecksLastUpdated),
-				"is_stale":            b.IsStale,
-				// These fields might not be available from service yet
-				"uncleared_deposits": 0,
-				"uncleared_checks":   b.OutstandingChecksTotal,
-				"deposit_count":      0,
-				"check_count":        b.OutstandingChecksCount,
-			}
+		// Type assert to the expected format
+		balances, ok := balancesInterface.([]map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("unexpected balance data format")
 		}
-
-		fmt.Printf("GetCachedBalances: Retrieved %d balances via service\n", len(result))
-		return result, nil
+		
+		// Already in the right format
+		return balances, nil
 	}
 
 	// Fallback to direct implementation
@@ -1757,69 +1361,25 @@ func (a *App) RefreshAccountBalance(companyName, accountNumber string) (map[stri
 
 // RefreshAllBalances refreshes balances for all bank accounts
 func (a *App) RefreshAllBalances(companyName string) (map[string]interface{}, error) {
-	fmt.Printf("RefreshAllBalances called for company: %s\n", companyName)
-	debug.SimpleLog(fmt.Sprintf("RefreshAllBalances: company=%s, currentUser=%v", companyName, a.currentUser != nil))
-
-	// For now, allow refresh without strict auth check since user is already logged into the app
-	// The company path security is handled by the fact that only authenticated users
-	// can access the UI that calls this function
+	// Check permissions
 	if a.currentUser != nil && !a.currentUser.HasPermission("database.read") {
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	// Get all bank accounts
-	bankAccounts, err := a.GetBankAccounts(companyName)
+	// Delegate to Banking service
+	result, err := a.Services.Banking.RefreshAllBalances(companyName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+		return nil, err
 	}
 
-	var successCount, errorCount int
-	var errors []string
-
-	for _, account := range bankAccounts {
-		if account == nil {
-			errorCount++
-			errors = append(errors, "Nil account in list")
-			continue
-		}
-
-		accountNumberInterface, ok := account["account_number"]
-		if !ok || accountNumberInterface == nil {
-			errorCount++
-			errors = append(errors, "Account missing account_number field")
-			continue
-		}
-
-		accountNumber, ok := accountNumberInterface.(string)
-		if !ok {
-			errorCount++
-			errors = append(errors, fmt.Sprintf("Invalid account_number type: %T", accountNumberInterface))
-			continue
-		}
-
-		_, err := a.RefreshAccountBalance(companyName, accountNumber)
-		if err != nil {
-			errorCount++
-			errors = append(errors, fmt.Sprintf("Account %s: %v", accountNumber, err))
-		} else {
-			successCount++
-		}
-	}
-
-	refreshedBy := "system"
+	// Add refreshed_by field if user is authenticated
 	if a.currentUser != nil {
-		refreshedBy = a.currentUser.Username
+		result["refreshed_by"] = a.currentUser.Username
+	} else {
+		result["refreshed_by"] = "system"
 	}
 
-	return map[string]interface{}{
-		"status":         "completed",
-		"total_accounts": len(bankAccounts),
-		"success_count":  successCount,
-		"error_count":    errorCount,
-		"errors":         errors,
-		"refreshed_by":   refreshedBy,
-		"refresh_time":   time.Now(),
-	}, nil
+	return result, nil
 }
 
 // GetBalanceHistory gets the balance change history for an account
@@ -1901,18 +1461,16 @@ func (a *App) GetLastReconciliation(companyName, accountNumber string) (map[stri
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services == nil || a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
 	// Delegate to service
-	return a.reconciliationService.GetLastReconciliationFromDBF(companyName, accountNumber)
+	return a.Services.Reconciliation.GetLastReconciliationFromDBF(companyName, accountNumber)
 }
 
 // SaveReconciliationDraft saves or updates a draft reconciliation in SQLite
 func (a *App) SaveReconciliationDraft(companyName string, draftData map[string]interface{}) (map[string]interface{}, error) {
-	fmt.Printf("SaveReconciliationDraft called for company: %s\n", companyName)
-
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -1922,87 +1480,16 @@ func (a *App) SaveReconciliationDraft(companyName string, draftData map[string]i
 		return nil, fmt.Errorf("insufficient permissions to save reconciliation draft")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services == nil || a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	// Parse the request
-	var req reconciliation.SaveDraftRequest
-	req.CompanyName = companyName
-	req.CreatedBy = a.currentUser.Username
-
-	// Extract data from map
-	if accountNumber, ok := draftData["account_number"].(string); ok {
-		req.AccountNumber = accountNumber
-	} else {
-		return nil, fmt.Errorf("account_number is required")
-	}
-
-	if statementDate, ok := draftData["statement_date"].(string); ok {
-		req.StatementDate = statementDate
-	} else {
-		return nil, fmt.Errorf("statement_date is required")
-	}
-
-	if balance, ok := draftData["statement_balance"].(float64); ok {
-		req.StatementBalance = balance
-	}
-	if credits, ok := draftData["statement_credits"].(float64); ok {
-		req.StatementCredits = credits
-	}
-	if debits, ok := draftData["statement_debits"].(float64); ok {
-		req.StatementDebits = debits
-	}
-	if begBalance, ok := draftData["beginning_balance"].(float64); ok {
-		req.BeginningBalance = begBalance
-	}
-
-	// Parse selected checks
-	if checksData, ok := draftData["selected_checks"].([]interface{}); ok {
-		for _, checkData := range checksData {
-			if checkMap, ok := checkData.(map[string]interface{}); ok {
-				var check reconciliation.SelectedCheck
-				if cidchec, ok := checkMap["cidchec"].(string); ok {
-					check.CIDCHEC = cidchec
-				}
-				if checkNumber, ok := checkMap["checkNumber"].(string); ok {
-					check.CheckNumber = checkNumber
-				}
-				if amount, ok := checkMap["amount"].(float64); ok {
-					check.Amount = amount
-				}
-				if payee, ok := checkMap["payee"].(string); ok {
-					check.Payee = payee
-				}
-				if checkDate, ok := checkMap["checkDate"].(string); ok {
-					check.CheckDate = checkDate
-				}
-				if rowIndex, ok := checkMap["rowIndex"].(float64); ok {
-					check.RowIndex = int(rowIndex)
-				}
-				req.SelectedChecks = append(req.SelectedChecks, check)
-			}
-		}
-	}
-
-	// Save the draft
-	result, err := a.reconciliationService.SaveDraft(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save draft: %w", err)
-	}
-
-	return map[string]interface{}{
-		"status":         "success",
-		"id":             result.ID,
-		"message":        "Draft saved successfully",
-		"reconciliation": result,
-	}, nil
+	// Delegate to service
+	return a.Services.Reconciliation.SaveDraftFromMap(companyName, draftData, a.currentUser.Username)
 }
 
 // GetReconciliationDraft retrieves the current draft reconciliation for an account
 func (a *App) GetReconciliationDraft(companyName, accountNumber string) (map[string]interface{}, error) {
-	fmt.Printf("GetReconciliationDraft called for company: %s, account: %s\n", companyName, accountNumber)
-
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -2012,25 +1499,12 @@ func (a *App) GetReconciliationDraft(companyName, accountNumber string) (map[str
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services == nil || a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	draft, err := a.reconciliationService.GetDraft(companyName, accountNumber)
-	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return map[string]interface{}{
-				"status":  "no_draft",
-				"message": "No draft reconciliation found",
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to get draft: %w", err)
-	}
-
-	return map[string]interface{}{
-		"status": "success",
-		"draft":  draft,
-	}, nil
+	// Delegate to service
+	return a.Services.Reconciliation.GetDraftAsMap(companyName, accountNumber)
 }
 
 // DeleteReconciliationDraft deletes the current draft reconciliation for an account
@@ -2046,11 +1520,11 @@ func (a *App) DeleteReconciliationDraft(companyName, accountNumber string) (map[
 		return nil, fmt.Errorf("insufficient permissions to delete reconciliation draft")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	err := a.reconciliationService.DeleteDraft(companyName, accountNumber)
+	err := a.Services.Reconciliation.DeleteDraft(companyName, accountNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete draft: %w", err)
 	}
@@ -2074,12 +1548,12 @@ func (a *App) CommitReconciliation(companyName, accountNumber string) (map[strin
 		return nil, fmt.Errorf("insufficient permissions to commit reconciliation")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
 	// Get the draft first
-	draft, err := a.reconciliationService.GetDraft(companyName, accountNumber)
+	draft, err := a.Services.Reconciliation.GetDraft(companyName, accountNumber)
 	if err != nil {
 		return nil, fmt.Errorf("no draft found to commit: %w", err)
 	}
@@ -2087,7 +1561,7 @@ func (a *App) CommitReconciliation(companyName, accountNumber string) (map[strin
 	// TODO: Update DBF files here (CHECKS.dbf and CHECKREC.dbf)
 	// For now, just commit the draft in SQLite
 
-	err = a.reconciliationService.CommitReconciliation(draft.ID, a.currentUser.Username)
+	err = a.Services.Reconciliation.CommitReconciliation(draft.ID, a.currentUser.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit reconciliation: %w", err)
 	}
@@ -2112,11 +1586,11 @@ func (a *App) GetReconciliationHistory(companyName, accountNumber string) (map[s
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	history, err := a.reconciliationService.GetHistory(companyName, accountNumber, 50)
+	history, err := a.Services.Reconciliation.GetHistory(companyName, accountNumber, 50)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reconciliation history: %w", err)
 	}
@@ -2141,11 +1615,11 @@ func (a *App) MigrateReconciliationData(companyName string) (map[string]interfac
 		return nil, fmt.Errorf("insufficient permissions to migrate data")
 	}
 
-	if a.reconciliationService == nil {
+	if a.Services.Reconciliation == nil {
 		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	result, err := a.reconciliationService.MigrateFromDBF(companyName)
+	result, err := a.Services.Reconciliation.MigrateFromDBF(companyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate reconciliation data: %w", err)
 	}
@@ -2158,60 +1632,17 @@ func (a *App) MigrateReconciliationData(companyName string) (map[string]interfac
 
 // GetBankAccountsForAudit returns a list of bank accounts available for auditing
 func (a *App) GetBankAccountsForAudit(companyName string) ([]map[string]interface{}, error) {
-	fmt.Printf("GetBankAccountsForAudit called for company: %s\n", companyName)
-
-	// Check permissions - only admin/root can audit
-	if a.currentUser == nil {
-		return nil, fmt.Errorf("user not authenticated")
+	// Use standardized helper for permission check
+	if err := a.requireAdminOrRoot(); err != nil {
+		return nil, err
 	}
 
-	if !a.currentUser.IsRoot && a.currentUser.RoleName != "Admin" {
-		return nil, fmt.Errorf("insufficient permissions - admin or root required")
+	// Use standardized helper for service check
+	if err := a.requireService("audit"); err != nil {
+		return nil, err
 	}
 
-	// Get bank accounts
-	bankAccounts, err := a.GetBankAccounts(companyName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
-	}
-
-	// Get cached balances for additional info
-	cachedBalances, err := a.GetCachedBalances(companyName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cached balances: %w", err)
-	}
-
-	// Create balance lookup map
-	balanceMap := make(map[string]map[string]interface{})
-	for _, balance := range cachedBalances {
-		accountNum := balance["account_number"].(string)
-		balanceMap[accountNum] = balance
-	}
-
-	// Enhance bank accounts with balance info
-	var auditAccounts []map[string]interface{}
-	for _, account := range bankAccounts {
-		accountNum := account["account_number"].(string)
-		auditAccount := map[string]interface{}{
-			"account_number":     accountNum,
-			"account_name":       account["account_name"],
-			"account_type":       account["account_type"],
-			"gl_balance":         0.0,
-			"outstanding_checks": 0.0,
-			"outstanding_count":  0,
-			"last_audited":       nil,
-		}
-
-		if balance, exists := balanceMap[accountNum]; exists {
-			auditAccount["gl_balance"] = balance["gl_balance"]
-			auditAccount["outstanding_checks"] = balance["outstanding_total"]
-			auditAccount["outstanding_count"] = balance["outstanding_count"]
-		}
-
-		auditAccounts = append(auditAccounts, auditAccount)
-	}
-
-	return auditAccounts, nil
+	return a.Services.Audit.GetBankAccountsForAudit(companyName)
 }
 
 // TestOLEConnection tests if we can connect to FoxPro OLE server
@@ -2226,93 +1657,8 @@ func (a *App) GetCompanyInfo(companyName string) (map[string]interface{}, error)
 		return nil, fmt.Errorf("user not authenticated")
 	}
 
-	fmt.Printf("GetCompanyInfo called for company: %s\n", companyName)
-
-	// First try to get company info from compmast.dbf
-	companies, err := a.GetCompanyList()
-	if err == nil {
-		for _, comp := range companies {
-			if comp["company_id"] == companyName || comp["company_name"] == companyName {
-				return map[string]interface{}{
-					"success": true,
-					"mock":    false,
-					"data":    comp,
-				}, nil
-			}
-		}
-	}
-
-	// Try to connect to Pivoten.DbApi COM server for more detailed data
-	client, err := ole.NewDbApiClient()
-	if err != nil {
-		fmt.Printf("DbApi connection failed: %v\n", err)
-		// If OLE is not available, return mock data for now
-		mockData := map[string]interface{}{
-			"success": true,
-			"error":   fmt.Sprintf("DbApi Error: %v", err),
-			"mock":    true,
-			"data": map[string]interface{}{
-				"company_id":      companyName,
-				"company_name":    companyName,
-				"address1":        "123 Main Street (Mock Data)",
-				"address2":        "",
-				"city":            "Houston",
-				"state":           "TX",
-				"zip_code":        "77001",
-				"contact":         "John Smith",
-				"phone":           "(555) 123-4567",
-				"fax":             "(555) 123-4568",
-				"email":           "info@company.com",
-				"tax_id":          "XX-XXXXXXX",
-				"data_path":       fmt.Sprintf("datafiles/%s/", companyName),
-				"fiscal_year_end": "12/31",
-				"industry":        "Oil & Gas",
-			},
-		}
-		return mockData, nil
-	}
-	defer client.Close()
-
-	fmt.Println("DbApi connection successful")
-
-	// Get executable directory as base path
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-
-	// Initialize DbApi with base directory
-	err = client.Initialize(exeDir)
-	if err != nil {
-		fmt.Printf("Warning: Failed to initialize DbApi: %v\n", err)
-	}
-
-	// Open the company's database
-	dbcPath := filepath.Join(exeDir, "datafiles", companyName)
-	err = client.OpenDbc(dbcPath)
-	if err != nil {
-		fmt.Printf("Failed to open DBC for %s: %v\n", companyName, err)
-		// Return basic info from compmast.dbf if available
-		if len(companies) > 0 {
-			for _, comp := range companies {
-				if comp["company_id"] == companyName || comp["company_name"] == companyName {
-					return map[string]interface{}{
-						"success": true,
-						"mock":    false,
-						"data":    comp,
-					}, nil
-				}
-			}
-		}
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"data": map[string]interface{}{
-			"company_id":   companyName,
-			"company_name": companyName,
-			"data_path":    dbcPath,
-			"db_connected": client.IsDbcOpen(),
-		},
-	}, nil
+	// Delegate to Company service
+	return a.Services.Company.GetCompanyInfo(companyName)
 }
 
 // UpdateCompanyInfo updates company information via FoxPro OLE server
@@ -2597,76 +1943,8 @@ func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (st
 
 // ExamineOwnerStatementStructure examines the structure of owner statement DBF files
 func (a *App) ExamineOwnerStatementStructure(companyName string, fileName string) (map[string]interface{}, error) {
-	logger.WriteInfo("ExamineOwnerStatementStructure", fmt.Sprintf("Examining %s for company %s", fileName, companyName))
-
-	// Read the DBF file
-	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 10, "", "")
-	if err != nil {
-		return nil, fmt.Errorf("error reading DBF file: %v", err)
-	}
-
-	// Get columns
-	columns, _ := dbfData["columns"].([]string)
-
-	// Get sample rows (first 10)
-	var rows []map[string]interface{}
-	if rowsData, ok := dbfData["rows"].([]map[string]interface{}); ok {
-		rows = rowsData
-	} else if rowsArray, ok := dbfData["rows"].([]interface{}); ok {
-		for _, item := range rowsArray {
-			if row, ok := item.(map[string]interface{}); ok {
-				rows = append(rows, row)
-			}
-		}
-	}
-
-	// Analyze column types and sample values
-	columnInfo := make([]map[string]interface{}, 0)
-	for _, col := range columns {
-		info := map[string]interface{}{
-			"name":         col,
-			"sampleValues": []interface{}{},
-			"type":         "unknown",
-		}
-
-		// Get sample values from first few rows
-		sampleValues := []interface{}{}
-		for i, row := range rows {
-			if i >= 3 { // Just get 3 samples
-				break
-			}
-			if val, exists := row[col]; exists && val != nil {
-				sampleValues = append(sampleValues, val)
-				// Infer type from first non-nil value
-				if info["type"] == "unknown" {
-					switch val.(type) {
-					case string:
-						info["type"] = "string"
-					case float64, float32, int, int64:
-						info["type"] = "number"
-					case bool:
-						info["type"] = "boolean"
-					case time.Time:
-						info["type"] = "date"
-					default:
-						info["type"] = fmt.Sprintf("%T", val)
-					}
-				}
-			}
-		}
-		info["sampleValues"] = sampleValues
-		columnInfo = append(columnInfo, info)
-	}
-
-	result := map[string]interface{}{
-		"fileName":      fileName,
-		"recordCount":   len(rows),
-		"columnCount":   len(columns),
-		"columns":       columnInfo,
-		"sampleRecords": rows,
-	}
-
-	return result, nil
+	// Delegate to Reports service
+	return a.Services.Reports.ExamineOwnerStatementStructure(companyName, fileName)
 }
 
 // GetVendors retrieves all vendors from VENDOR.dbf

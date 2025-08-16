@@ -9,14 +9,26 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/currency"
 )
 
+// BankingProvider interface for banking service dependency
+type BankingProvider interface {
+	GetBankAccountsAsMap(companyName string) ([]map[string]interface{}, error)
+	GetCachedBalances(companyName string) (interface{}, error)
+}
+
 // Service handles all audit operations
 type Service struct {
 	// Add dependencies as needed
+	bankingService BankingProvider
 }
 
 // NewService creates a new audit service
 func NewService() *Service {
 	return &Service{}
+}
+
+// SetBankingService sets the banking service dependency
+func (s *Service) SetBankingService(bankingService BankingProvider) {
+	s.bankingService = bankingService
 }
 
 // AuditResult represents the result of an audit operation
@@ -163,4 +175,69 @@ func getBool(data map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+// GetBankAccountsForAudit retrieves bank accounts with audit information
+func (s *Service) GetBankAccountsForAudit(companyName string) ([]map[string]interface{}, error) {
+	fmt.Printf("GetBankAccountsForAudit called for company: %s\n", companyName)
+
+	if s.bankingService == nil {
+		return nil, fmt.Errorf("banking service not initialized")
+	}
+
+	// Get bank accounts
+	bankAccounts, err := s.bankingService.GetBankAccountsAsMap(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+
+	// Get cached balances for additional info
+	cachedBalancesInterface, err := s.bankingService.GetCachedBalances(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached balances: %w", err)
+	}
+
+	// Type assert to slice of maps
+	cachedBalances, ok := cachedBalancesInterface.([]map[string]interface{})
+	if !ok {
+		// Initialize as empty if type assertion fails
+		cachedBalances = make([]map[string]interface{}, 0)
+	}
+
+	// Create balance lookup map
+	balanceMap := make(map[string]map[string]interface{})
+	for _, balance := range cachedBalances {
+		if accountNum, ok := balance["account_number"].(string); ok {
+			balanceMap[accountNum] = balance
+		}
+	}
+
+	// Enhance bank accounts with balance info
+	var auditAccounts []map[string]interface{}
+	for _, account := range bankAccounts {
+		accountNum := account["account_number"].(string)
+		auditAccount := map[string]interface{}{
+			"account_number":     accountNum,
+			"account_name":       account["account_name"],
+			"account_type":       account["account_type"],
+			"gl_balance":         0.0,
+			"outstanding_checks": 0.0,
+			"outstanding_count":  0,
+			"last_audited":       nil,
+		}
+
+		if balance, exists := balanceMap[accountNum]; exists {
+			auditAccount["gl_balance"] = balance["gl_balance"]
+			if val, ok := balance["outstanding_total"]; ok {
+				auditAccount["outstanding_checks"] = val
+			}
+			if val, ok := balance["outstanding_count"]; ok {
+				auditAccount["outstanding_count"] = val
+			}
+		}
+
+		auditAccounts = append(auditAccounts, auditAccount)
+	}
+
+	return auditAccounts, nil
 }

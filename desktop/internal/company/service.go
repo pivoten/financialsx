@@ -25,6 +25,49 @@ func NewService() *Service {
 	}
 }
 
+// GetCompanyInfo retrieves detailed company information
+func (s *Service) GetCompanyInfo(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("GetCompanyInfo called for company: %s\n", companyName)
+
+	// First try to get company info from compmast.dbf
+	companies, err := s.GetCompanyList()
+	if err == nil {
+		for _, comp := range companies {
+			if comp["company_id"] == companyName || comp["company_name"] == companyName {
+				return map[string]interface{}{
+					"success": true,
+					"mock":    false,
+					"data":    comp,
+				}, nil
+			}
+		}
+	}
+
+	// If not found in compmast.dbf, return mock data
+	mockData := map[string]interface{}{
+		"success": true,
+		"mock":    true,
+		"data": map[string]interface{}{
+			"company_id":      companyName,
+			"company_name":    companyName,
+			"address1":        "123 Main Street",
+			"address2":        "",
+			"city":            "Houston",
+			"state":           "TX",
+			"zip_code":        "77001",
+			"contact":         "John Smith",
+			"phone":           "(555) 123-4567",
+			"fax":             "(555) 123-4568",
+			"email":           "info@company.com",
+			"tax_id":          "XX-XXXXXXX",
+			"data_path":       fmt.Sprintf("datafiles/%s/", companyName),
+			"fiscal_year_end": "12/31",
+			"industry":        "Oil & Gas",
+		},
+	}
+	return mockData, nil
+}
+
 // ReadDBFFileFromPath reads a DBF file directly from a path
 func ReadDBFFileFromPath(filePath string) (map[string]interface{}, error) {
 	table, err := dbase.OpenTable(&dbase.Config{
@@ -38,10 +81,10 @@ func ReadDBFFileFromPath(filePath string) (map[string]interface{}, error) {
 	defer table.Close()
 	
 	// Get column names
-	columns := table.Fields()
+	columns := table.Columns()
 	columnNames := make([]string, len(columns))
-	for i, field := range columns {
-		columnNames[i] = field.Name()
+	for i, column := range columns {
+		columnNames[i] = column.Name()
 	}
 	
 	// Read all rows
@@ -57,8 +100,13 @@ func ReadDBFFileFromPath(filePath string) (map[string]interface{}, error) {
 		}
 		
 		row := make([]interface{}, len(columns))
-		for i, field := range columns {
-			row[i] = record.Field(field.Name())
+		for i, column := range columns {
+			field := record.FieldByName(column.Name())
+			if field != nil {
+				row[i] = field.GetValue()
+			} else {
+				row[i] = nil
+			}
 		}
 		rows = append(rows, row)
 	}

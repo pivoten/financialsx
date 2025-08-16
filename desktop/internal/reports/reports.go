@@ -500,3 +500,77 @@ func (s *Service) GetOwnerStatementData(companyName string, fileName string, own
 		"columns": fieldNames,
 	}, nil
 }
+
+// ExamineOwnerStatementStructure examines the structure of owner statement DBF files
+func (s *Service) ExamineOwnerStatementStructure(companyName string, fileName string) (map[string]interface{}, error) {
+	logger.WriteInfo("ExamineOwnerStatementStructure", fmt.Sprintf("Examining %s for company %s", fileName, companyName))
+
+	// Read the DBF file
+	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 10, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("error reading DBF file: %v", err)
+	}
+
+	// Get columns
+	columns, _ := dbfData["columns"].([]string)
+
+	// Get sample rows (first 10)
+	var rows []map[string]interface{}
+	if rowsData, ok := dbfData["rows"].([]map[string]interface{}); ok {
+		rows = rowsData
+	} else if rowsArray, ok := dbfData["rows"].([]interface{}); ok {
+		for _, item := range rowsArray {
+			if row, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, row)
+			}
+		}
+	}
+
+	// Analyze column types and sample values
+	columnInfo := make([]map[string]interface{}, 0)
+	for _, col := range columns {
+		info := map[string]interface{}{
+			"name":         col,
+			"sampleValues": []interface{}{},
+			"type":         "unknown",
+		}
+
+		// Get sample values from first few rows
+		sampleValues := []interface{}{}
+		for i, row := range rows {
+			if i >= 3 { // Just get 3 samples
+				break
+			}
+			if val, exists := row[col]; exists && val != nil {
+				sampleValues = append(sampleValues, val)
+				// Infer type from first non-nil value
+				if info["type"] == "unknown" {
+					switch val.(type) {
+					case string:
+						info["type"] = "string"
+					case float64, float32, int, int64:
+						info["type"] = "number"
+					case bool:
+						info["type"] = "boolean"
+					case time.Time:
+						info["type"] = "date"
+					default:
+						info["type"] = fmt.Sprintf("%T", val)
+					}
+				}
+			}
+		}
+		info["sampleValues"] = sampleValues
+		columnInfo = append(columnInfo, info)
+	}
+
+	result := map[string]interface{}{
+		"fileName":      fileName,
+		"recordCount":   len(rows),
+		"columnCount":   len(columns),
+		"columns":       columnInfo,
+		"sampleRecords": rows,
+	}
+
+	return result, nil
+}

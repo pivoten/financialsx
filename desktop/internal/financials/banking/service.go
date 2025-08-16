@@ -231,6 +231,83 @@ func parseFloat(val interface{}) float64 {
 	}
 }
 
+// GetBankAccountsAsMap retrieves all bank accounts as map format for backward compatibility
+func (s *Service) GetBankAccountsAsMap(companyName string) ([]map[string]interface{}, error) {
+	accounts, err := s.GetBankAccounts(companyName)
+	if err != nil {
+		return nil, err
+	}
+	
+	var result []map[string]interface{}
+	for _, account := range accounts {
+		result = append(result, map[string]interface{}{
+			"account_number": account.AccountNumber,
+			"account_name":   account.AccountName,
+			"account_type":   account.AccountType,
+			"balance":        account.Balance,
+			"last_updated":   account.LastUpdated,
+			"is_active":      account.IsActive,
+			"is_bank_account": account.IsBankAccount,
+			"company_name":   account.CompanyName,
+		})
+	}
+	
+	return result, nil
+}
+
+// RefreshAllBalances refreshes cached balances for all bank accounts
+func (s *Service) RefreshAllBalances(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("RefreshAllBalances called for company: %s\n", companyName)
+
+	// Get all bank accounts
+	bankAccounts, err := s.GetBankAccountsAsMap(companyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bank accounts: %w", err)
+	}
+
+	var successCount, errorCount int
+	var errors []string
+
+	for _, account := range bankAccounts {
+		if account == nil {
+			errorCount++
+			errors = append(errors, "Nil account in list")
+			continue
+		}
+
+		accountNumberInterface, ok := account["account_number"]
+		if !ok || accountNumberInterface == nil {
+			errorCount++
+			errors = append(errors, "Account missing account_number field")
+			continue
+		}
+
+		accountNumber, ok := accountNumberInterface.(string)
+		if !ok {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Invalid account_number type: %T", accountNumberInterface))
+			continue
+		}
+
+		_, err := s.RefreshAccountBalance(companyName, accountNumber, "system")
+		if err != nil {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Account %s: %v", accountNumber, err))
+		} else {
+			successCount++
+		}
+	}
+
+	return map[string]interface{}{
+		"status":         "completed",
+		"total_accounts": len(bankAccounts),
+		"success_count":  successCount,
+		"error_count":    errorCount,
+		"errors":         errors,
+		"refresh_time":   time.Now(),
+	}, nil
+}
+
 // GetOutstandingChecks retrieves outstanding checks for an account
 func (s *Service) GetOutstandingChecks(companyName, accountNumber string) ([]OutstandingCheck, error) {
 	debug.SimpleLog(fmt.Sprintf("Banking.GetOutstandingChecks: company=%s, account=%s", companyName, accountNumber))
@@ -382,9 +459,9 @@ func parseBool(val interface{}) bool {
 	}
 }
 
-// GetCachedBalances retrieves all cached balances for a company
-func (s *Service) GetCachedBalances(companyName string) ([]BalanceInfo, error) {
-	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalances: company=%s", companyName))
+// GetCachedBalancesTyped retrieves all cached balances for a company  
+func (s *Service) GetCachedBalancesTyped(companyName string) ([]BalanceInfo, error) {
+	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalancesTyped: company=%s", companyName))
 	
 	if s.dbHelper == nil {
 		return nil, fmt.Errorf("database helper not initialized")
@@ -411,7 +488,7 @@ func (s *Service) GetCachedBalances(companyName string) ([]BalanceInfo, error) {
 		}
 	}
 	
-	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalances: Retrieved %d balances", len(result)))
+	debug.SimpleLog(fmt.Sprintf("Banking.GetCachedBalancesTyped: Retrieved %d balances", len(result)))
 	return result, nil
 }
 
@@ -470,18 +547,38 @@ func (s *Service) RefreshAccountBalance(companyName, accountNumber string, usern
 	return result, nil
 }
 
-// RefreshAllBalances refreshes all cached balances for a company
-func (s *Service) RefreshAllBalances(companyName string, username string) ([]BalanceInfo, error) {
-	// Implementation will be moved from main.go
-	// This will refresh all accounts in parallel
-	return nil, fmt.Errorf("not implemented")
-}
 
 // GetBalanceHistory retrieves the balance change history for an account
 func (s *Service) GetBalanceHistory(companyName, accountNumber string, limit int) ([]map[string]interface{}, error) {
 	// Implementation will be moved from main.go
 	// This will read from balance_history table
 	return nil, fmt.Errorf("not implemented")
+}
+
+// GetCachedBalances returns cached balances as interface{} for compatibility
+func (s *Service) GetCachedBalances(companyName string) (interface{}, error) {
+	balances, err := s.GetCachedBalancesTyped(companyName)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert to map format for compatibility
+	result := make([]map[string]interface{}, len(balances))
+	for i, b := range balances {
+		result[i] = map[string]interface{}{
+			"account_number":     b.AccountNumber,
+			"account_name":       b.AccountName,
+			"gl_balance":         b.GLBalance,
+			"outstanding_total":  b.OutstandingChecksTotal,
+			"outstanding_count":  b.OutstandingChecksCount,
+			"bank_balance":       b.BankBalance,
+			"gl_last_updated":    b.GLLastUpdated,
+			"checks_last_updated": b.ChecksLastUpdated,
+			"is_stale":           b.IsStale,
+		}
+	}
+	
+	return result, nil
 }
 
 // Helper methods that will be needed

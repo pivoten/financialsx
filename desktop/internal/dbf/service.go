@@ -1,9 +1,12 @@
 package dbf
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/pivoten/financialsx/desktop/internal/company"
+	"github.com/pivoten/financialsx/desktop/internal/debug"
+	"github.com/pivoten/financialsx/desktop/internal/ole"
 )
 
 // Service handles all DBF file operations
@@ -88,4 +91,80 @@ func (s *Service) ValidateDBFFile(companyName, fileName string) error {
 func (s *Service) FileExists(companyName, fileName string) bool {
 	err := s.ValidateDBFFile(companyName, fileName)
 	return err == nil
+}
+
+// GetTableList retrieves the list of available DBF tables for a company
+func (s *Service) GetTableList(companyName string) (map[string]interface{}, error) {
+	fmt.Printf("GetTableList: Getting tables for company: %s\n", companyName)
+	debug.SimpleLog(fmt.Sprintf("GetTableList: Getting tables for company: %s", companyName))
+
+	// Execute on dedicated COM thread to avoid threading issues
+	var jsonResult string
+	var tableErr error
+
+	err := ole.ExecuteOnCOMThread(companyName, func(client *ole.DbApiClient) error {
+		fmt.Printf("GetTableList: Executing on COM thread\n")
+		debug.SimpleLog("GetTableList: Using COM thread for OLE connection")
+
+		// Database should already be open via ExecuteOnCOMThread
+		// Use the new JSON method to get table list
+		jsonResult, tableErr = client.GetTableListSimple()
+		return tableErr
+	})
+
+	if err != nil {
+		fmt.Printf("GetTableList: Failed to use singleton OLE connection: %v\n", err)
+		// Fall back to hardcoded list if OLE not available
+		tables := []string{
+			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
+			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
+			"ACPAY", "ACREC", "JOURNAL",
+		}
+		return map[string]interface{}{
+			"success": true,
+			"tables":  tables,
+			"source":  "hardcoded",
+		}, nil
+	}
+
+	if err != nil {
+		fmt.Printf("GetTableList: Failed to get table list: %v\n", err)
+		// Fall back to hardcoded list
+		tables := []string{
+			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
+			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
+			"ACPAY", "ACREC", "JOURNAL",
+		}
+		return map[string]interface{}{
+			"success": true,
+			"tables":  tables,
+			"source":  "hardcoded-fallback",
+		}, nil
+	}
+
+	// Parse JSON result to extract table names
+	fmt.Printf("GetTableList: Got JSON result: %s\n", jsonResult)
+	debug.SimpleLog(fmt.Sprintf("GetTableList: JSON result: %s", jsonResult))
+
+	// Parse the JSON array of table names
+	var tableList []string
+	err = json.Unmarshal([]byte(jsonResult), &tableList)
+	if err != nil {
+		fmt.Printf("GetTableList: Failed to parse JSON: %v\n", err)
+		// Fall back to hardcoded list
+		tableList = []string{
+			"COA", "CHECKS", "GLMASTER", "VENDORS", "WELLS",
+			"INCOME", "EXPENSE", "OWNERS", "DIVISIONS",
+			"ACPAY", "ACREC", "JOURNAL",
+		}
+	} else {
+		fmt.Printf("GetTableList: Found %d tables from database\n", len(tableList))
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"tables":  tableList,
+		"source":  "database",
+		"count":   len(tableList),
+	}, nil
 }

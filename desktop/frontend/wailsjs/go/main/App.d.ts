@@ -75,9 +75,9 @@ export function GetBankTransactions(arg1:string,arg2:string,arg3:string):Promise
 
 export function GetCachedBalances(arg1:string):Promise<Array<Record<string, any>>>;
 
-export function GetChartOfAccounts(arg1:string,arg2:string,arg3:boolean):Promise<Record<string, any>>;
+export function GetChartOfAccounts(arg1:string,arg2:string,arg3:boolean):Promise<Array<Record<string, any>>>;
 
-export function GetClosingStatus(arg1:string):Promise<string>;
+export function GetClosingStatus(arg1:string,arg2:string):Promise<string>;
 
 export function GetCompanies():Promise<Array<company.Company>>;
 
@@ -169,7 +169,7 @@ export function RefreshAllBalances(arg1:string):Promise<Record<string, any>>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
-export function ReopenPeriod(arg1:string,arg2:string):Promise<void>;
+export function ReopenPeriod(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RequestPasswordReset(arg1:string):Promise<void>;
 
@@ -177,7 +177,7 @@ export function ResetPassword(arg1:string,arg2:string):Promise<void>;
 
 export function RetryMatching(arg1:string,arg2:string,arg3:number):Promise<Record<string, any>>;
 
-export function RunClosingProcess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<Record<string, any>>;
+export function RunClosingProcess(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<Record<string, any>>;
 
 export function RunMatching(arg1:string,arg2:string,arg3:Record<string, any>):Promise<Record<string, any>>;
 

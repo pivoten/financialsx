@@ -150,8 +150,8 @@ export function GetChartOfAccounts(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetChartOfAccounts'](arg1, arg2, arg3);
 }
 
-export function GetClosingStatus(arg1) {
-  return window['go']['main']['App']['GetClosingStatus'](arg1);
+export function GetClosingStatus(arg1, arg2) {
+  return window['go']['main']['App']['GetClosingStatus'](arg1, arg2);
 }
 
 export function GetCompanies() {
@@ -334,8 +334,8 @@ export function Register(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Register'](arg1, arg2, arg3, arg4);
 }
 
-export function ReopenPeriod(arg1, arg2) {
-  return window['go']['main']['App']['ReopenPeriod'](arg1, arg2);
+export function ReopenPeriod(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReopenPeriod'](arg1, arg2, arg3);
 }
 
 export function RequestPasswordReset(arg1) {
@@ -350,8 +350,8 @@ export function RetryMatching(arg1, arg2, arg3) {
   return window['go']['main']['App']['RetryMatching'](arg1, arg2, arg3);
 }
 
-export function RunClosingProcess(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['RunClosingProcess'](arg1, arg2, arg3, arg4);
+export function RunClosingProcess(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['RunClosingProcess'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function RunMatching(arg1, arg2, arg3) {

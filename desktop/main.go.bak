@@ -5435,6 +5435,237 @@ func (a *App) UpdateBatchFields(companyName string, batchNumber string, fieldMap
 }
 
 
+// GetChartOfAccounts retrieves all accounts from COA.dbf with sorting and filter options
+func (a *App) GetChartOfAccounts(companyName string, sortBy string, includeInactive bool) (map[string]interface{}, error) {
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Called for company: %s, sortBy: %s, includeInactive: %v", companyName, sortBy, includeInactive))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: company=%s, sortBy=%s, includeInactive=%v", companyName, sortBy, includeInactive))
+	
+	// Check if user is authenticated (disabled for now)
+	// if a.currentUser == nil {
+	// 	logger.WriteError("GetChartOfAccounts", "User not authenticated")
+	// 	return nil, fmt.Errorf("user not authenticated")
+	// }
+	
+	// Read COA.dbf file
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Reading COA.dbf for company: %s", companyName))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: About to read COA.dbf from path: %s", companyName))
+	
+	coaData, err := company.ReadDBFFile(companyName, "COA.dbf", "", 0, 0, "", "")
+	if err != nil {
+		logger.WriteError("GetChartOfAccounts", fmt.Sprintf("Error reading COA.dbf: %v", err))
+		debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts ERROR: Failed to read COA.dbf: %v", err))
+		return nil, fmt.Errorf("failed to read Chart of Accounts: %v", err)
+	}
+	
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: COA.dbf read successfully, data keys: %v", common.GetMapKeys(coaData)))
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("COA.dbf read, checking data structure"))
+	
+	// Get rows as [][]interface{} since ReadDBFFile returns array format
+	rows, ok := coaData["rows"].([][]interface{})
+	if !ok {
+		logger.WriteError("GetChartOfAccounts", fmt.Sprintf("Invalid data structure, rows type assertion failed"))
+		debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts ERROR: 'rows' key type assertion failed"))
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+			"error": "Invalid data structure from COA.dbf",
+		}, nil
+	}
+	
+	// Get column names to map array indices to field names
+	columns, ok := coaData["columns"].([]string)
+	if !ok {
+		logger.WriteError("GetChartOfAccounts", "Failed to get column names from COA.dbf")
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+			"error": "Invalid column structure from COA.dbf",
+		}, nil
+	}
+	
+	if len(rows) == 0 {
+		logger.WriteInfo("GetChartOfAccounts", "COA.dbf has no rows")
+		debug.SimpleLog("GetChartOfAccounts: COA.dbf has 0 rows")
+		return map[string]interface{}{
+			"accounts": []interface{}{},
+			"total": 0,
+			"company": companyName,
+			"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+		}, nil
+	}
+	
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Found %d rows in COA.dbf", len(rows)))
+	debug.SimpleLog(fmt.Sprintf("GetChartOfAccounts: Processing %d rows from COA.dbf", len(rows)))
+	
+	// Process and structure the accounts
+	accounts := make([]map[string]interface{}, 0, len(rows))
+	accountTypeMap := map[float64]string{
+		1: "Asset",
+		2: "Liability",
+		3: "Equity",
+		4: "Revenue",
+		5: "Expense",
+		6: "Other",
+	}
+	
+	for i, rowData := range rows {
+		// Convert array row to map using column indices
+		record := make(map[string]interface{})
+		for j, value := range rowData {
+			if j < len(columns) {
+				record[columns[j]] = value
+			}
+		}
+		
+		// Extract account information
+		accountNumber := ""
+		if val, ok := record["CACCTNO"]; ok && val != nil {
+			accountNumber = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		accountDesc := ""
+		if val, ok := record["CACCTDESC"]; ok && val != nil {
+			accountDesc = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		// Get account type
+		accountType := "Other"
+		accountTypeNum := float64(6)
+		if val, ok := record["NACCTTYPE"]; ok && val != nil {
+			// Log the raw value and type for debugging first account
+			if i == 0 {
+				logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("NACCTTYPE raw value: %v, type: %T", val, val))
+			}
+			switch v := val.(type) {
+			case float64:
+				accountTypeNum = v
+			case int:
+				accountTypeNum = float64(v)
+			case int32:
+				accountTypeNum = float64(v)
+			case int64:
+				accountTypeNum = float64(v)
+			case string:
+				if num, err := strconv.ParseFloat(v, 64); err == nil {
+					accountTypeNum = num
+				}
+			}
+			if typeStr, exists := accountTypeMap[accountTypeNum]; exists {
+				accountType = typeStr
+			} else {
+				// Log if we can't find the type in the map
+				if i == 0 {
+					logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Account type %f not found in map", accountTypeNum))
+				}
+			}
+		}
+		
+		// Check if it's a bank account
+		isBankAccount := false
+		if val, ok := record["LBANKACCT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isBankAccount = v
+			case string:
+				isBankAccount = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		// Get parent account
+		parentAccount := ""
+		if val, ok := record["CPARENT"]; ok && val != nil {
+			parentAccount = strings.TrimSpace(fmt.Sprintf("%v", val))
+		}
+		
+		// Check if it's a unit or department account
+		isUnit := false
+		if val, ok := record["LACCTUNIT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isUnit = v
+			case string:
+				isUnit = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		isDept := false
+		if val, ok := record["LACCTDEPT"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isDept = v
+			case string:
+				isDept = strings.ToLower(v) == "true" || v == "T" || v == ".T."
+			}
+		}
+		
+		// Check if account is active (LINACTIVE field)
+		isActive := true // Default to active if field doesn't exist
+		if val, ok := record["LINACTIVE"]; ok && val != nil {
+			switch v := val.(type) {
+			case bool:
+				isActive = !v // LINACTIVE is TRUE when inactive, so we invert it
+			case string:
+				// LINACTIVE is TRUE when inactive, so we invert the logic
+				isActive = !(strings.ToLower(v) == "true" || v == "T" || v == ".T.")
+			}
+		}
+		
+		// Skip inactive accounts if filter is enabled
+		if !includeInactive && !isActive {
+			continue // Skip this account
+		}
+		
+		account := map[string]interface{}{
+			"row_index":      i,
+			"account_number": accountNumber,
+			"account_name":   accountDesc,
+			"account_type":   accountType,
+			"account_type_num": accountTypeNum,
+			"is_bank_account": isBankAccount,
+			"parent_account": parentAccount,
+			"is_unit":        isUnit,
+			"is_department":  isDept,
+			"is_active":      isActive,
+		}
+		
+		accounts = append(accounts, account)
+	}
+	
+	// Sort accounts based on sortBy parameter
+	if sortBy == "type" {
+		// Sort by account type number, then by account number
+		sort.Slice(accounts, func(i, j int) bool {
+			typeI := accounts[i]["account_type_num"].(float64)
+			typeJ := accounts[j]["account_type_num"].(float64)
+			if typeI != typeJ {
+				return typeI < typeJ
+			}
+			return accounts[i]["account_number"].(string) < accounts[j]["account_number"].(string)
+		})
+	} else {
+		// Default: sort by account number
+		sort.Slice(accounts, func(i, j int) bool {
+			return accounts[i]["account_number"].(string) < accounts[j]["account_number"].(string)
+		})
+	}
+	
+	result := map[string]interface{}{
+		"accounts": accounts,
+		"total": len(accounts),
+		"company": companyName,
+		"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+		"sort_by": sortBy,
+	}
+	
+	logger.WriteInfo("GetChartOfAccounts", fmt.Sprintf("Found %d accounts for company %s", len(accounts), companyName))
+	return result, nil
+}
+
+// CheckOwnerStatementFiles checks if owner statement DBF files exist for a company
 func (a *App) CheckOwnerStatementFiles(companyName string) map[string]interface{} {
 	// Log the function call
 	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Called for company: %s", companyName))
@@ -6119,8 +6350,11 @@ func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, incl
 		return "", fmt.Errorf("failed to get chart of accounts: %v", err)
 	}
 	
-	// The service returns the accounts directly as []map[string]interface{}
-	accounts := coaData
+	// Extract accounts from the data
+	accounts, ok := coaData["accounts"].([]map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid accounts data structure")
+	}
 	
 	// Get company info from version.dbf
 	displayCompanyName := companyName // Default to folder name

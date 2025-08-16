@@ -198,12 +198,6 @@ func (a *App) Greet(name string) string {
 	return "Hello " + name + ", It's show time!"
 }
 
-// TestLogging is a simple test function to verify logging works
-func (a *App) TestLogging() string {
-	debug.SimpleLog("=== TestLogging called ===")
-	debug.LogInfo("TestLogging", "This is a test log message")
-	return "Logging test complete - check debug log"
-}
 
 // GetCompanies returns list of detected companies
 func (a *App) GetCompanies() ([]company.Company, error) {
@@ -867,12 +861,6 @@ func (a *App) RunNetDistribution(periodStart, periodEnd string, processType stri
 }
 
 // LogError logs frontend errors to the backend
-func (a *App) LogError(errorMessage string, stackTrace string) {
-	if logger.GetLogPath() != "" {
-		logger.WriteError("Frontend", fmt.Sprintf("Error: %s\nStack: %s", errorMessage, stackTrace))
-	}
-	fmt.Printf("Frontend Error: %s\n", errorMessage)
-}
 
 // PreloadOLEConnection preloads the OLE connection for a company
 func (a *App) PreloadOLEConnection(companyName string) map[string]interface{} {

@@ -10,6 +10,7 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/financials/gl"
 	"github.com/pivoten/financialsx/desktop/internal/financials/matching"
 	"github.com/pivoten/financialsx/desktop/internal/legacy"
+	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/operations"
 	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
 	"github.com/pivoten/financialsx/desktop/internal/reports"
@@ -22,6 +23,7 @@ type Services struct {
 	Auth         *common.Auth
 	*common.I18n // Embedded for direct method access
 	Company      *company.Service
+	Logger       *logger.Service
 	
 	// Data access
 	DBF *dbf.Service
@@ -63,6 +65,7 @@ func NewServices(dbConn *database.DB) *Services {
 		Auth:    common.New(dbConn, ""), // Company name will be set later
 		I18n:    common.NewI18n("en"),
 		Company: company.NewService(),
+		Logger:  logger.NewService(),
 		
 		// Data access
 		DBF: dbf.NewService(),

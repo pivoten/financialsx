@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/pivoten/financialsx/desktop/internal/common"
+	"github.com/pivoten/financialsx/desktop/internal/company"
 	"github.com/pivoten/financialsx/desktop/internal/database"
 	"github.com/pivoten/financialsx/desktop/internal/dbf"
 	"github.com/pivoten/financialsx/desktop/internal/financials/audit"
@@ -20,6 +21,7 @@ type Services struct {
 	// Core services
 	Auth         *common.Auth
 	*common.I18n // Embedded for direct method access
+	Company      *company.Service
 	
 	// Data access
 	DBF *dbf.Service
@@ -58,8 +60,9 @@ func NewServices(dbConn *database.DB) *Services {
 	
 	return &Services{
 		// Core services
-		Auth: common.New(dbConn, ""), // Company name will be set later
-		I18n: common.NewI18n("en"),
+		Auth:    common.New(dbConn, ""), // Company name will be set later
+		I18n:    common.NewI18n("en"),
+		Company: company.NewService(),
 		
 		// Data access
 		DBF: dbf.NewService(),

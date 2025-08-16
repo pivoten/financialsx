@@ -98,6 +98,10 @@ export function GenerateChartOfAccountsPDF(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateChartOfAccountsPDF'](arg1, arg2, arg3);
 }
 
+export function GenerateChartOfAccountsPDF_OLD(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GenerateChartOfAccountsPDF_OLD'](arg1, arg2, arg3);
+}
+
 export function GenerateOwnerStatementPDF(arg1, arg2) {
   return window['go']['main']['App']['GenerateOwnerStatementPDF'](arg1, arg2);
 }

@@ -51,6 +51,8 @@ export function FollowBatchNumber(arg1:string,arg2:string):Promise<Record<string
 
 export function GenerateChartOfAccountsPDF(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function GenerateChartOfAccountsPDF_OLD(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
 export function GenerateOwnerStatementPDF(arg1:string,arg2:string):Promise<string>;
 
 export function GetAPIKey(arg1:string):Promise<string>;

@@ -105,6 +105,8 @@ When adding new features that require frequent checks:
 - **SQLite**: Local database for persisting derived data and balance caching
 - **Authentication**: JWT-based flow implemented with role-based permissions
 - **Balance Caching**: High-performance SQLite cache for bank account balances with outstanding checks calculation
+- **Service Architecture**: Modular service-based architecture replacing monolithic main.go
+- **PDF Generation**: Common PDF package with reusable templates and consistent styling
 
 ## UI/UX Design System
 
@@ -748,6 +750,143 @@ Priority order for migration:
 3. **Don't mix concerns**: Keep business logic in services, not in main.go
 4. **Don't ignore errors**: Proper error handling is crucial
 5. **Don't forget cleanup**: Services should properly close resources
+
+## Service Architecture (December 2024 Refactoring)
+
+### Overview
+The application has been refactored from a monolithic main.go (originally 9,000+ lines) to a modular service-based architecture. Main.go now acts as a thin wrapper that delegates to specialized services.
+
+### Current Services
+
+#### 1. **DBF Service** (`internal/dbf/`)
+Centralized DBF file operations used across all services:
+- `GetFiles()` - List DBF files in company directory
+- `GetTableData()` - Read DBF table data
+- `GetTableDataPaged()` - Paginated DBF reading
+- `SearchTable()` - Search within DBF files
+- `UpdateRecord()` - Update DBF records
+- `GetTableInfo()` - Get DBF metadata
+
+#### 2. **GL Service** (`internal/financials/gl/`)
+General Ledger operations:
+- `CheckGLPeriodFields()` - Check for blank period fields
+- `AnalyzeGLBalancesByYear()` - Analyze balances by year
+- `ValidateGLBalances()` - Comprehensive validation
+- `GetChartOfAccounts()` - Retrieve COA with filtering
+- `RunClosingProcess()` - Period closing
+- `GetClosingStatus()` - Check period status
+- `ReopenPeriod()` - Reopen closed periods
+
+#### 3. **Banking Service** (`internal/financials/banking/`)
+Bank account and balance operations:
+- `GetBankAccounts()` - Retrieve bank accounts from COA
+- `GetAccountBalance()` - Get GL balance for account
+- `RefreshAccountBalance()` - Update cached balance
+- `GetCachedBalances()` - Fast balance retrieval
+- `GetOutstandingChecks()` - Outstanding check management
+
+#### 4. **Operations Service** (`internal/operations/`)
+Business operations and batch processing:
+- `FollowBatchNumber()` - Trace batch through tables
+- `UpdateBatchFields()` - Bulk field updates
+
+#### 5. **Reconciliation Service** (`internal/reconciliation/`)
+Bank reconciliation with SQLite persistence:
+- Draft management with auto-save
+- CIDCHEC-based check tracking
+- Transaction matching algorithms
+
+#### 6. **Auth Service** (`internal/common/`)
+Authentication and authorization:
+- JWT-based authentication
+- Role-based access control
+- Permission caching
+
+### Progress Status (as of December 2024)
+- **main.go**: Reduced from 9,184 lines to 6,666 lines (27% reduction)
+- **Services Created**: 15+ service packages
+- **Functions Migrated**: 30+ functions moved to services
+- **Architecture**: Fully modular with dependency injection
+
+## PDF Generation System
+
+### Overview
+Common PDF generation system with reusable templates for consistent report formatting across the application.
+
+### Package Structure
+```
+internal/pdf/
+├── generator.go   # Core PDF generator with header/footer templates
+├── reports.go     # Specialized report builders
+└── utils.go       # Formatting and utility functions
+```
+
+### Key Components
+
+#### 1. **PDF Generator** (`generator.go`)
+Core PDF generation with configurable options:
+- **Config**: Orientation, margins, fonts, colors
+- **Headers/Footers**: Automatic on every page
+- **Company Info**: Integrated from VERSION.dbf
+- **Templates**: Reusable components
+
+#### 2. **Report Builder** (`reports.go`)
+Specialized builders for different report types:
+- `BuildChartOfAccountsReport()` - COA with account types
+- `BuildOwnerStatementReport()` - Owner distributions
+- `BuildBankReconciliationReport()` - Reconciliation details
+- `CreateFinancialReport()` - Generic financial reports
+
+#### 3. **Utilities** (`utils.go`)
+Helper functions for consistent formatting:
+- `FormatCurrency()` - Currency with proper symbols
+- `FormatNumber()` - Numbers with thousands separators
+- `FormatDate()` - Date formatting
+- `SanitizeFileName()` - Safe file names
+- `WrapText()` - Text wrapping for cells
+
+### Usage Example
+```go
+// Create config (portrait or landscape)
+config := pdf.LandscapeConfig()
+
+// Create builder
+builder := pdf.NewReportBuilder(config)
+
+// Get company info
+companyInfo := &pdf.CompanyInfo{
+    Name: "ABC Oil & Gas",
+    Address1: "123 Main St",
+    City: "Houston",
+    State: "TX",
+}
+
+// Generate report
+pdfData, err := builder.BuildChartOfAccountsReport(
+    accounts,
+    companyInfo,
+    includeInactive,
+)
+
+// Save to file
+filepath, err := SavePDFToTemp(pdfData, "COA_Report")
+```
+
+### Configuration Options
+- **Orientation**: Portrait (`P`) or Landscape (`L`)
+- **Page Size**: Letter, A4, Legal
+- **Margins**: Configurable all sides
+- **Colors**: Headers, footers, text (RGB)
+- **Fonts**: Family and size customizable
+- **Headers**: Logo, company name, date, report title
+- **Footers**: Page numbers, date, company name, custom text
+
+### Benefits
+- **Consistency**: All reports have same professional look
+- **Reusability**: Any service can use the PDF package
+- **Maintainability**: Change templates in one place
+- **Extensibility**: Easy to add new report types
+- **Performance**: Efficient generation with streaming
 
 ## Next Steps
 

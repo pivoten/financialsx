@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -2113,27 +2114,6 @@ type MatchResult struct {
 
 // RunMatching runs the matching algorithm on unmatched bank transactions
 func (a *App) RunMatching(companyName string, accountNumber string, options map[string]interface{}) (map[string]interface{}, error) {
-	fmt.Printf("RunMatching called for company: %s, account: %s, options: %+v\n", companyName, accountNumber, options)
-	
-	// Extract options
-	var statementDate *time.Time
-	includeAllDates := true // Default to matching all dates
-	
-	if options != nil {
-		// Check if we should limit to statement date
-		if limitToStatement, ok := options["limitToStatementDate"].(bool); ok && limitToStatement {
-			includeAllDates = false
-			
-			// Get the statement date
-			if dateStr, ok := options["statementDate"].(string); ok && dateStr != "" {
-				if parsedDate, err := time.Parse("2006-01-02", dateStr); err == nil {
-					statementDate = &parsedDate
-					fmt.Printf("Will limit matching to checks dated on or before: %s\n", statementDate.Format("2006-01-02"))
-				}
-			}
-		}
-	}
-	
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -2143,102 +2123,12 @@ func (a *App) RunMatching(companyName string, accountNumber string, options map[
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Get unmatched bank transactions
-	txnResult, err := a.GetBankTransactions(companyName, accountNumber, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bank transactions: %w", err)
-	}
-	
-	transactions, ok := txnResult["transactions"].([]BankTransaction)
-	if !ok {
-		// Need to convert from the result
-		return nil, fmt.Errorf("invalid transaction data format")
-	}
-	
-	// Get existing checks for matching
-	fmt.Printf("Getting existing checks for company: %s, account: %s\n", companyName, accountNumber)
-	checksResult, err := a.GetOutstandingChecks(companyName, accountNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get existing checks: %w", err)
-	}
-	
-	existingChecks, ok := checksResult["checks"].([]map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid checks data format")
-	}
-	
-	// Filter checks by date if requested
-	var checksToMatch []map[string]interface{}
-	if !includeAllDates && statementDate != nil {
-		checksToMatch = make([]map[string]interface{}, 0)
-		for _, check := range existingChecks {
-			// Get check date
-			if checkDateStr, ok := check["checkDate"].(string); ok {
-				checkDate, err := time.Parse("2006-01-02", checkDateStr)
-				if err == nil && !checkDate.After(*statementDate) {
-					checksToMatch = append(checksToMatch, check)
-				}
-			}
-		}
-		fmt.Printf("Filtered checks from %d to %d (on or before %s)\n", 
-			len(existingChecks), len(checksToMatch), statementDate.Format("2006-01-02"))
-	} else {
-		checksToMatch = existingChecks
-		fmt.Printf("Using all %d checks for matching (no date filter)\n", len(checksToMatch))
-	}
-	
-	// Run matching algorithm
-	fmt.Printf("Matching %d bank transactions with %d checks\n", len(transactions), len(checksToMatch))
-	matches := a.autoMatchBankTransactions(transactions, checksToMatch)
-	fmt.Printf("Found %d matches\n", len(matches))
-	
-	// Update the database with matches
-	matchedCount := 0
-	for _, match := range matches {
-		if match.Confidence > 0.5 {
-			updateQuery := `
-				UPDATE bank_transactions 
-				SET matched_check_id = ?, 
-				    matched_dbf_row_index = ?,
-				    match_confidence = ?,
-				    match_type = ?,
-				    is_matched = TRUE
-				WHERE id = ?
-			`
-			
-			checkID := ""
-			rowIndex := 0
-			if id, ok := match.MatchedCheck["id"]; ok {
-				checkID = fmt.Sprintf("%v", id)
-			}
-			if idx, ok := match.MatchedCheck["_rowIndex"]; ok {
-				if fidx, ok := idx.(float64); ok {
-					rowIndex = int(fidx)
-				}
-			}
-			
-			_, err := a.db.Exec(updateQuery, checkID, rowIndex, match.Confidence, match.MatchType, match.BankTransaction.ID)
-			if err == nil {
-				matchedCount++
-				fmt.Printf("Successfully matched bank txn %d to check %s\n", match.BankTransaction.ID, checkID)
-			} else {
-				fmt.Printf("Failed to update match for bank txn %d: %v\n", match.BankTransaction.ID, err)
-			}
-		}
-	}
-	
-	return map[string]interface{}{
-		"status": "success",
-		"totalMatched": matchedCount,
-		"totalProcessed": len(transactions),
-		"matches": matches,
-	}, nil
+	// Delegate to Matching service
+	return a.Services.Matching.RunMatching(companyName, accountNumber, options)
 }
 
 // ClearMatchesAndRerun clears all matches and reruns the matching algorithm
 func (a *App) ClearMatchesAndRerun(companyName string, accountNumber string, options map[string]interface{}) (map[string]interface{}, error) {
-	fmt.Printf("ClearMatchesAndRerun called for company: %s, account: %s, options: %+v\n", companyName, accountNumber, options)
-	
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -2248,28 +2138,8 @@ func (a *App) ClearMatchesAndRerun(companyName string, accountNumber string, opt
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 	
-	// Clear all existing matches for this account
-	clearQuery := `
-		UPDATE bank_transactions 
-		SET matched_check_id = NULL,
-		    matched_dbf_row_index = 0,
-		    match_confidence = 0,
-		    match_type = '',
-		    is_matched = FALSE,
-		    manually_matched = FALSE
-		WHERE company_name = ? AND account_number = ?
-	`
-	
-	result, err := a.db.Exec(clearQuery, companyName, accountNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to clear matches: %w", err)
-	}
-	
-	clearedRows, _ := result.RowsAffected()
-	fmt.Printf("Cleared %d existing matches\n", clearedRows)
-	
-	// Now run matching again
-	return a.RunMatching(companyName, accountNumber, options)
+	// Delegate to Matching service
+	return a.Services.Matching.ClearMatchesAndRerun(companyName, accountNumber, options)
 }
 
 // ImportBankStatement parses and stores CSV bank statement in SQLite (without auto-matching)
@@ -5578,89 +5448,16 @@ func (a *App) GetOwnerStatementsList(companyName string) ([]map[string]interface
 
 // GenerateOwnerStatementPDF generates a PDF for owner distribution statements
 func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (string, error) {
-	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Called for company: %s, file: %s", companyName, fileName))
-	
-	// Read the DBF file from ownerstatements subdirectory
-	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
+	// Delegate to Reports service
+	pdfBytes, err := a.Services.Reports.GenerateOwnerStatementPDF(companyName, fileName)
 	if err != nil {
-		return "", fmt.Errorf("error reading DBF file: %v", err)
+		return "", fmt.Errorf("failed to generate owner statement PDF: %v", err)
 	}
 	
-	// Get columns to understand the structure
-	columns, _ := dbfData["columns"].([]string)
-	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("DBF Columns: %v", columns))
-	
-	// Get the rows - they come as [][]interface{} from ReadDBFFile
-	var rows []map[string]interface{}
-	if rowsData, ok := dbfData["rows"].([]map[string]interface{}); ok {
-		// Already in the right format (shouldn't happen with current ReadDBFFile)
-		rows = rowsData
-	} else if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
-		// Convert [][]interface{} to []map[string]interface{}
-		// Each row is an array of values that corresponds to the columns array
-		for _, rowValues := range rowsArray {
-			rowMap := make(map[string]interface{})
-			for i, value := range rowValues {
-				if i < len(columns) {
-					rowMap[columns[i]] = value
-				}
-			}
-			rows = append(rows, rowMap)
-		}
-		logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Converted %d rows from array format to map format", len(rows)))
-	} else if rowsInterface, ok := dbfData["rows"].([]interface{}); ok {
-		// Handle []interface{} where each item might be []interface{}
-		for _, item := range rowsInterface {
-			if rowArray, ok := item.([]interface{}); ok {
-				// Convert array row to map
-				rowMap := make(map[string]interface{})
-				for i, value := range rowArray {
-					if i < len(columns) {
-						rowMap[columns[i]] = value
-					}
-				}
-				rows = append(rows, rowMap)
-			}
-		}
-		logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Converted %d rows from interface array format to map format", len(rows)))
-	}
-	
-	logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("Found %d records in %s", len(rows), fileName))
-	
-	// Log first record to understand the data structure
-	if len(rows) > 0 {
-		logger.WriteInfo("GenerateOwnerStatementPDF", "First record sample:")
-		for key, value := range rows[0] {
-			// Limit value display to prevent huge logs
-			valueStr := fmt.Sprintf("%v", value)
-			if len(valueStr) > 100 {
-				valueStr = valueStr[:100] + "..."
-			}
-			logger.WriteInfo("GenerateOwnerStatementPDF", fmt.Sprintf("  %s: %s", key, valueStr))
-		}
-	}
-	
-	// For now, let's examine the data and return info about it
-	// We'll implement the actual PDF generation once we understand the structure
-	
-	result := fmt.Sprintf("DBF Analysis Complete:\n")
-	result += fmt.Sprintf("- File: %s\n", fileName)
-	result += fmt.Sprintf("- Records: %d\n", len(rows))
-	result += fmt.Sprintf("- Columns: %d\n", len(columns))
-	result += fmt.Sprintf("\nColumn Names:\n")
-	for _, col := range columns {
-		result += fmt.Sprintf("  - %s\n", col)
-	}
-	
-	// TODO: Implement actual PDF generation based on the DBF structure
-	// This will involve:
-	// 1. Creating a PDF document
-	// 2. Adding header with company/owner info
-	// 3. Adding statement details
-	// 4. Adding distribution/payment information
-	// 5. Saving the PDF file
-	
-	return result, nil
+	// Save the PDF to a temporary file and return the path
+	// Or return base64 encoded string for frontend to handle
+	encodedPDF := base64.StdEncoding.EncodeToString(pdfBytes)
+	return encodedPDF, nil
 }
 
 // GetOwnersList returns a unique list of owners from the statement DBF file
@@ -6104,6 +5901,20 @@ func (a *App) UpdateVendor(companyName string, vendorIndex int, vendorData map[s
 
 // GenerateChartOfAccountsPDF generates a PDF report of the Chart of Accounts
 func (a *App) GenerateChartOfAccountsPDF(companyName string, sortBy string, includeInactive bool) (string, error) {
+	// Delegate to Reports service
+	pdfBytes, err := a.Services.Reports.GenerateChartOfAccountsPDF(companyName, sortBy, includeInactive)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate chart of accounts PDF: %v", err)
+	}
+	
+	// Save the PDF to a temporary file and return the path
+	// Or return base64 encoded string for frontend to handle
+	encodedPDF := base64.StdEncoding.EncodeToString(pdfBytes)
+	return encodedPDF, nil
+}
+
+// Legacy implementation - kept for reference but not used
+func (a *App) GenerateChartOfAccountsPDF_OLD(companyName string, sortBy string, includeInactive bool) (string, error) {
 	logger.WriteInfo("GenerateChartOfAccountsPDF", fmt.Sprintf("Called for company: %s, sortBy: %s, includeInactive: %v", companyName, sortBy, includeInactive))
 	debug.SimpleLog(fmt.Sprintf("GenerateChartOfAccountsPDF: company=%s, sortBy=%s, includeInactive=%v", companyName, sortBy, includeInactive))
 	

@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/pivoten/financialsx/desktop/internal/common"
 	"github.com/pivoten/financialsx/desktop/internal/database"
+	"github.com/pivoten/financialsx/desktop/internal/dbf"
 	"github.com/pivoten/financialsx/desktop/internal/financials/audit"
 	"github.com/pivoten/financialsx/desktop/internal/financials/banking"
 	"github.com/pivoten/financialsx/desktop/internal/financials/gl"
@@ -19,6 +20,9 @@ type Services struct {
 	// Core services
 	Auth         *common.Auth
 	*common.I18n // Embedded for direct method access
+	
+	// Data access
+	DBF *dbf.Service
 	
 	// Financial services - using pointers to avoid embedding conflicts
 	Banking      *banking.Service
@@ -56,6 +60,9 @@ func NewServices(dbConn *database.DB) *Services {
 		// Core services
 		Auth: common.New(dbConn, ""), // Company name will be set later
 		I18n: common.NewI18n("en"),
+		
+		// Data access
+		DBF: dbf.NewService(),
 		
 		// Financial services
 		Banking:  bankingService,

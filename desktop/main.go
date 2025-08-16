@@ -495,22 +495,14 @@ func (a *App) ValidateSession(token string, companyName string) (*common.User, e
 
 // GetDBFFiles returns list of DBF files for a company
 func (a *App) GetDBFFiles(companyName string) ([]string, error) {
-	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Called with company: %s", companyName))
-	files, err := company.GetDBFFiles(companyName)
-	if err != nil {
-		debug.LogError("GetDBFFiles", err)
-		return nil, fmt.Errorf("failed to get DBF files: %w", err)
-	}
-	debug.LogInfo("GetDBFFiles", fmt.Sprintf("Found %d files", len(files)))
-	return files, nil
+	// Use DBF service
+	return a.Services.DBF.GetFiles(companyName)
 }
 
 // GetDBFTableData returns the structure and data of a DBF file
 func (a *App) GetDBFTableData(companyName, fileName string) (map[string]interface{}, error) {
-	fmt.Printf("GetDBFTableData called: company=%s, file=%s\n", companyName, fileName)
-	
-	// Call the real DBF reading function without search - NO RECORD LIMIT
-	return company.ReadDBFFile(companyName, fileName, "", 0, 0, "", "")
+	// Use DBF service
+	return a.Services.DBF.GetTableData(companyName, fileName)
 }
 
 // CheckGLPeriodFields checks for blank CYEAR/CPERIOD fields in GLMASTER.dbf

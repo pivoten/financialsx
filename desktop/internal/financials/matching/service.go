@@ -254,27 +254,326 @@ func (s *Service) ImportBankStatement(companyName, csvContent, accountNumber str
 }
 
 // ManualMatchTransaction manually matches a transaction to a check
-func (s *Service) ManualMatchTransaction(transactionID int, checkID string, checkRowIndex int) (*MatchResult, error) {
-	// Implementation will be moved from main.go
-	return nil, fmt.Errorf("not implemented")
+func (s *Service) ManualMatchTransaction(transactionID int, checkID string, checkRowIndex int) (map[string]interface{}, error) {
+	logger.WriteInfo("ManualMatchTransaction", fmt.Sprintf("txn=%d, check=%s, row=%d", transactionID, checkID, checkRowIndex))
+	
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	
+	// Update the bank transaction with match info
+	query := `
+		UPDATE bank_transactions 
+		SET matched_check_id = ?, 
+		    matched_dbf_row_index = ?,
+		    match_confidence = 1.0,
+		    match_type = 'manual',
+		    is_matched = 1,
+		    manually_matched = 1
+		WHERE id = ?
+	`
+	
+	_, err := s.db.Exec(query, checkID, checkRowIndex, transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update transaction: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"status": "success",
+		"message": "Transaction matched successfully",
+	}, nil
 }
 
 // UnmatchTransaction removes a match between a transaction and check
-func (s *Service) UnmatchTransaction(transactionID int) error {
-	// Implementation will be moved from main.go
-	return fmt.Errorf("not implemented")
+func (s *Service) UnmatchTransaction(transactionID int) (map[string]interface{}, error) {
+	logger.WriteInfo("UnmatchTransaction", fmt.Sprintf("Called for transaction ID: %d", transactionID))
+	
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	
+	// Update the transaction to unmatched
+	query := `
+		UPDATE bank_transactions 
+		SET matched_check_id = NULL,
+		    matched_dbf_row_index = 0,
+		    match_confidence = 0,
+		    match_type = '',
+		    is_matched = 0,
+		    manually_matched = 0
+		WHERE id = ?
+	`
+	
+	result, err := s.db.Exec(query, transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmatch transaction: %w", err)
+	}
+	
+	rowsAffected, _ := result.RowsAffected()
+	
+	return map[string]interface{}{
+		"status": "success",
+		"rowsAffected": rowsAffected,
+	}, nil
 }
 
 // RetryMatching retries matching for a specific statement
-func (s *Service) RetryMatching(companyName, accountNumber string, statementID int) (*ImportResult, error) {
-	// Implementation will be moved from main.go
-	return nil, fmt.Errorf("not implemented")
+func (s *Service) RetryMatching(companyName, accountNumber string, statementID int) (map[string]interface{}, error) {
+	logger.WriteInfo("RetryMatching", fmt.Sprintf("For statement: %d", statementID))
+	
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	
+	// Get unmatched transactions for this statement
+	query := `
+		SELECT id, check_number, amount, transaction_date, description, company_name, account_number
+		FROM bank_transactions 
+		WHERE statement_id = ? AND is_matched = 0
+	`
+	
+	rows, err := s.db.Query(query, statementID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unmatched transactions: %w", err)
+	}
+	defer rows.Close()
+	
+	var unmatchedTxns []BankTransaction
+	for rows.Next() {
+		var txn BankTransaction
+		err := rows.Scan(&txn.ID, &txn.CheckNumber, &txn.Amount, &txn.TransactionDate, 
+			&txn.Description, &txn.CompanyName, &txn.AccountNumber)
+		if err != nil {
+			continue
+		}
+		unmatchedTxns = append(unmatchedTxns, txn)
+	}
+	
+	// Get outstanding checks
+	checksData, err := s.getOutstandingChecks(companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get checks: %w", err)
+	}
+	
+	existingChecks, _ := checksData["checks"].([]map[string]interface{})
+	
+	// Run matching algorithm
+	newMatchCount := 0
+	for _, txn := range unmatchedTxns {
+		bestMatch := s.findBestCheckMatch(&txn, existingChecks)
+		if bestMatch != nil && bestMatch.Confidence > 0.5 {
+			// Update the transaction
+			checkID := ""
+			rowIndex := 0
+			if id, ok := bestMatch.MatchedCheck["id"]; ok {
+				checkID = fmt.Sprintf("%v", id)
+			}
+			if idx, ok := bestMatch.MatchedCheck["_rowIndex"]; ok {
+				if fidx, ok := idx.(float64); ok {
+					rowIndex = int(fidx)
+				}
+			}
+			
+			updateQuery := `
+				UPDATE bank_transactions 
+				SET matched_check_id = ?, 
+				    matched_dbf_row_index = ?,
+				    match_confidence = ?,
+				    match_type = ?,
+				    is_matched = 1
+				WHERE id = ?
+			`
+			
+			_, err := s.db.Exec(updateQuery, checkID, rowIndex, bestMatch.Confidence, bestMatch.MatchType, txn.ID)
+			if err == nil {
+				newMatchCount++
+			}
+		}
+	}
+	
+	// Update statement matched count
+	updateStmt := `
+		UPDATE bank_statements 
+		SET matched_count = (
+			SELECT COUNT(*) FROM bank_transactions 
+			WHERE statement_id = ? AND is_matched = 1
+		)
+		WHERE id = ?
+	`
+	s.db.Exec(updateStmt, statementID, statementID)
+	
+	return map[string]interface{}{
+		"status": "success",
+		"newMatches": newMatchCount,
+		"totalUnmatched": len(unmatchedTxns) - newMatchCount,
+	}, nil
 }
 
 // GetMatchedTransactions retrieves all matched transactions
-func (s *Service) GetMatchedTransactions(companyName, accountNumber string) ([]BankTransaction, error) {
-	// Implementation will be moved from main.go
-	return nil, fmt.Errorf("not implemented")
+func (s *Service) GetMatchedTransactions(companyName, accountNumber string) (map[string]interface{}, error) {
+	logger.WriteInfo("GetMatchedTransactions", fmt.Sprintf("Called for company: %s, account: %s", companyName, accountNumber))
+	
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	
+	// First get all matched bank transactions
+	query := `
+		SELECT bt.id, bt.matched_check_id, bt.matched_dbf_row_index, bt.match_confidence, 
+			   bt.match_type, bt.manually_matched, bt.amount as bank_amount, bt.transaction_date as bank_date,
+			   bt.description as bank_description, bt.check_number as bank_check_number
+		FROM bank_transactions bt
+		INNER JOIN bank_statements bs ON bt.statement_id = bs.id
+		WHERE bt.company_name = ? AND bt.account_number = ? 
+		  AND bs.is_active = 1
+		  AND bt.is_matched = 1
+	`
+	
+	rows, err := s.db.Query(query, companyName, accountNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query matched transactions: %w", err)
+	}
+	defer rows.Close()
+	
+	// Map to store bank transaction matches by check ID
+	matchedMap := make(map[string]map[string]interface{})
+	
+	for rows.Next() {
+		var bankTxnID int
+		var matchedCheckID, matchType, bankDescription, bankCheckNumber, bankDate sql.NullString
+		var matchedDBFRowIndex sql.NullInt64
+		var matchConfidence, bankAmount float64
+		var manuallyMatched bool
+		
+		err := rows.Scan(
+			&bankTxnID, &matchedCheckID, &matchedDBFRowIndex, &matchConfidence,
+			&matchType, &manuallyMatched, &bankAmount, &bankDate,
+			&bankDescription, &bankCheckNumber,
+		)
+		if err != nil {
+			continue
+		}
+		
+		if matchedCheckID.Valid && matchedCheckID.String != "" {
+			matchedMap[matchedCheckID.String] = map[string]interface{}{
+				"bank_txn_id":       bankTxnID,
+				"match_confidence":  matchConfidence,
+				"match_type":        matchType.String,
+				"manually_matched":  manuallyMatched,
+				"bank_amount":       bankAmount,
+				"bank_date":         bankDate.String,
+				"bank_description":  bankDescription.String,
+				"bank_check_number": bankCheckNumber.String,
+				"dbf_row_index":     matchedDBFRowIndex.Int64,
+			}
+		}
+	}
+	
+	logger.WriteInfo("GetMatchedTransactions", fmt.Sprintf("Total matched bank transactions found: %d", len(matchedMap)))
+	
+	// Now read the checks from DBF and build response
+	checksData, err := company.ReadDBFFile(companyName, "CHECKS.dbf", "", 0, 0, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checks: %w", err)
+	}
+	
+	columns, _ := checksData["columns"].([]string)
+	rows2, _ := checksData["rows"].([][]interface{})
+	
+	// Find column indices
+	var cidchecIdx, checkNoIdx, dateIdx, payeeIdx, amountIdx, acctIdx, clearedIdx int = -1, -1, -1, -1, -1, -1, -1
+	for i, col := range columns {
+		upperCol := strings.ToUpper(col)
+		switch upperCol {
+		case "CIDCHEC":
+			cidchecIdx = i
+		case "CCHECKNO":
+			checkNoIdx = i
+		case "DCHECKDATE":
+			dateIdx = i
+		case "CPAYEE":
+			payeeIdx = i
+		case "NAMOUNT":
+			amountIdx = i
+		case "CACCTNO":
+			acctIdx = i
+		case "LCLEARED":
+			clearedIdx = i
+		}
+	}
+	
+	var matchedChecks []map[string]interface{}
+	
+	// Build response with check data as primary
+	for rowIdx, row := range rows2 {
+		if len(row) <= cidchecIdx || cidchecIdx < 0 {
+			continue
+		}
+		
+		checkID := fmt.Sprintf("%v", row[cidchecIdx])
+		
+		// Skip if this check isn't matched
+		bankMatch, isMatched := matchedMap[checkID]
+		if !isMatched {
+			continue
+		}
+		
+		// Skip if not for this account
+		if acctIdx >= 0 && accountNumber != "" {
+			checkAcct := fmt.Sprintf("%v", row[acctIdx])
+			if checkAcct != accountNumber {
+				continue
+			}
+		}
+		
+		// Build check data
+		checkData := map[string]interface{}{
+			"id":           checkID,
+			"row_index":    rowIdx,
+			"check_number": "",
+			"check_date":   "",
+			"payee":        "",
+			"amount":       0.0,
+			"account":      "",
+			"cleared":      false,
+		}
+		
+		if checkNoIdx >= 0 && checkNoIdx < len(row) {
+			checkData["check_number"] = fmt.Sprintf("%v", row[checkNoIdx])
+		}
+		if dateIdx >= 0 && dateIdx < len(row) {
+			checkData["check_date"] = fmt.Sprintf("%v", row[dateIdx])
+		}
+		if payeeIdx >= 0 && payeeIdx < len(row) {
+			checkData["payee"] = fmt.Sprintf("%v", row[payeeIdx])
+		}
+		if amountIdx >= 0 && amountIdx < len(row) {
+			checkData["amount"] = s.parseFloat(row[amountIdx])
+		}
+		if acctIdx >= 0 && acctIdx < len(row) {
+			checkData["account"] = fmt.Sprintf("%v", row[acctIdx])
+		}
+		if clearedIdx >= 0 && clearedIdx < len(row) {
+			if cleared, ok := row[clearedIdx].(bool); ok {
+				checkData["cleared"] = cleared
+			}
+		}
+		
+		// Add bank match info
+		for k, v := range bankMatch {
+			checkData[k] = v
+		}
+		
+		matchedChecks = append(matchedChecks, checkData)
+	}
+	
+	logger.WriteInfo("GetMatchedTransactions", fmt.Sprintf("Returning %d matched checks", len(matchedChecks)))
+	
+	return map[string]interface{}{
+		"status": "success",
+		"checks": matchedChecks,
+		"count":  len(matchedChecks),
+	}, nil
 }
 
 // GetBankTransactions retrieves bank transactions for a specific import batch

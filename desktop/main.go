@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/Valentin-Kaiser/go-dbase/dbase"
-	"github.com/jung-kurt/gofpdf/v2"
 	"github.com/pivoten/financialsx/desktop/internal/app"
 	"github.com/pivoten/financialsx/desktop/internal/common"
 	"github.com/pivoten/financialsx/desktop/internal/company"
@@ -29,11 +28,11 @@ import (
 	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/ole"
 	"github.com/pivoten/financialsx/desktop/internal/reconciliation"
+	"github.com/pivoten/financialsx/desktop/internal/utilities"
 	"github.com/pivoten/financialsx/desktop/internal/vfp"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -1185,48 +1184,6 @@ func (a *App) GetTableList(companyName string) (map[string]interface{}, error) {
 	}, nil
 }
 
-// Helper function
-
-// getSavedDataPath retrieves the saved data path from a config file
-func (a *App) getSavedDataPath() string {
-	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-// saveDataPath saves the data path to a config file for future use
-func (a *App) saveDataPath(path string) {
-	configPath := filepath.Join(os.TempDir(), "financialsx_datapath.txt")
-	os.WriteFile(configPath, []byte(path), 0644)
-}
-
-// SelectDataFolder opens a dialog for the user to select the folder containing compmast.dbf
-func (a *App) SelectDataFolder() (string, error) {
-	// This will trigger a folder selection dialog in the frontend
-	// The frontend will call back with the selected path
-	return "", fmt.Errorf("TRIGGER_FOLDER_DIALOG")
-}
-
-// SetDataPath sets the data path after user selection and verifies compmast.dbf exists
-func (a *App) SetDataPath(folderPath string) error {
-	// Verify compmast.dbf exists in the selected folder
-	compMastPath := filepath.Join(folderPath, "compmast.dbf")
-	if _, err := os.Stat(compMastPath); os.IsNotExist(err) {
-		return fmt.Errorf("compmast.dbf not found in selected folder")
-	}
-
-	// Save the path for future use
-	a.dataBasePath = folderPath
-	a.saveDataPath(folderPath)
-
-	fmt.Printf("SetDataPath: Data path set to: %s\n", folderPath)
-	debug.LogInfo("SetDataPath", fmt.Sprintf("Data path set to: %s", folderPath))
-
-	return nil
-}
 
 func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 	// Delegate to Company service
@@ -1242,11 +1199,15 @@ func (a *App) GetCompanyList() ([]map[string]interface{}, error) {
 func (a *App) SelectDataFolder() (string, error) {
 	// This needs to stay in main.go as it uses Wails runtime
 	// TODO: Implement using Wails dialog
-	return "", fmt.Errorf("folder selection not yet implemented")
+	return "", fmt.Errorf("TRIGGER_FOLDER_DIALOG")
 }
 
 // SetDataPath validates and saves the selected data path
 func (a *App) SetDataPath(dataPath string) error {
+	// Update the app's dataBasePath
+	a.dataBasePath = dataPath
+	
+	// Delegate to Company service to save
 	if a.Services != nil && a.Services.Company != nil {
 		return a.Services.Company.SetDataPath(dataPath)
 	}
@@ -1460,259 +1421,6 @@ func (a *App) ImportBankStatement(companyName string, csvContent string, account
 	return result, nil
 }
 
-// autoMatchBankTransactions matches bank transactions with existing checks
-func (a *App) autoMatchBankTransactions(bankTransactions []BankTransaction, existingChecks []map[string]interface{}) []MatchResult {
-	var matches []MatchResult
-
-	// Keep track of already matched check IDs to prevent double-matching
-	matchedCheckIDs := make(map[string]bool)
-
-	// Sort bank transactions by date to match older transactions first
-	// This helps with recurring transactions
-	sort.Slice(bankTransactions, func(i, j int) bool {
-		dateI, _ := common.ParseDate(bankTransactions[i].TransactionDate)
-		dateJ, _ := common.ParseDate(bankTransactions[j].TransactionDate)
-		return dateI.Before(dateJ)
-	})
-
-	for i := range bankTransactions {
-		txn := &bankTransactions[i]
-
-		// Skip only deposits, not checks (checks may have positive amounts in bank statements)
-		if txn.TransactionType == "Deposit" {
-			continue
-		}
-
-		// Filter out already matched checks
-		availableChecks := []map[string]interface{}{}
-		for _, check := range existingChecks {
-			if checkID, ok := check["id"].(string); ok {
-				if !matchedCheckIDs[checkID] {
-					availableChecks = append(availableChecks, check)
-				}
-			}
-		}
-
-		bestMatch := a.findBestCheckMatchForBankTxn(txn, availableChecks)
-		if bestMatch != nil && bestMatch.Confidence > 0.5 {
-			// Mark this check as matched
-			if checkID, ok := bestMatch.MatchedCheck["id"]; ok {
-				matchedCheckIDs[fmt.Sprintf("%v", checkID)] = true
-			}
-
-			// Update the transaction with match info
-			if checkID, ok := bestMatch.MatchedCheck["id"]; ok {
-				txn.MatchedCheckID = fmt.Sprintf("%v", checkID)
-			}
-			if rowIndex, ok := bestMatch.MatchedCheck["_rowIndex"]; ok {
-				if idx, ok := rowIndex.(float64); ok {
-					txn.MatchedDBFRowIndex = int(idx)
-				}
-			}
-			txn.MatchConfidence = bestMatch.Confidence
-			txn.MatchType = bestMatch.MatchType
-			txn.IsMatched = true
-
-			matches = append(matches, *bestMatch)
-		}
-	}
-
-	return matches
-}
-
-// findBestCheckMatchForBankTxn finds the best matching check for a bank transaction
-func (a *App) findBestCheckMatchForBankTxn(txn *BankTransaction, existingChecks []map[string]interface{}) *MatchResult {
-	var bestMatch *MatchResult
-	highestScore := 0.0
-
-	for _, check := range existingChecks {
-		score := a.calculateBankTxnMatchScore(txn, check)
-		if score > highestScore && score > 0.5 { // Minimum confidence threshold
-			matchType := a.determineBankTxnMatchType(score, txn, check)
-			bestMatch = &MatchResult{
-				BankTransaction: *txn,
-				MatchedCheck:    check,
-				Confidence:      score,
-				MatchType:       matchType,
-				Confirmed:       false,
-			}
-			bestMatch.BankTransaction.MatchedCheckID = fmt.Sprintf("%v", check["id"])
-			bestMatch.BankTransaction.MatchConfidence = score
-			bestMatch.BankTransaction.MatchType = matchType
-			highestScore = score
-		}
-	}
-
-	return bestMatch
-}
-
-// calculateBankTxnMatchScore calculates confidence score between bank transaction and check
-func (a *App) calculateBankTxnMatchScore(txn *BankTransaction, check map[string]interface{}) float64 {
-	score := 0.0
-
-	// Amount matching (35% weight for recurring transactions)
-	checkAmount := common.ParseFloat(check["amount"])
-	txnAmount := math.Abs(txn.Amount) // Always use absolute value for comparison
-
-	amountMatches := false
-	if checkAmount > 0 && math.Abs(txnAmount-checkAmount) < 0.01 {
-		score += 0.35 // Exact amount match (reduced from 0.5)
-		amountMatches = true
-	} else if checkAmount > 0 && math.Abs(txnAmount-checkAmount) < 1.0 {
-		score += 0.2 // Close amount match
-	} else {
-		// No amount match, very low chance this is right
-		return 0.0
-	}
-
-	// Check number matching (25% weight)
-	if txn.CheckNumber != "" {
-		checkNumber := fmt.Sprintf("%v", check["checkNumber"])
-		if txn.CheckNumber == checkNumber {
-			score += 0.25 // Exact check number match
-		} else if strings.Contains(txn.CheckNumber, checkNumber) || strings.Contains(checkNumber, txn.CheckNumber) {
-			score += 0.1 // Partial check number match
-		}
-	}
-
-	// Date proximity matching (40% weight - INCREASED for recurring transactions)
-	// This is critical for matching recurring payments with same amounts
-	if txn.TransactionDate != "" {
-		txnDate, txnErr := common.ParseDate(txn.TransactionDate)
-		checkDate, checkErr := common.ParseDate(fmt.Sprintf("%v", check["date"]))
-
-		if txnErr == nil && checkErr == nil {
-			daysDiff := math.Abs(txnDate.Sub(checkDate).Hours() / 24)
-
-			// More granular date scoring for better recurring transaction matching
-			if daysDiff == 0 {
-				score += 0.4 // Same day - very high confidence
-			} else if daysDiff <= 1 {
-				score += 0.35 // Next day
-			} else if daysDiff <= 3 {
-				score += 0.25 // Within 3 days
-			} else if daysDiff <= 7 {
-				score += 0.15 // Within a week
-			} else if daysDiff <= 14 {
-				score += 0.05 // Within 2 weeks
-			}
-			// Beyond 2 weeks, no date score
-
-			// Debug for recurring transactions
-			if amountMatches && strings.Contains(strings.ToUpper(fmt.Sprintf("%v", check["payee"])), "CONSUMER") {
-				fmt.Printf("DEBUG: CONSUMERS ENERGY match - Amount: %.2f, Days diff: %.0f, Score: %.2f\n",
-					checkAmount, daysDiff, score)
-			}
-		}
-	}
-
-	// Description/Payee matching (bonus points)
-	if description, ok := check["payee"].(string); ok && txn.Description != "" {
-		descUpper := strings.ToUpper(description)
-		txnDescUpper := strings.ToUpper(txn.Description)
-
-		// Check for common keywords
-		if strings.Contains(txnDescUpper, descUpper) || strings.Contains(descUpper, txnDescUpper) {
-			score += 0.1 // Bonus for description match
-		}
-	}
-
-	return score
-}
-
-// determineBankTxnMatchType determines the type of match for bank transaction
-func (a *App) determineBankTxnMatchType(score float64, txn *BankTransaction, check map[string]interface{}) string {
-	checkAmount := common.ParseFloat(check["amount"])
-
-	// Exact match: amount + check number (if available)
-	if math.Abs(math.Abs(txn.Amount)-checkAmount) < 0.01 {
-		if txn.CheckNumber != "" && txn.CheckNumber == fmt.Sprintf("%v", check["checkNumber"]) {
-			return "exact"
-		}
-		return "amount_exact"
-	}
-
-	// Fuzzy match
-	if score > 0.7 {
-		return "high_confidence"
-	}
-
-	return "fuzzy"
-}
-
-// GetBankTransactions retrieves stored bank transactions for an account
-
-// GetRecentBankStatements retrieves recent bank statement imports
-func (a *App) GetRecentBankStatements(companyName string, accountNumber string) ([]map[string]interface{}, error) {
-	fmt.Printf("GetRecentBankStatements called for company: %s, account: %s\n", companyName, accountNumber)
-
-	// Check permissions
-	if a.currentUser == nil {
-		return nil, fmt.Errorf("user not authenticated")
-	}
-
-	if a.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	query := `
-		SELECT id, company_name, account_number, statement_date, import_batch_id, 
-		       import_date, imported_by, transaction_count, matched_count
-		FROM bank_statements 
-		WHERE company_name = ? AND account_number = ?
-		ORDER BY import_date DESC
-		LIMIT 10
-	`
-
-	rows, err := a.db.GetConn().Query(query, companyName, accountNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query bank statements: %w", err)
-	}
-	defer rows.Close()
-
-	var statements []map[string]interface{}
-	for rows.Next() {
-		var stmt struct {
-			ID               int
-			CompanyName      string
-			AccountNumber    string
-			StatementDate    sql.NullString
-			ImportBatchID    string
-			ImportDate       string
-			ImportedBy       string
-			TransactionCount int
-			MatchedCount     int
-		}
-
-		err := rows.Scan(&stmt.ID, &stmt.CompanyName, &stmt.AccountNumber,
-			&stmt.StatementDate, &stmt.ImportBatchID, &stmt.ImportDate,
-			&stmt.ImportedBy, &stmt.TransactionCount, &stmt.MatchedCount)
-		if err != nil {
-			continue
-		}
-
-		statementDate := ""
-		if stmt.StatementDate.Valid {
-			statementDate = stmt.StatementDate.String
-		}
-
-		statements = append(statements, map[string]interface{}{
-			"id":                stmt.ID,
-			"company_name":      stmt.CompanyName,
-			"account_number":    stmt.AccountNumber,
-			"statement_date":    statementDate,
-			"import_batch_id":   stmt.ImportBatchID,
-			"import_date":       stmt.ImportDate,
-			"imported_by":       stmt.ImportedBy,
-			"transaction_count": stmt.TransactionCount,
-			"matched_count":     stmt.MatchedCount,
-		})
-	}
-
-	return statements, nil
-}
-
-// DeleteBankStatement deletes an imported bank statement and all its transactions
 func (a *App) DeleteBankStatement(companyName string, importBatchID string) error {
 	fmt.Printf("DeleteBankStatement called for company: %s, batch: %s\n", companyName, importBatchID)
 
@@ -2039,17 +1747,6 @@ func (a *App) determineMatchType(score float64, csvTxn BankTransaction, check ma
 	return "fuzzy"
 }
 
-// getFreshnessStatus determines the freshness status based on time
-func getFreshnessStatus(lastUpdated time.Time) string {
-	age := time.Since(lastUpdated).Hours()
-	if age < 1 {
-		return "fresh"
-	} else if age < 24 {
-		return "aging"
-	}
-	return "stale"
-}
-
 // GetCachedBalances retrieves cached balances for all bank accounts
 func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, error) {
 	fmt.Printf("GetCachedBalances called for company: %s\n", companyName)
@@ -2087,8 +1784,8 @@ func (a *App) GetCachedBalances(companyName string) ([]map[string]interface{}, e
 				"checks_last_updated": b.ChecksLastUpdated,
 				"gl_age_hours":        glAgeHours,
 				"checks_age_hours":    checksAgeHours,
-				"gl_freshness":        getFreshnessStatus(b.GLLastUpdated),
-				"checks_freshness":    getFreshnessStatus(b.ChecksLastUpdated),
+				"gl_freshness":        utilities.GetFreshnessStatus(b.GLLastUpdated),
+				"checks_freshness":    utilities.GetFreshnessStatus(b.ChecksLastUpdated),
 				"is_stale":            b.IsStale,
 				// These fields might not be available from service yet
 				"uncleared_deposits": 0,
@@ -2187,8 +1884,8 @@ func (a *App) RefreshAccountBalance(companyName, accountNumber string) (map[stri
 			"bank_balance":        balance.BankBalance,
 			"gl_last_updated":     balance.GLLastUpdated,
 			"checks_last_updated": balance.ChecksLastUpdated,
-			"gl_freshness":        getFreshnessStatus(balance.GLLastUpdated),
-			"checks_freshness":    getFreshnessStatus(balance.ChecksLastUpdated),
+			"gl_freshness":        utilities.GetFreshnessStatus(balance.GLLastUpdated),
+			"checks_freshness":    utilities.GetFreshnessStatus(balance.ChecksLastUpdated),
 			"is_stale":            balance.IsStale,
 		}, nil
 	}
@@ -3242,145 +2939,39 @@ func (a *App) UpdateBatchFields(companyName string, batchNumber string, fieldMap
 	return nil, fmt.Errorf("operations service not initialized")
 }
 
+// CheckOwnerStatementFiles checks if owner statement files exist for a company
 func (a *App) CheckOwnerStatementFiles(companyName string) map[string]interface{} {
-	// Log the function call
-	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Called for company: %s", companyName))
-	debug.SimpleLog(fmt.Sprintf("CheckOwnerStatementFiles: company=%s, platform=%s", companyName, runtime.GOOS))
-
-	result := map[string]interface{}{
+	if a.Services != nil && a.Services.Reports != nil {
+		return a.Services.Reports.CheckOwnerStatementFiles(companyName)
+	}
+	return map[string]interface{}{
 		"hasFiles": false,
-		"files":    []string{},
-		"error":    "",
+		"error":    "reports service not initialized",
 	}
-
-	// Build the path to the ownerstatements directory
-	// We need to resolve the actual file system path
-	var ownerStatementsPath string
-
-	// Use the same logic as ReadDBFFile to resolve the company path
-	if filepath.IsAbs(companyName) {
-		ownerStatementsPath = filepath.Join(companyName, "ownerstatements")
-	} else {
-		// For relative paths, we need to resolve relative to the working directory
-		// The company data is in datafiles/{companyName}
-		workingDir, _ := os.Getwd()
-		ownerStatementsPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements")
-	}
-
-	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Checking directory: %s", ownerStatementsPath))
-
-	// Check if the ownerstatements directory exists
-	dirInfo, err := os.Stat(ownerStatementsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory does not exist")
-			result["error"] = "No Owner Distribution Files Found"
-			return result
-		}
-		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error checking directory: %v", err))
-		result["error"] = fmt.Sprintf("Error accessing directory: %v", err)
-		return result
-	}
-
-	if !dirInfo.IsDir() {
-		logger.WriteError("CheckOwnerStatementFiles", "ownerstatements exists but is not a directory")
-		result["error"] = "ownerstatements is not a directory"
-		return result
-	}
-
-	// Directory exists, now scan for DBF files
-	logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory exists, scanning for DBF files")
-
-	files, err := os.ReadDir(ownerStatementsPath)
-	if err != nil {
-		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error reading directory: %v", err))
-		result["error"] = fmt.Sprintf("Error reading directory: %v", err)
-		return result
-	}
-
-	var dbfFiles []string
-	for _, file := range files {
-		if !file.IsDir() {
-			fileName := file.Name()
-			if strings.HasSuffix(strings.ToLower(fileName), ".dbf") {
-				logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found DBF file: %s", fileName))
-				dbfFiles = append(dbfFiles, fileName)
-			}
-		}
-	}
-
-	if len(dbfFiles) > 0 {
-		result["hasFiles"] = true
-		result["files"] = dbfFiles
-		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found %d DBF files in ownerstatements", len(dbfFiles)))
-	} else {
-		result["error"] = "No Owner Distribution Files Found"
-		logger.WriteInfo("CheckOwnerStatementFiles", "No DBF files found in ownerstatements directory")
-	}
-
-	return result
 }
 
 // GetOwnerStatementsList returns a list of available owner statement files
 func (a *App) GetOwnerStatementsList(companyName string) ([]map[string]interface{}, error) {
-	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Called for company: %s", companyName))
-
-	// Build the path to the ownerstatements directory
-	var ownerStatementsPath string
-
-	if filepath.IsAbs(companyName) {
-		ownerStatementsPath = filepath.Join(companyName, "ownerstatements")
-	} else {
-		workingDir, _ := os.Getwd()
-		ownerStatementsPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements")
+	if a.Services != nil && a.Services.Reports != nil {
+		return a.Services.Reports.GetOwnerStatementsList(companyName)
 	}
+	return nil, fmt.Errorf("reports service not initialized")
+}
 
-	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Scanning directory: %s", ownerStatementsPath))
-
-	// Check if directory exists
-	if _, err := os.Stat(ownerStatementsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("ownerstatements directory not found")
+// GetOwnersList retrieves the list of owners from an owner statement DBF file
+func (a *App) GetOwnersList(companyName string, fileName string) ([]map[string]interface{}, error) {
+	if a.Services != nil && a.Services.Reports != nil {
+		return a.Services.Reports.GetOwnersList(companyName, fileName)
 	}
+	return nil, fmt.Errorf("reports service not initialized")
+}
 
-	// Read directory
-	files, err := os.ReadDir(ownerStatementsPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading directory: %v", err)
+// GetOwnerStatementData retrieves owner statement data for a specific owner
+func (a *App) GetOwnerStatementData(companyName string, fileName string, ownerKey string) (map[string]interface{}, error) {
+	if a.Services != nil && a.Services.Reports != nil {
+		return a.Services.Reports.GetOwnerStatementData(companyName, fileName, ownerKey)
 	}
-
-	var statementFiles []map[string]interface{}
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".dbf") {
-			info, _ := file.Info()
-			statementFile := map[string]interface{}{
-				"filename": file.Name(),
-				"size":     info.Size(),
-				"modified": info.ModTime().Format("2006-01-02 15:04:05"),
-			}
-
-			// Check if corresponding FPT file exists
-			fptName := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name())) + ".fpt"
-			fptPath := filepath.Join(ownerStatementsPath, fptName)
-			if _, err := os.Stat(fptPath); err == nil {
-				statementFile["hasFPT"] = true
-			} else {
-				fptName = strings.TrimSuffix(file.Name(), filepath.Ext(file.Name())) + ".FPT"
-				fptPath = filepath.Join(ownerStatementsPath, fptName)
-				if _, err := os.Stat(fptPath); err == nil {
-					statementFile["hasFPT"] = true
-				} else {
-					statementFile["hasFPT"] = false
-				}
-			}
-
-			statementFiles = append(statementFiles, statementFile)
-			logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Added file: %s (size: %d, hasFPT: %v)",
-				file.Name(), info.Size(), statementFile["hasFPT"]))
-		}
-	}
-
-	logger.WriteInfo("GetOwnerStatementsList", fmt.Sprintf("Found %d DBF files", len(statementFiles)))
-	return statementFiles, nil
+	return nil, fmt.Errorf("reports service not initialized")
 }
 
 // GenerateOwnerStatementPDF generates a PDF for owner distribution statements
@@ -3398,248 +2989,8 @@ func (a *App) GenerateOwnerStatementPDF(companyName string, fileName string) (st
 }
 
 // GetOwnersList returns a unique list of owners from the statement DBF file
-func (a *App) GetOwnersList(companyName string, fileName string) ([]map[string]interface{}, error) {
-	logger.WriteInfo("GetOwnersList", fmt.Sprintf("Getting owners list from %s/%s", companyName, fileName))
-
-	// Read the DBF file
-	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
-	if err != nil {
-		return nil, fmt.Errorf("error reading DBF file: %v", err)
-	}
-
-	// Get columns
-	columns, _ := dbfData["columns"].([]string)
-
-	// Convert rows to map format
-	var rows []map[string]interface{}
-	if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
-		for _, rowValues := range rowsArray {
-			rowMap := make(map[string]interface{})
-			for i, value := range rowValues {
-				if i < len(columns) {
-					rowMap[columns[i]] = value
-				}
-			}
-			rows = append(rows, rowMap)
-		}
-	}
-
-	// Find owner-related columns (COWNNAME, COWNERID, COWNNO, etc.)
-	ownerNameCol := ""
-	ownerIDCol := ""
-	for _, col := range columns {
-		colUpper := strings.ToUpper(col)
-		if strings.Contains(colUpper, "OWNNAME") || strings.Contains(colUpper, "OWNER") && strings.Contains(colUpper, "NAME") {
-			ownerNameCol = col
-		}
-		if strings.Contains(colUpper, "OWNERID") || strings.Contains(colUpper, "OWNNO") || strings.Contains(colUpper, "COWNID") {
-			ownerIDCol = col
-		}
-	}
-
-	// If we didn't find specific owner columns, look for generic name columns
-	if ownerNameCol == "" {
-		for _, col := range columns {
-			colUpper := strings.ToUpper(col)
-			if colUpper == "CNAME" || colUpper == "NAME" || strings.Contains(colUpper, "NAME") {
-				ownerNameCol = col
-				break
-			}
-		}
-	}
-
-	// Build unique owners list
-	ownersMap := make(map[string]map[string]interface{})
-	for _, row := range rows {
-		ownerName := ""
-		ownerID := ""
-
-		if ownerNameCol != "" {
-			if val, ok := row[ownerNameCol]; ok && val != nil {
-				ownerName = strings.TrimSpace(fmt.Sprintf("%v", val))
-			}
-		}
-
-		if ownerIDCol != "" {
-			if val, ok := row[ownerIDCol]; ok && val != nil {
-				ownerID = strings.TrimSpace(fmt.Sprintf("%v", val))
-			}
-		}
-
-		// Use name as key, or ID if name is empty
-		key := ownerName
-		if key == "" {
-			key = ownerID
-		}
-
-		if key != "" && key != "0" {
-			if _, exists := ownersMap[key]; !exists {
-				ownersMap[key] = map[string]interface{}{
-					"name": ownerName,
-					"id":   ownerID,
-					"key":  key,
-				}
-			}
-		}
-	}
-
-	// Convert map to slice
-	var owners []map[string]interface{}
-	for _, owner := range ownersMap {
-		owners = append(owners, owner)
-	}
-
-	// Sort by name
-	sort.Slice(owners, func(i, j int) bool {
-		name1 := fmt.Sprintf("%v", owners[i]["name"])
-		name2 := fmt.Sprintf("%v", owners[j]["name"])
-		return name1 < name2
-	})
-
-	logger.WriteInfo("GetOwnersList", fmt.Sprintf("Found %d unique owners", len(owners)))
-	return owners, nil
-}
 
 // GetOwnerStatementData returns statement data for a specific owner
-func (a *App) GetOwnerStatementData(companyName string, fileName string, ownerKey string) (map[string]interface{}, error) {
-	logger.WriteInfo("GetOwnerStatementData", fmt.Sprintf("Getting statement data for owner: %s", ownerKey))
-
-	// Read the DBF file
-	dbfData, err := company.ReadDBFFile(companyName, filepath.Join("ownerstatements", fileName), "", 0, 0, "", "")
-	if err != nil {
-		return nil, fmt.Errorf("error reading DBF file: %v", err)
-	}
-
-	// Get columns
-	columns, _ := dbfData["columns"].([]string)
-
-	// Convert rows to map format
-	var allRows []map[string]interface{}
-	if rowsArray, ok := dbfData["rows"].([][]interface{}); ok {
-		for _, rowValues := range rowsArray {
-			rowMap := make(map[string]interface{})
-			for i, value := range rowValues {
-				if i < len(columns) {
-					rowMap[columns[i]] = value
-				}
-			}
-			allRows = append(allRows, rowMap)
-		}
-	}
-
-	// Find owner-related columns
-	ownerNameCol := ""
-	ownerIDCol := ""
-	for _, col := range columns {
-		colUpper := strings.ToUpper(col)
-		if strings.Contains(colUpper, "OWNNAME") || strings.Contains(colUpper, "OWNER") && strings.Contains(colUpper, "NAME") {
-			ownerNameCol = col
-		}
-		if strings.Contains(colUpper, "OWNERID") || strings.Contains(colUpper, "OWNNO") || strings.Contains(colUpper, "COWNID") {
-			ownerIDCol = col
-		}
-	}
-
-	// If we didn't find specific owner columns, look for generic name columns
-	if ownerNameCol == "" {
-		for _, col := range columns {
-			colUpper := strings.ToUpper(col)
-			if colUpper == "CNAME" || colUpper == "NAME" || strings.Contains(colUpper, "NAME") {
-				ownerNameCol = col
-				break
-			}
-		}
-	}
-
-	// Filter rows for this owner
-	var ownerRows []map[string]interface{}
-	for _, row := range allRows {
-		match := false
-
-		// Check by name
-		if ownerNameCol != "" {
-			if val, ok := row[ownerNameCol]; ok && val != nil {
-				name := strings.TrimSpace(fmt.Sprintf("%v", val))
-				if name == ownerKey {
-					match = true
-				}
-			}
-		}
-
-		// Check by ID if not matched by name
-		if !match && ownerIDCol != "" {
-			if val, ok := row[ownerIDCol]; ok && val != nil {
-				id := strings.TrimSpace(fmt.Sprintf("%v", val))
-				if id == ownerKey {
-					match = true
-				}
-			}
-		}
-
-		if match {
-			ownerRows = append(ownerRows, row)
-		}
-	}
-
-	// Calculate totals and summaries
-	totalGross := 0.0
-	totalNet := 0.0
-	totalTax := 0.0
-	wellCount := make(map[string]bool)
-
-	// Look for amount columns
-	for _, row := range ownerRows {
-		// Check for well identifier
-		for _, col := range columns {
-			colUpper := strings.ToUpper(col)
-			if strings.Contains(colUpper, "WELL") || strings.Contains(colUpper, "LEASE") {
-				if val, ok := row[col]; ok && val != nil {
-					wellID := fmt.Sprintf("%v", val)
-					if wellID != "" && wellID != "0" {
-						wellCount[wellID] = true
-					}
-				}
-			}
-		}
-
-		// Sum amounts
-		for key, val := range row {
-			keyUpper := strings.ToUpper(key)
-			if val != nil {
-				// Try to parse as number for amount fields
-				if strings.Contains(keyUpper, "GROSS") || strings.Contains(keyUpper, "REVENUE") {
-					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
-						totalGross += num
-					}
-				} else if strings.Contains(keyUpper, "NET") && !strings.Contains(keyUpper, "NETSUM") {
-					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
-						totalNet += num
-					}
-				} else if strings.Contains(keyUpper, "TAX") || strings.Contains(keyUpper, "DEDUCT") {
-					if num, err := strconv.ParseFloat(fmt.Sprintf("%v", val), 64); err == nil {
-						totalTax += num
-					}
-				}
-			}
-		}
-	}
-
-	result := map[string]interface{}{
-		"owner":     ownerKey,
-		"rows":      ownerRows,
-		"rowCount":  len(ownerRows),
-		"columns":   columns,
-		"wellCount": len(wellCount),
-		"totals": map[string]interface{}{
-			"gross": totalGross,
-			"net":   totalNet,
-			"tax":   totalTax,
-		},
-	}
-
-	logger.WriteInfo("GetOwnerStatementData", fmt.Sprintf("Found %d rows for owner %s", len(ownerRows), ownerKey))
-	return result, nil
-}
 
 // ExamineOwnerStatementStructure examines the structure of owner statement DBF files
 func (a *App) ExamineOwnerStatementStructure(companyName string, fileName string) (map[string]interface{}, error) {

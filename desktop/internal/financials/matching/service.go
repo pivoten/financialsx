@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1082,4 +1083,212 @@ func (s *Service) storeBankTransactions(transactions []BankTransaction) error {
 	}
 	
 	return tx.Commit()
+}
+
+// AutoMatchBankTransactions performs automatic matching of bank transactions with existing checks
+func (s *Service) AutoMatchBankTransactions(bankTransactions []BankTransaction, existingChecks []map[string]interface{}) []MatchResult {
+	var matches []MatchResult
+
+	// Keep track of already matched check IDs to prevent double-matching
+	matchedCheckIDs := make(map[string]bool)
+
+	// Sort bank transactions by date to match older transactions first
+	// This helps with recurring transactions
+	sort.Slice(bankTransactions, func(i, j int) bool {
+		dateI, _ := s.parseDate(bankTransactions[i].TransactionDate)
+		dateJ, _ := s.parseDate(bankTransactions[j].TransactionDate)
+		return dateI.Before(dateJ)
+	})
+
+	for i := range bankTransactions {
+		txn := &bankTransactions[i]
+
+		// Skip only deposits, not checks (checks may have positive amounts in bank statements)
+		if txn.TransactionType == "Deposit" {
+			continue
+		}
+
+		// Filter out already matched checks
+		availableChecks := []map[string]interface{}{}
+		for _, check := range existingChecks {
+			if checkID, ok := check["id"].(string); ok {
+				if !matchedCheckIDs[checkID] {
+					availableChecks = append(availableChecks, check)
+				}
+			}
+		}
+
+		bestMatch := s.findBestCheckMatchForBankTxn(txn, availableChecks)
+		if bestMatch != nil && bestMatch.Confidence > 0.5 {
+			// Mark this check as matched
+			if checkID, ok := bestMatch.MatchedCheck["id"]; ok {
+				matchedCheckIDs[fmt.Sprintf("%v", checkID)] = true
+			}
+
+			// Update the transaction with match info
+			if checkID, ok := bestMatch.MatchedCheck["id"]; ok {
+				txn.MatchedCheckID = fmt.Sprintf("%v", checkID)
+			}
+			if rowIndex, ok := bestMatch.MatchedCheck["_rowIndex"]; ok {
+				if idx, ok := rowIndex.(float64); ok {
+					txn.MatchedDBFRowIndex = int(idx)
+				}
+			}
+			txn.MatchConfidence = bestMatch.Confidence
+			txn.MatchType = bestMatch.MatchType
+			txn.IsMatched = true
+
+			matches = append(matches, *bestMatch)
+		}
+	}
+
+	return matches
+}
+
+// findBestCheckMatchForBankTxn finds the best matching check for a bank transaction
+func (s *Service) findBestCheckMatchForBankTxn(txn *BankTransaction, existingChecks []map[string]interface{}) *MatchResult {
+	var bestMatch *MatchResult
+	var highestScore float64 = 0
+
+	for _, check := range existingChecks {
+		score := s.calculateBankTxnMatchScore(txn, check)
+		if score > highestScore {
+			highestScore = score
+			bestMatch = &MatchResult{
+				BankTransaction: *txn,
+				MatchedCheck:    check,
+				Confidence:      score,
+				MatchType:       s.determineBankTxnMatchType(score, txn, check),
+			}
+		}
+	}
+
+	return bestMatch
+}
+
+// calculateBankTxnMatchScore calculates the match score between a bank transaction and a check
+func (s *Service) calculateBankTxnMatchScore(txn *BankTransaction, check map[string]interface{}) float64 {
+	var score float64 = 0
+	var totalWeight float64 = 0
+
+	// Amount matching (weight: 40%)
+	amountWeight := 0.4
+	totalWeight += amountWeight
+	
+	checkAmount := s.parseAmount(check["amount"])
+	txnAmount := math.Abs(txn.Amount)
+	
+	if math.Abs(checkAmount-txnAmount) < 0.01 {
+		score += amountWeight
+	} else if math.Abs(checkAmount-txnAmount) < 1.00 {
+		score += amountWeight * 0.5
+	}
+
+	// Date proximity matching (weight: 40%)
+	dateWeight := 0.4
+	totalWeight += dateWeight
+	
+	if checkDateStr, ok := check["date"].(string); ok {
+		checkDate, err1 := s.parseDate(checkDateStr)
+		txnDate, err2 := s.parseDate(txn.TransactionDate)
+		
+		if err1 == nil && err2 == nil {
+			daysDiff := math.Abs(checkDate.Sub(txnDate).Hours() / 24)
+			
+			if daysDiff == 0 {
+				score += dateWeight
+			} else if daysDiff <= 3 {
+				score += dateWeight * 0.8
+			} else if daysDiff <= 7 {
+				score += dateWeight * 0.6
+			} else if daysDiff <= 14 {
+				score += dateWeight * 0.4
+			} else if daysDiff <= 30 {
+				score += dateWeight * 0.2
+			}
+		}
+	}
+
+	// Check number matching (weight: 20% if available)
+	if txn.CheckNumber != "" {
+		checkNumWeight := 0.2
+		totalWeight += checkNumWeight
+		
+		if checkNum, ok := check["checkNumber"].(string); ok && checkNum == txn.CheckNumber {
+			score += checkNumWeight
+		}
+	}
+
+	return score / totalWeight
+}
+
+// determineBankTxnMatchType determines the type of match based on score and attributes
+func (s *Service) determineBankTxnMatchType(score float64, txn *BankTransaction, check map[string]interface{}) string {
+	if score >= 0.95 {
+		return "exact"
+	}
+	
+	if score >= 0.8 {
+		// Check if it's exact amount but different date
+		checkAmount := s.parseAmount(check["amount"])
+		txnAmount := math.Abs(txn.Amount)
+		
+		if math.Abs(checkAmount-txnAmount) < 0.01 {
+			return "exact_amount"
+		}
+		return "high_confidence"
+	}
+	
+	if score >= 0.6 {
+		return "probable"
+	}
+	
+	if score >= 0.5 {
+		return "possible"
+	}
+	
+	return "fuzzy"
+}
+
+// Helper method to parse date from various formats
+func (s *Service) parseDate(value interface{}) (time.Time, error) {
+	switch v := value.(type) {
+	case string:
+		// Try various date formats
+		formats := []string{
+			"2006-01-02",
+			"01/02/2006",
+			"01/02/06",
+			"2006-01-02 15:04:05",
+		}
+		
+		for _, format := range formats {
+			if t, err := time.Parse(format, v); err == nil {
+				return t, nil
+			}
+		}
+		return time.Time{}, fmt.Errorf("unable to parse date: %s", v)
+	case time.Time:
+		return v, nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported date type: %T", value)
+	}
+}
+
+// Helper method to parse amount from various formats
+func (s *Service) parseAmount(value interface{}) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case string:
+		// Remove currency symbols and parse
+		cleaned := strings.ReplaceAll(v, "$", "")
+		cleaned = strings.ReplaceAll(cleaned, ",", "")
+		if val, err := strconv.ParseFloat(cleaned, 64); err == nil {
+			return val
+		}
+	}
+	return 0
 }

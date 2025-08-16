@@ -3,10 +3,15 @@ package reports
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/Valentin-Kaiser/go-dbase/dbase"
 	"github.com/pivoten/financialsx/desktop/internal/company"
+	"github.com/pivoten/financialsx/desktop/internal/debug"
 	"github.com/pivoten/financialsx/desktop/internal/logger"
 	"github.com/pivoten/financialsx/desktop/internal/pdf"
 )
@@ -231,4 +236,267 @@ func (s *Service) convertDBFToStatementData(dbfData map[string]interface{}) map[
 	statementData["recordCount"] = len(statements)
 	
 	return statementData
+}
+
+// CheckOwnerStatementFiles checks if owner statement files exist for a company
+func (s *Service) CheckOwnerStatementFiles(companyName string) map[string]interface{} {
+	// Log the function call
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Called for company: %s", companyName))
+	debug.SimpleLog(fmt.Sprintf("CheckOwnerStatementFiles: company=%s, platform=%s", companyName, runtime.GOOS))
+
+	result := map[string]interface{}{
+		"hasFiles": false,
+		"files":    []string{},
+		"error":    "",
+	}
+
+	// Build the path to the ownerstatements directory
+	var ownerStatementsPath string
+
+	// Use the same logic as ReadDBFFile to resolve the company path
+	if filepath.IsAbs(companyName) {
+		ownerStatementsPath = filepath.Join(companyName, "ownerstatements")
+	} else {
+		// For relative paths, we need to resolve relative to the working directory
+		workingDir, _ := os.Getwd()
+		ownerStatementsPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements")
+	}
+
+	logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Checking directory: %s", ownerStatementsPath))
+
+	// Check if the ownerstatements directory exists
+	dirInfo, err := os.Stat(ownerStatementsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory does not exist")
+			result["error"] = "No Owner Distribution Files Found"
+			return result
+		}
+		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error checking directory: %v", err))
+		result["error"] = fmt.Sprintf("Error accessing directory: %v", err)
+		return result
+	}
+
+	if !dirInfo.IsDir() {
+		logger.WriteError("CheckOwnerStatementFiles", "ownerstatements exists but is not a directory")
+		result["error"] = "ownerstatements is not a directory"
+		return result
+	}
+
+	// Directory exists, now scan for DBF files
+	logger.WriteInfo("CheckOwnerStatementFiles", "ownerstatements directory exists, scanning for DBF files")
+
+	files, err := os.ReadDir(ownerStatementsPath)
+	if err != nil {
+		logger.WriteError("CheckOwnerStatementFiles", fmt.Sprintf("Error reading directory: %v", err))
+		result["error"] = fmt.Sprintf("Error reading directory: %v", err)
+		return result
+	}
+
+	var dbfFiles []string
+	for _, file := range files {
+		if !file.IsDir() {
+			fileName := file.Name()
+			if strings.HasSuffix(strings.ToLower(fileName), ".dbf") {
+				logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found DBF file: %s", fileName))
+				dbfFiles = append(dbfFiles, fileName)
+			}
+		}
+	}
+
+	if len(dbfFiles) > 0 {
+		result["hasFiles"] = true
+		result["files"] = dbfFiles
+		logger.WriteInfo("CheckOwnerStatementFiles", fmt.Sprintf("Found %d DBF files in ownerstatements", len(dbfFiles)))
+	} else {
+		result["error"] = "No Owner Distribution Files Found"
+		logger.WriteInfo("CheckOwnerStatementFiles", "No DBF files found in ownerstatements directory")
+	}
+
+	return result
+}
+
+// GetOwnerStatementsList returns a list of available owner statement files
+func (s *Service) GetOwnerStatementsList(companyName string) ([]map[string]interface{}, error) {
+	// Check if files exist first
+	checkResult := s.CheckOwnerStatementFiles(companyName)
+	if !checkResult["hasFiles"].(bool) {
+		return nil, fmt.Errorf("no owner statement files found")
+	}
+
+	files := checkResult["files"].([]string)
+	statements := make([]map[string]interface{}, 0)
+
+	for _, fileName := range files {
+		// For each file, get basic info
+		statement := map[string]interface{}{
+			"fileName": fileName,
+			"name":     strings.TrimSuffix(fileName, filepath.Ext(fileName)),
+		}
+		statements = append(statements, statement)
+	}
+
+	return statements, nil
+}
+
+// GetOwnersList retrieves the list of owners from an owner statement DBF file
+func (s *Service) GetOwnersList(companyName string, fileName string) ([]map[string]interface{}, error) {
+	// Build the full path to the DBF file
+	var dbfPath string
+	if filepath.IsAbs(companyName) {
+		dbfPath = filepath.Join(companyName, "ownerstatements", fileName)
+	} else {
+		workingDir, _ := os.Getwd()
+		dbfPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements", fileName)
+	}
+
+	// Open the DBF file
+	table, err := dbase.OpenTable(&dbase.Config{
+		Filename:   dbfPath,
+		ReadOnly:   true,
+		TrimSpaces: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open DBF file: %w", err)
+	}
+	defer table.Close()
+
+	// Get field names
+	columns := table.Columns()
+	var ownerFieldIndex int = -1
+	var ownerKeyIndex int = -1
+	var ownerFieldName string
+	var keyFieldName string
+	
+	for i, column := range columns {
+		fieldName := strings.ToUpper(column.Name())
+		if strings.Contains(fieldName, "OWNER") && !strings.Contains(fieldName, "KEY") {
+			ownerFieldIndex = i
+			ownerFieldName = column.Name()
+		}
+		if strings.Contains(fieldName, "KEY") || strings.Contains(fieldName, "ID") {
+			ownerKeyIndex = i
+			keyFieldName = column.Name()
+		}
+	}
+
+	if ownerFieldIndex == -1 {
+		return nil, fmt.Errorf("could not find owner name field in DBF")
+	}
+
+	// Read unique owners
+	ownersMap := make(map[string]map[string]interface{})
+	
+	for !table.EOF() {
+		record, err := table.Next()
+		if err != nil {
+			break
+		}
+
+		if record.Deleted {
+			continue
+		}
+
+		ownerName := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldName)))
+		if ownerName == "" {
+			continue
+		}
+
+		// Use owner key if available, otherwise use name as key
+		key := ownerName
+		if ownerKeyIndex >= 0 && keyFieldName != "" {
+			keyValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(keyFieldName)))
+			if keyValue != "" {
+				key = keyValue
+			}
+		}
+
+		if _, exists := ownersMap[key]; !exists {
+			ownersMap[key] = map[string]interface{}{
+				"key":  key,
+				"name": ownerName,
+			}
+		}
+	}
+
+	// Convert map to slice
+	owners := make([]map[string]interface{}, 0, len(ownersMap))
+	for _, owner := range ownersMap {
+		owners = append(owners, owner)
+	}
+
+	return owners, nil
+}
+
+// GetOwnerStatementData retrieves owner statement data for a specific owner
+func (s *Service) GetOwnerStatementData(companyName string, fileName string, ownerKey string) (map[string]interface{}, error) {
+	// Build the full path to the DBF file
+	var dbfPath string
+	if filepath.IsAbs(companyName) {
+		dbfPath = filepath.Join(companyName, "ownerstatements", fileName)
+	} else {
+		workingDir, _ := os.Getwd()
+		dbfPath = filepath.Join(workingDir, "datafiles", companyName, "ownerstatements", fileName)
+	}
+
+	// Open the DBF file
+	table, err := dbase.OpenTable(&dbase.Config{
+		Filename:   dbfPath,
+		ReadOnly:   true,
+		TrimSpaces: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open DBF file: %w", err)
+	}
+	defer table.Close()
+
+	// Get field names
+	columns := table.Columns()
+	fieldNames := make([]string, len(columns))
+	for i, column := range columns {
+		fieldNames[i] = column.Name()
+	}
+
+	// Find owner field
+	var ownerFieldName string
+	for _, name := range fieldNames {
+		upperName := strings.ToUpper(name)
+		if strings.Contains(upperName, "OWNER") || strings.Contains(upperName, "KEY") {
+			ownerFieldName = name
+			break
+		}
+	}
+
+	// Collect records for this owner
+	var records []map[string]interface{}
+	for !table.EOF() {
+		record, err := table.Next()
+		if err != nil {
+			break
+		}
+
+		if record.Deleted {
+			continue
+		}
+
+		// Check if this record belongs to the requested owner
+		ownerValue := strings.TrimSpace(fmt.Sprintf("%v", record.Field(ownerFieldName)))
+		if ownerValue != ownerKey {
+			continue
+		}
+
+		// Build record map
+		recordMap := make(map[string]interface{})
+		for _, fieldName := range fieldNames {
+			recordMap[fieldName] = record.Field(fieldName)
+		}
+		records = append(records, recordMap)
+	}
+
+	return map[string]interface{}{
+		"owner":   ownerKey,
+		"records": records,
+		"count":   len(records),
+		"columns": fieldNames,
+	}, nil
 }

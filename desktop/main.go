@@ -2000,8 +2000,6 @@ func (a *App) GetBalanceHistory(companyName, accountNumber string, limit int) ([
 
 // GetLastReconciliation returns the last reconciliation record for a specific bank account
 func (a *App) GetLastReconciliation(companyName, accountNumber string) (map[string]interface{}, error) {
-	fmt.Printf("GetLastReconciliation called for company: %s, account: %s\n", companyName, accountNumber)
-
 	// Check permissions
 	if a.currentUser == nil {
 		return nil, fmt.Errorf("user not authenticated")
@@ -2011,127 +2009,12 @@ func (a *App) GetLastReconciliation(companyName, accountNumber string) (map[stri
 		return nil, fmt.Errorf("insufficient permissions")
 	}
 
-	// Read CHECKREC.dbf
-	checkrecData, err := company.ReadDBFFile(companyName, "CHECKREC.dbf", "", 0, 0, "", "")
-	if err != nil {
-		fmt.Printf("GetLastReconciliation: Failed to read CHECKREC.dbf: %v\n", err)
-		return map[string]interface{}{
-			"status":  "no_data",
-			"message": "No reconciliation history found",
-		}, nil
+	if a.reconciliationService == nil {
+		return nil, fmt.Errorf("reconciliation service not initialized")
 	}
 
-	// Get column indices
-	columns, ok := checkrecData["columns"].([]string)
-	if !ok {
-		return nil, fmt.Errorf("invalid CHECKREC.dbf structure")
-	}
-
-	// Find relevant columns
-	var accountIdx, dateIdx, endBalIdx, begBalIdx, clearedCountIdx, clearedAmtIdx int = -1, -1, -1, -1, -1, -1
-	for i, col := range columns {
-		colUpper := strings.ToUpper(col)
-		switch colUpper {
-		case "CACCTNO":
-			accountIdx = i
-		case "DRECDATE":
-			dateIdx = i
-		case "NENDBAL":
-			endBalIdx = i
-		case "NBEGBAL":
-			begBalIdx = i
-		case "NCLEARED":
-			clearedCountIdx = i
-		case "NCLEAREDAMT":
-			clearedAmtIdx = i
-		}
-	}
-
-	if accountIdx == -1 || dateIdx == -1 || endBalIdx == -1 {
-		return nil, fmt.Errorf("required columns not found in CHECKREC.dbf")
-	}
-
-	// Process rows to find records for this account
-	rows, _ := checkrecData["rows"].([][]interface{})
-	var accountRecords []map[string]interface{}
-
-	for _, row := range rows {
-		if len(row) <= accountIdx {
-			continue
-		}
-
-		rowAccount := strings.TrimSpace(fmt.Sprintf("%v", row[accountIdx]))
-		if rowAccount != accountNumber {
-			continue
-		}
-
-		record := map[string]interface{}{
-			"account_number": rowAccount,
-		}
-
-		// Get date
-		if dateIdx != -1 && len(row) > dateIdx && row[dateIdx] != nil {
-			if t, ok := row[dateIdx].(time.Time); ok {
-				record["date"] = t
-				record["date_string"] = t.Format("2006-01-02")
-			} else {
-				dateStr := fmt.Sprintf("%v", row[dateIdx])
-				record["date_string"] = dateStr
-				// Try to parse the date
-				for _, format := range []string{"2006-01-02", "01/02/2006", "1/2/2006"} {
-					if parsedDate, err := time.Parse(format, dateStr); err == nil {
-						record["date"] = parsedDate
-						record["date_string"] = parsedDate.Format("2006-01-02")
-						break
-					}
-				}
-			}
-		}
-
-		// Get balances
-		if endBalIdx != -1 && len(row) > endBalIdx {
-			record["ending_balance"] = common.ParseFloat(row[endBalIdx])
-		}
-		if begBalIdx != -1 && len(row) > begBalIdx {
-			record["beginning_balance"] = common.ParseFloat(row[begBalIdx])
-		}
-		if clearedCountIdx != -1 && len(row) > clearedCountIdx {
-			record["cleared_count"] = int(common.ParseFloat(row[clearedCountIdx]))
-		}
-		if clearedAmtIdx != -1 && len(row) > clearedAmtIdx {
-			record["cleared_amount"] = common.ParseFloat(row[clearedAmtIdx])
-		}
-
-		// Only add if we have a valid date
-		if _, hasDate := record["date"]; hasDate {
-			accountRecords = append(accountRecords, record)
-		}
-	}
-
-	if len(accountRecords) == 0 {
-		return map[string]interface{}{
-			"status":  "no_data",
-			"message": "No reconciliation history found for this account",
-		}, nil
-	}
-
-	// Sort by date (most recent first)
-	for i := 0; i < len(accountRecords)-1; i++ {
-		for j := i + 1; j < len(accountRecords); j++ {
-			date1, _ := accountRecords[i]["date"].(time.Time)
-			date2, _ := accountRecords[j]["date"].(time.Time)
-			if date2.After(date1) {
-				accountRecords[i], accountRecords[j] = accountRecords[j], accountRecords[i]
-			}
-		}
-	}
-
-	// Return the most recent reconciliation
-	lastRec := accountRecords[0]
-	lastRec["status"] = "success"
-	lastRec["total_records"] = len(accountRecords)
-
-	return lastRec, nil
+	// Delegate to service
+	return a.reconciliationService.GetLastReconciliationFromDBF(companyName, accountNumber)
 }
 
 // SaveReconciliationDraft saves or updates a draft reconciliation in SQLite
